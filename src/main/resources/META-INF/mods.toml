@@ -1,0 +1,29 @@
+modLoader="javafml"
+loaderVersion="[47,)"
+license="MIT"
+issueTrackerURL="https://github.com/kawaiicakes/VelocityBasedDamage/issues"
+
+[[mods]]
+modId="velocitydamage"
+version='1.20.1-1.0.0-beta'
+displayName="Velocity-Based Damage Deluxe"
+displayURL="https://github.com/kawaiicakes/VelocityBasedDamage/"
+logoFile="velocitydamage.png"
+credits="Thanks to [pitbox46](https://legacy.curseforge.com/members/pitbox46/projects) for the concept."
+authors="kawaiicakes,cama"
+description='''
+Devastating cavalry charges, better projectiles & bones crunching against walls.
+'''
+
+[[dependencies.velocitydamage]]
+    modId="forge"
+    mandatory=true
+    versionRange="[47,)"
+    ordering="NONE"
+    side="BOTH"
+[[dependencies.velocitydamage]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="[1.20,1.20.1]"
+    ordering="NONE"
+    side="BOTH"

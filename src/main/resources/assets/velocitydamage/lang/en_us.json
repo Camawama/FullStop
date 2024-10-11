@@ -1,0 +1,15 @@
+{
+  "commands.velocitydamage.success": "Successfully set %1$s to %2$s.",
+  "commands.velocitydamage.default": "Successfully returned value to default.",
+  "commands.velocitydamage.return": "Value %1$s is currently %2$s.",
+
+  "config.velocitydamage.velocityIncrement": "\"Increases\" the necessary velocity to do an arbitrary damage by a factor of this.",
+  "config.velocitydamage.exponentiationConstant": "Changes the power of the damage calculation function.",
+  "config.velocitydamage.minDamagePercent": "The minimum amount of damage, as a percentage of the original, that a debuffed attack may do.",
+  "config.velocitydamage.maxDamagePercent": "The maximum bonus amount of damage, as a percentage of the original, that a buffed attack may do.",
+  "config.velocitydamage.velocityThreshold": "The velocity over which entities slamming into walls will take damage. Set to 0 to disable this.",
+
+  "config.velocitydamage.projectileMultiplier": "Projectile speeds (IN CALCULATIONS) are subtracted by this percentage of the original value. Set to 0 to disable projectile velocity buffs.",
+  "config.velocitydamage.projectilesHaveMomentum": "If true, projectiles have the velocity of the entity who fired it added.",
+  "config.velocitydamage.wildMode": "Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)"
+}
