@@ -1,18 +1,18 @@
 modLoader="javafml"
 loaderVersion="[47,)"
-license="MIT"
-issueTrackerURL="https://github.com/kawaiicakes/VelocityBasedDamage/issues"
+license="GPLv3"
+issueTrackerURL="https://github.com/Camawama/FullStop/issues"
 
 [[mods]]
 modId="velocitydamage"
 version='1.20.1-1.0.0-beta'
-displayName="Velocity-Based Damage Deluxe"
-displayURL="https://github.com/kawaiicakes/VelocityBasedDamage/"
-logoFile="velocitydamage.png"
-credits="Thanks to [pitbox46](https://legacy.curseforge.com/members/pitbox46/projects) for the concept."
-authors="kawaiicakes,cama"
+displayName="Full Stop!"
+displayURL="https://github.com/Camawama/FullStop"
+logoFile="fullstop.png"
+credits="Thanks to kawaiicakes for creating the original mod, Velocity Based Damage Deluxe"
+authors="cama"
 description='''
-Devastating cavalry charges, better projectiles & bones crunching against walls.
+Speed thrills, but it hurts. Expect the unexpected!
 '''
 
 [[dependencies.velocitydamage]]

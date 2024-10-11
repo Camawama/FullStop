@@ -7,7 +7,7 @@ import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
 
-import static net.camacraft.velocitydamage.capabilities.DeltaVCapability.Provider.DELTAV_CAP;
+import static net.camacraft.velocitydamage.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 public class PlayerDeltaPacket {
     private final Vec3 playerDelta;

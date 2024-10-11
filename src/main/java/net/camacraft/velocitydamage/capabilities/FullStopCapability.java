@@ -16,19 +16,29 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import static net.camacraft.velocitydamage.VelocityDamage.MOD_ID;
-import static net.camacraft.velocitydamage.VelocityDamage.entityVelocity;
 
-public class DeltaVCapability {
+public class FullStopCapability {
 
     public static final ResourceLocation DELTA_VELOCITY = new ResourceLocation(MOD_ID, "delta_velocity");
+    @NotNull
+    private Vec3 olderVelocity = Vec3.ZERO;
     @NotNull
     private Vec3 oldVelocity = Vec3.ZERO;
     @NotNull
     private Vec3 currentVelocity = Vec3.ZERO;
+    private int lastSeenRiptiding = Integer.MAX_VALUE;
     private double deltaSpeed = 0;
     private double runningAverageDelta = 0;
 
-    public double getDeltaSpeed(){
+    public boolean recentlyRiptiding() {
+        return lastSeenRiptiding < 10;
+    }
+
+    public void seenRiptiding() {
+        lastSeenRiptiding = 0;
+    }
+
+    public double getDeltaSpeed() {
       return deltaSpeed;
     }
 
@@ -49,7 +59,7 @@ public class DeltaVCapability {
         }
     }
 
-    public void tickVelocity(Entity entity) {
+    public void tick(Entity entity) {
         if (!(entity instanceof Player)) {
             currentVelocity = entity.getDeltaMovement();
         }
@@ -64,7 +74,11 @@ public class DeltaVCapability {
             deltaSpeed = currentVelocity.subtract(oldVelocity).length();
         }
         runningAverageDelta = (runningAverageDelta * 19 + deltaSpeed) / 20;
+        olderVelocity = oldVelocity;
         oldVelocity = currentVelocity;
+        if (lastSeenRiptiding < 100) {
+            lastSeenRiptiding ++;
+        }
     }
 
     @SubscribeEvent
@@ -74,15 +88,20 @@ public class DeltaVCapability {
         event.addCapability(DELTA_VELOCITY, new Provider());
     }
 
+    public boolean isMostlyDownward() {
+        Vec3 v = olderVelocity;
+        return (- v.y) > Math.sqrt(v.x * v.x + v.z * v.z);
+    }
+
     public static class Provider implements ICapabilityProvider {
-        public static Capability<DeltaVCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
+        public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
 
-        public DeltaVCapability capability = null;
-        private final LazyOptional<DeltaVCapability> lazyHandler = LazyOptional.of(this::createCapability);
+        public FullStopCapability capability = null;
+        private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability);
 
-        public DeltaVCapability createCapability() {
+        public FullStopCapability createCapability() {
             if (this.capability == null) {
-                this.capability = new DeltaVCapability();
+                this.capability = new FullStopCapability();
             }
             return this.capability;
         }

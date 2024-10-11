@@ -3,7 +3,6 @@ package net.camacraft.velocitydamage.handler;
 import net.camacraft.velocitydamage.VelocityDamage;
 import net.camacraft.velocitydamage.network.PlayerDeltaPacket;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;
 import net.minecraftforge.network.simple.SimpleChannel;

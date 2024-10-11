@@ -1,21 +1,24 @@
 package net.camacraft.velocitydamage;
 
-import net.camacraft.velocitydamage.capabilities.DeltaVCapability;
+import net.camacraft.velocitydamage.capabilities.FullStopCapability;
 import net.camacraft.velocitydamage.capabilities.PositionCapability;
 import net.camacraft.velocitydamage.handler.PacketHandler;
 import net.camacraft.velocitydamage.network.PlayerDeltaPacket;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.util.Mth;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ambient.Bat;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TridentItem;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.TickEvent;
@@ -30,10 +33,9 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 
 import static net.camacraft.velocitydamage.capabilities.PositionCapability.Provider.POSITION_CAP;
-import static net.camacraft.velocitydamage.capabilities.DeltaVCapability.Provider.DELTAV_CAP;
+import static net.camacraft.velocitydamage.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 import static net.camacraft.velocitydamage.VelocityDamageConfig.SERVER;
 import static net.camacraft.velocitydamage.VelocityDamageConfig.SERVER_SPEC;
-import static net.minecraft.sounds.SoundEvents.PLAYER_ATTACK_CRIT;
 import static net.minecraftforge.event.TickEvent.Phase.START;
 
 @Mod(VelocityDamage.MOD_ID)
@@ -49,9 +51,19 @@ public class VelocityDamage
         MinecraftForge.EVENT_BUS.register(VelocityDamage.class);
         MinecraftForge.EVENT_BUS.register(PositionCapability.class);
         MinecraftForge.EVENT_BUS.register(VelocityDamageConfig.class);
-        MinecraftForge.EVENT_BUS.register(DeltaVCapability.class);
+        MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
+    }
+
+    public static boolean isRiptiding(LivingEntity entity) {
+        if (entity instanceof Player player) {
+            if (player.isUsingItem() && player.getUseItem().getItem() instanceof TridentItem) {
+                int enchantLevel = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.RIPTIDE, player.getUseItem());
+                return enchantLevel > 0;
+            }
+        }
+        return false;
     }
 
     @SubscribeEvent
@@ -66,21 +78,38 @@ public class VelocityDamage
 
         LivingEntity entity = event.getEntity();
         if (entity.isDeadOrDying() || entity.isRemoved()) return;
+        if (entity instanceof Player player) if (player.isCreative()) return;
         if (entity.level().isClientSide()) return;
 
-        DeltaVCapability deltav = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
-        deltav.tickVelocity(entity);
+        FullStopCapability deltav = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
+        deltav.tick(entity);
+
         double delta = deltav.getDeltaSpeed();
         double damage = Math.max(delta - 12.77, 0);
-        if (!entity.isFallFlying() && damage > 0) {
-            entity.hurt(entity.damageSources().flyIntoWall(), (float) damage / 2);
+
+        if (isRiptiding(entity)) {
+            deltav.seenRiptiding();
         }
-        if (entity.flyDist > 0 && deltav.getRunningAverageDelta() > 2) {
+
+        if (!entity.isFallFlying() && !deltav.recentlyRiptiding() && damage > 0) {
+            DamageSources sources = entity.damageSources();
+            entity.hurt(
+                    deltav.isMostlyDownward() ? sources.fall() : sources.flyIntoWall(),
+                    (float) (damage * 1.07)
+            );
+
+            entity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN, (int) damage * 5, (int) damage / 2, false, false));
+            entity.playSound(SoundEvents.PLAYER_ATTACK_CRIT, 3.2F, 0.7F);
+        }
+        if (deltav.getRunningAverageDelta() > 2) {
             entity.addEffect(new MobEffectInstance(MobEffects.BLINDNESS,30, 0, false, false));
         }
-        if (entity instanceof Player && delta > 1.0)
-            for (ServerPlayer player : entity.getServer().getPlayerList().getPlayers())
-               player.sendSystemMessage(net.minecraft.network.chat.Component.literal("delta: " + delta));
+        if (deltav.getRunningAverageDelta() > 1.75) {
+            entity.addEffect(new MobEffectInstance(MobEffects.CONFUSION,90, 0, false, false));
+        }
+       // if (entity instanceof Player && delta > 1.0)
+       //     for (ServerPlayer player : entity.getServer().getPlayerList().getPlayers())
+       //        player.sendSystemMessage(net.minecraft.network.chat.Component.literal("delta: " + delta));
 
         //if (entity instanceof Bat || entity instanceof Player) return;
 
