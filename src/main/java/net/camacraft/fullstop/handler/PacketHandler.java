@@ -1,7 +1,7 @@
-package net.camacraft.velocitydamage.handler;
+package net.camacraft.fullstop.handler;
 
-import net.camacraft.velocitydamage.VelocityDamage;
-import net.camacraft.velocitydamage.network.PlayerDeltaPacket;
+import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.network.PlayerDeltaPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;
@@ -11,7 +11,7 @@ public class PacketHandler {
     private static final String PROTOCOL_VERSION = "1";
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
-                    new ResourceLocation(VelocityDamage.MOD_ID, "main"))
+                    new ResourceLocation(FullStop.MOD_ID, "main"))
             .serverAcceptedVersions(PROTOCOL_VERSION::equals)
             .clientAcceptedVersions(PROTOCOL_VERSION::equals)
             .networkProtocolVersion(() -> PROTOCOL_VERSION)

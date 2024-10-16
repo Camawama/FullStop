@@ -1,4 +1,4 @@
-package net.camacraft.velocitydamage.capabilities;
+package net.camacraft.fullstop.capabilities;
 
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
@@ -15,7 +15,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import static net.camacraft.velocitydamage.VelocityDamage.MOD_ID;
+import static net.camacraft.fullstop.FullStop.MOD_ID;
 
 public class PositionCapability {
 

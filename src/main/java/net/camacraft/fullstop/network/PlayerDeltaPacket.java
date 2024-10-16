@@ -1,4 +1,4 @@
-package net.camacraft.velocitydamage.network;
+package net.camacraft.fullstop.network;
 
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
@@ -7,7 +7,7 @@ import net.minecraftforge.network.NetworkEvent;
 
 import java.util.function.Supplier;
 
-import static net.camacraft.velocitydamage.capabilities.FullStopCapability.Provider.DELTAV_CAP;
+import static net.camacraft.fullstop.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 public class PlayerDeltaPacket {
     private final Vec3 playerDelta;

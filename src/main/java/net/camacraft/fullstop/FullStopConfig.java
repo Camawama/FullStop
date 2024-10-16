@@ -1,9 +1,9 @@
-package net.camacraft.velocitydamage;
+package net.camacraft.fullstop;
 
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
-public class VelocityDamageConfig {
+public class FullStopConfig {
     public static final float DEFAULT_SQUASH = 6.90F;
     public static final float DEFAULT_EXPONENTIATION = 1.40F;
     public static final float DEFAULT_MINIMUM_DMG = 0.30F;

@@ -1,7 +1,6 @@
-package net.camacraft.velocitydamage.mixin;
+package net.camacraft.fullstop.mixin;
 
-import net.camacraft.velocitydamage.VelocityDamage;
-import net.camacraft.velocitydamage.capabilities.FullStopCapability;
+import net.camacraft.fullstop.capabilities.FullStopCapability;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
@@ -9,19 +8,21 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
-import static net.camacraft.velocitydamage.capabilities.FullStopCapability.Provider.DELTAV_CAP;
+import static net.camacraft.fullstop.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 @Mixin(LivingEntity.class)
 public class WaterSlowdownMixin {
 
+    // Adds realistic water drag (the faster you move in water the more it slows you down)
     @Inject(method = "travel", at = @At("HEAD"))
     private void modifyWaterTravel(Vec3 travelVector, CallbackInfo ci) {
         LivingEntity entity = (LivingEntity) (Object) this;
         if (entity.isDeadOrDying() || entity.isRemoved()) return;
-        FullStopCapability riptiding = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
+        FullStopCapability dragOverride = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
 
         // Check if the entity is in water
-        if (entity.isInWater() && !riptiding.recentlyRiptiding()) {
+        if (entity.isInWater() && !dragOverride.recentlyRiptiding(entity)
+                && !dragOverride.hasDolphinsGrace(entity) && !dragOverride.hasDepthStrider(entity)) {
             Vec3 v = entity.getDeltaMovement();
 
             double c = 0.2;

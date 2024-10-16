@@ -4,8 +4,8 @@ license="GPLv3"
 issueTrackerURL="https://github.com/Camawama/FullStop/issues"
 
 [[mods]]
-modId="velocitydamage"
-version='1.20.1-1.0.0-beta'
+modId="fullstop"
+version='1.20.1-1.0.1-alpha'
 displayName="Full Stop!"
 displayURL="https://github.com/Camawama/FullStop"
 logoFile="fullstop.png"
@@ -15,13 +15,13 @@ description='''
 Speed thrills, but it hurts. Expect the unexpected!
 '''
 
-[[dependencies.velocitydamage]]
+[[dependencies.fullstop]]
     modId="forge"
     mandatory=true
     versionRange="[47,)"
     ordering="NONE"
     side="BOTH"
-[[dependencies.velocitydamage]]
+[[dependencies.fullstop]]
     modId="minecraft"
     mandatory=true
     versionRange="[1.20,1.20.1]"
