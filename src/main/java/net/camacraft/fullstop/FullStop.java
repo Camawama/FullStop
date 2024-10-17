@@ -18,6 +18,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SlimeBlock;
+import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
@@ -87,19 +90,30 @@ public class FullStop
 
         LivingEntity entity = event.getEntity();
         if (entity.isDeadOrDying() || entity.isRemoved()) return;
-        if (entity instanceof Player player && (player.isCreative() || player.isSpectator())) return;
         if (entity.level().isClientSide()) return;
 
         FullStopCapability fullstopcap = grabCapability(entity);
         fullstopcap.tick(entity);
 
-        applyDamage(entity, fullstopcap);
-        applyGForceEffects(fullstopcap, entity);
+        if (entity instanceof Player player && (player.isCreative() || player.isSpectator())) return;
 
-        //logToChat(entity, String.valueOf(fullstopcap.recentlyRiptiding(entity)));
+        applyForceEffects(fullstopcap, entity);
+
+        if (entity.isFallFlying()) {
+            return;
+        }
+
+        double damage = applyDamage(entity, fullstopcap);
+
+        if (damage > 0) {
+            playSound(entity, damage);
+            applyDamageEffects(entity, damage);
+        }
+
+        //logToChat(entity, entity.isAutoSpinAttack());
     }
 
-    private static void applyGForceEffects(FullStopCapability fullstop, LivingEntity entity) {
+    private static void applyForceEffects(FullStopCapability fullstop, LivingEntity entity) {
         if (fullstop.getRunningAverageDelta() > 5.0) {
             entity.addEffect(new MobEffectInstance(
                     MobEffects.BLINDNESS,30, 0, false, false));
@@ -113,8 +127,10 @@ public class FullStop
 
     private static void playSound(LivingEntity entity, double damage) {
         entity.level().playSound(null, entity.blockPosition(),
-                SoundEvents.PLAYER_BIG_FALL, SoundSource.PLAYERS, 0.6F, 0.8F);
+                SoundEvents.PLAYER_BIG_FALL, SoundSource.PLAYERS, 0.6F * (float) damage, 0.8F);
+    }
 
+    private static void applyDamageEffects(LivingEntity entity, double damage) {
         entity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
                 (int) damage * 5, (int) damage / 2, false, false));
 
@@ -122,30 +138,12 @@ public class FullStop
                 (int) damage * 5, 200, false, false));
     }
 
-//    public static boolean collidingKinetically(LivingEntity entity) {
-//        FullStopCapability fullstopcap = grabCapability(entity);
-//        AABB boundingBox = entity.getBoundingBox();
-//        Vec3 direction = fullstopcap.getPreviousVelocity().normalize();
-//        Vec3 castForward = entity.position().add(direction.scale(0.875));
-//        AtomicBoolean colliding = new AtomicBoolean(false);
-//
-//        boundingBox = boundingBox.move(boundingBox.getCenter().add(castForward));
-//        entity.level().getBlockStates(boundingBox).forEach(blockState -> {
-//            if (!blockState.isAir() && !blockState.liquid()) { //TODO consider adding liquid blockstate here too
-//                colliding.set(true);
-//            }
-//        });
-//
-//        // No collisions found
-//        return colliding.get();
-//    }
-
     public static boolean collidingKinetically(LivingEntity entity) {
         FullStopCapability fullstopcap = grabCapability(entity);
         AABB boundingBox = entity.getBoundingBox();
 
         // Get the normalized direction from previous velocity
-        Vec3 direction = fullstopcap.getPreviousVelocity().normalize();
+        Vec3 direction = fullstopcap.getPreviousVelocity().multiply(1, 0, 1).normalize();
 
         // If the direction is zero (not moving), return false
         if (direction.lengthSqr() == 0) {
@@ -153,15 +151,15 @@ public class FullStop
         }
 
         // Cast forward by a small distance in the direction of movement
-        Vec3 castForward = entity.position().add(direction.scale(0.875));
+        //Vec3 castForward = entity.position().add(direction.scale(0.875));
 
         // Expand the bounding box slightly in the direction we're checking for collisions
-        AABB expandedBox = boundingBox.expandTowards(direction.scale(0.5));
+        AABB expandedBox = boundingBox.expandTowards(direction.scale(0.01));
 
         // Iterate over the block states in the expanded bounding box
         AtomicBoolean colliding = new AtomicBoolean(false);
         entity.level().getBlockStates(expandedBox).forEach(blockState -> {
-            if (!blockState.isAir() && !blockState.liquid()) {
+            if (!blockState.isAir() && !blockState.liquid() && !blockState.isSlimeBlock()) {
                 colliding.set(true);  // Collision detected
             }
         });
@@ -170,22 +168,20 @@ public class FullStop
         return colliding.get();
     }
 
-    public static void logToChat(Entity entity, String message) {
-        Component chatMessage = Component.literal(message);
+    public static void logToChat(LivingEntity entity, Object message) {
+        Component chatMessage = Component.literal(String.valueOf(message));
         entity.sendSystemMessage(chatMessage);
     }
 
-
-    private static void applyDamage(LivingEntity entity, FullStopCapability fullstopcap) {
-        double delta = fullstopcap.getDeltaSpeed();
+    private static double applyDamage(LivingEntity entity, FullStopCapability fullstopcap) {
+        double delta = fullstopcap.getStoppingForce();
         double damage = Math.max(delta - 12.77, 0);
 
         if (delta > 0.5) {
             double x = 0;
         }
 
-        if (entity.isFallFlying() || entity.isSpectator() || fullstopcap.recentlyRiptiding(entity)) return;
-        if (damage <= 0) return;
+        if (damage <= 0) return 0;
 
         DamageSources sources = entity.damageSources();
         float damageAmount = (float) (damage * 1.07);
@@ -195,8 +191,7 @@ public class FullStop
         } else if(collidingKinetically(entity)) {
             entity.hurt(sources.flyIntoWall(), damageAmount);
         }
-
-        playSound(entity, damage);
+        return damage;
     }
 
     @SubscribeEvent

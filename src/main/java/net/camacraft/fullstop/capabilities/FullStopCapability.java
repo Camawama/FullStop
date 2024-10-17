@@ -7,7 +7,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.TridentItem;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
@@ -41,23 +40,28 @@ public class FullStopCapability {
     private Vec3 clientVelocity = Vec3.ZERO;
 
     //private int lastSeenRiptiding = Integer.MAX_VALUE;
-    private double deltaSpeed = 0.0;
+    private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
 
-    public boolean recentlyRiptiding(LivingEntity player) {
-        return tickRiptiding(player);
+    public static boolean recentlyRiptiding(LivingEntity entity) {
+        return entity.isAutoSpinAttack();
     }
 
-    public boolean hasDolphinsGrace(LivingEntity entity) {
-        return tickDolphinsGrace(entity);
+    public static boolean hasDolphinsGrace(LivingEntity entity) {
+        return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
     }
 
-    public boolean hasDepthStrider(LivingEntity entity) {
-        return tickDepthStrider(entity);
+    public static boolean hasDepthStrider(LivingEntity entity) {
+        if (entity instanceof Player player) {
+            ItemStack boots = player.getInventory().getArmor(3); // Index 3 corresponds to boots
+
+            return !boots.isEmpty() && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
+        }
+        return false;
     }
 
-    public double getDeltaSpeed() {
-      return deltaSpeed;
+    public double getStoppingForce() {
+      return stoppingForce;
     }
 
     public double getRunningAverageDelta() {
@@ -89,66 +93,35 @@ public class FullStopCapability {
 
     public void tick(LivingEntity entity) {
         tickVelocity(entity);
-        tickRiptiding(entity);
-        tickDolphinsGrace(entity);
-        tickDepthStrider(entity);
         tickSpeed();
 
-        runningAverageDelta = (runningAverageDelta * 19 + deltaSpeed) / 20;
-    }
-
-//    private void tickRiptiding(LivingEntity player) {
-//        if (isRiptiding(player)) {
-//            lastSeenRiptiding = 0;  // Reset when riptiding
-//        } else if (lastSeenRiptiding < 100) {
-//            lastSeenRiptiding++;  // Increment if not riptiding
-//        }
-//    }
-
-    private static boolean tickRiptiding(LivingEntity entity) {
-        if (entity.isAutoSpinAttack()) {
-            return true;
-        }
-        return false;
-//        // Check if the entity is a player and is currently using an item
-//        if (player.isUsingItem()) {
-//            // Check if the used item is a Trident and has the Riptide enchantment
-//            ItemStack usedItem = player.getUseItem();
-//            if (usedItem.getItem() instanceof TridentItem) {
-//                int enchantLevel = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.RIPTIDE, usedItem);
-//                return enchantLevel > 0;
-//            }
-//        }
-//        return false;
-    }
-
-    private static boolean tickDepthStrider(LivingEntity entity) {
-        if (entity instanceof Player player) {
-            ItemStack boots = player.getInventory().getArmor(3); // Index 3 corresponds to boots
-
-            return !boots.isEmpty() && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
-        }
-        return false;
-    }
-
-    private static boolean tickDolphinsGrace(LivingEntity entity) {
-        if (entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE)) {
-            return true;
-        }
-        return false;
+        runningAverageDelta = (runningAverageDelta * 19 + stoppingForce) / 20;
     }
 
     private void tickSpeed() {
-        boolean bX = isBounce(currentVelocity.x, oldVelocity.x),
-                bY = isBounce(currentVelocity.y, oldVelocity.y),
-                bZ = isBounce(currentVelocity.z, oldVelocity.z);
+        // Stopping force initialized to 0
+        double stoppingForceX = calculateStoppingForceComponent(currentVelocity.x, oldVelocity.x);
+        double stoppingForceY = calculateStoppingForceComponent(currentVelocity.y, oldVelocity.y);
+        double stoppingForceZ = calculateStoppingForceComponent(currentVelocity.z, oldVelocity.z);
 
-        if (bX || bY || bZ) {
-            deltaSpeed = 0.0;
+        stoppingForce = Math.sqrt(
+                stoppingForceX * stoppingForceX +
+                stoppingForceY * stoppingForceY +
+                stoppingForceZ * stoppingForceZ
+        );
+    }
+
+    // Helper method to calculate the stopping force for an individual component
+    private double calculateStoppingForceComponent(double current, double old) {
+        // If the current component is smaller in magnitude or it changed direction (sign), we calculate stopping force
+        if (Math.abs(current) < Math.abs(old) && !isBounce(current, old)) {
+            return Math.abs(old - current);  // Return the absolute difference (stopping force)
         } else {
-            deltaSpeed = currentVelocity.subtract(oldVelocity).length();
+            return 0.0;  // No stopping force if speed increased or stayed the same in this direction
         }
     }
+
+
 
     private void tickVelocity(Entity entity) {
         olderVelocity = oldVelocity;

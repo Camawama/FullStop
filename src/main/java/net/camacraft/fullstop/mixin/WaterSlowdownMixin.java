@@ -8,6 +8,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import static net.camacraft.fullstop.FullStop.logToChat;
 import static net.camacraft.fullstop.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 @Mixin(LivingEntity.class)
@@ -17,22 +18,26 @@ public class WaterSlowdownMixin {
     @Inject(method = "travel", at = @At("HEAD"))
     private void modifyWaterTravel(Vec3 travelVector, CallbackInfo ci) {
         LivingEntity entity = (LivingEntity) (Object) this;
-        if (entity.isDeadOrDying() || entity.isRemoved()) return;
-        FullStopCapability dragOverride = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
+        if (entity.isDeadOrDying() || entity.isRemoved() || entity.isSpectator()) return;
 
-        // Check if the entity is in water
-        if (entity.isInWater() && !dragOverride.recentlyRiptiding(entity)
-                && !dragOverride.hasDolphinsGrace(entity) && !dragOverride.hasDepthStrider(entity)) {
+        // Check if the entity is in water and cancel if they have Dolphin's Grace or Depth Strider Boots
+        if (entity.isInWater() &&
+                !entity.isAutoSpinAttack() &&
+                !FullStopCapability.hasDolphinsGrace(entity) &&
+                !FullStopCapability.hasDepthStrider(entity) &&
+                !entity.isSpectator()) {
             Vec3 v = entity.getDeltaMovement();
+            Vec3 direction = v.normalize();
+            double speed = v.length();
 
             double c = 0.2;
 
-            double newX = Math.signum(v.x) * (Math.abs(v.x) - (v.x * v.x * c));
-            double newY = Math.signum(v.y) * (Math.abs(v.y) - (v.y * v.y * c));
-            double newZ = Math.signum(v.z) * (Math.abs(v.z) - (v.z * v.z * c));
+            speed -= speed * speed * c;
 
             // Set the new velocity
-            entity.setDeltaMovement(newX, newY, newZ);
+            entity.setDeltaMovement(direction.scale(speed));
         }
+
+        //logToChat(entity, entity.isAutoSpinAttack());
     }
 }
