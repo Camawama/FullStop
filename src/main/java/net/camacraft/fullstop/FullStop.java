@@ -18,9 +18,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SlimeBlock;
-import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.MinecraftForge;
@@ -34,6 +31,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -90,7 +88,7 @@ public class FullStop
 
         LivingEntity entity = event.getEntity();
         if (entity.isDeadOrDying() || entity.isRemoved()) return;
-        if (entity.level().isClientSide()) return;
+        //if (entity.level().isClientSide()) return;
 
         FullStopCapability fullstopcap = grabCapability(entity);
         fullstopcap.tick(entity);
@@ -103,14 +101,30 @@ public class FullStop
             return;
         }
 
-        double damage = applyDamage(entity, fullstopcap);
+        HorizontalImpactType horizontalImpactType = collidingKinetically(entity);
+
+        if (horizontalImpactType != HorizontalImpactType.NONE) {
+            bounceEntity(entity, horizontalImpactType);
+        }
+
+        double damage = applyDamage(entity, fullstopcap, horizontalImpactType);
 
         if (damage > 0) {
-            playSound(entity, damage);
+            playSound(entity, damage, horizontalImpactType);
             applyDamageEffects(entity, damage);
         }
 
-        //logToChat(entity, entity.isAutoSpinAttack());
+//        logToChat(entity, entity.isAutoSpinAttack());
+//        logToChat(entity, fullstopcap.getCurrentVelocity());
+//        logToChat(entity, entity.getYRot());
+//        logToChat(entity, entity.getYRot());
+
+//        if (horizontalImpactType != HorizontalImpactType.NONE) {
+//            logToChat(entity, horizontalImpactType);
+//        }
+
+//        logToChat(entity, entity.position());
+//        logToChat(entity, entityVelocity(entity));
     }
 
     private static void applyForceEffects(FullStopCapability fullstop, LivingEntity entity) {
@@ -125,20 +139,29 @@ public class FullStop
         }
     }
 
-    private static void playSound(LivingEntity entity, double damage) {
-        entity.level().playSound(null, entity.blockPosition(),
-                SoundEvents.PLAYER_BIG_FALL, SoundSource.PLAYERS, 0.6F * (float) damage, 0.8F);
+    private static void playSound(LivingEntity entity, double damage, HorizontalImpactType impactType) {
+        float volume = Math.min(0.1F * (float) damage, 1.0F);
+
+        if (impactType == HorizontalImpactType.SOLID) {
+            entity.level().playSound(null, entity,
+                    SoundEvents.PLAYER_BIG_FALL, SoundSource.HOSTILE, volume, 0.8F);
+        } else if (impactType == HorizontalImpactType.SLIME){
+            entity.level().playSound(null, entity,
+                    SoundEvents.SLIME_JUMP, SoundSource.BLOCKS, volume, 0.8F);
+        }
     }
 
     private static void applyDamageEffects(LivingEntity entity, double damage) {
         entity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
                 (int) damage * 5, (int) damage / 2, false, false));
 
-        entity.addEffect(new MobEffectInstance(MobEffects.JUMP,
-                (int) damage * 5, 200, false, false));
+//        entity.addEffect(new MobEffectInstance(MobEffects.JUMP,
+//                (int) damage * 5, 200, false, false));
     }
-
-    public static boolean collidingKinetically(LivingEntity entity) {
+    private enum HorizontalImpactType {
+        NONE, SLIME, SOLID, HONEY
+    }
+    public static HorizontalImpactType collidingKinetically(LivingEntity entity) {
         FullStopCapability fullstopcap = grabCapability(entity);
         AABB boundingBox = entity.getBoundingBox();
 
@@ -146,26 +169,82 @@ public class FullStop
         Vec3 direction = fullstopcap.getPreviousVelocity().multiply(1, 0, 1).normalize();
 
         // If the direction is zero (not moving), return false
-        if (direction.lengthSqr() == 0) {
-            return false;
-        }
+        if (direction.lengthSqr() == 0) { return HorizontalImpactType.NONE; }
 
-        // Cast forward by a small distance in the direction of movement
-        //Vec3 castForward = entity.position().add(direction.scale(0.875));
-
-        // Expand the bounding box slightly in the direction we're checking for collisions
-        AABB expandedBox = boundingBox.expandTowards(direction.scale(0.01));
+        AABB expandedBox = expandAABB(direction, boundingBox);
 
         // Iterate over the block states in the expanded bounding box
         AtomicBoolean colliding = new AtomicBoolean(false);
+        AtomicBoolean slime = new AtomicBoolean(false);
+        AtomicBoolean honey = new AtomicBoolean(false);
         entity.level().getBlockStates(expandedBox).forEach(blockState -> {
-            if (!blockState.isAir() && !blockState.liquid() && !blockState.isSlimeBlock()) {
+            if (!blockState.isAir() && !blockState.liquid()) {
                 colliding.set(true);  // Collision detected
+                if (blockState.isSlimeBlock()) {
+                    slime.set(true);
+                }
+                if (blockState.isStickyBlock()) {
+                    honey.set(true);
+                }
             }
         });
 
         // Return if we found any collision
-        return colliding.get();
+        if (colliding.get()) {
+            if (slime.get()) {
+                return HorizontalImpactType.SLIME;
+            } else if (honey.get()) {
+                return HorizontalImpactType.HONEY;
+            } else {
+                return HorizontalImpactType.SOLID;
+            }
+        }
+        else {
+            return HorizontalImpactType.NONE;
+        }
+    }
+
+    @NotNull
+    private static AABB expandAABB(Vec3 direction, AABB b) {
+        double dirX = Math.signum(direction.x);
+        double dirZ = Math.signum(direction.z);
+
+        // Expand the bounding box infinitesimally in the direction we're checking for collisions
+
+        //AABB expandedBox = b.expandTowards(dX, 0, dZ);
+        AABB expandedBox = new AABB(
+                dirX < 0 ? Math.nextDown(b.minX) : b.minX,
+                b.minY,
+                dirZ < 0 ? Math.nextDown(b.minZ) : b.minZ,
+                dirX > 0 ? Math.nextUp(b.maxX) : b.maxX,
+                b.maxY,
+                dirZ > 0 ? Math.nextUp(b.maxZ) : b.maxZ
+        );
+        return expandedBox;
+    }
+
+    private static void bounceEntity(LivingEntity entity, HorizontalImpactType horizontalImpactType) {
+        FullStopCapability fullstopcap = grabCapability(entity);
+//        if (fullstopcap.justBounced()) return;
+//        fullstopcap.setBounced();
+//        logToChat(entity, "bounced");
+        Vec3 preV = fullstopcap.getPreviousVelocity();
+        Vec3 curV = fullstopcap.getCurrentVelocity();
+        double scaleFactor;
+        if (horizontalImpactType == HorizontalImpactType.SLIME) {
+            scaleFactor = 1.0;
+        } else if (horizontalImpactType == HorizontalImpactType.HONEY) {
+            scaleFactor = 0.0;
+        } else {
+            scaleFactor = 0.5;
+        }
+
+        Vec3 newV = new Vec3(
+                preV.x * (curV.x == 0.0 ? -scaleFactor : scaleFactor),
+                curV.y,
+                preV.z * (curV.z == 0.0 ? -scaleFactor : scaleFactor)
+        ).scale(0.05);
+        entity.setDeltaMovement(newV);
     }
 
     public static void logToChat(LivingEntity entity, Object message) {
@@ -173,7 +252,7 @@ public class FullStop
         entity.sendSystemMessage(chatMessage);
     }
 
-    private static double applyDamage(LivingEntity entity, FullStopCapability fullstopcap) {
+    private static double applyDamage(LivingEntity entity, FullStopCapability fullstopcap, HorizontalImpactType horizontalImpactType) {
         double delta = fullstopcap.getStoppingForce();
         double damage = Math.max(delta - 12.77, 0);
 
@@ -188,15 +267,20 @@ public class FullStop
 
         if (fullstopcap.isMostlyDownward()) {
             entity.hurt(sources.fall(), damageAmount);
-        } else if(collidingKinetically(entity)) {
+        } else if(horizontalImpactType == HorizontalImpactType.SOLID) {
             entity.hurt(sources.flyIntoWall(), damageAmount);
+        } else {
+            return 0;
         }
         return damage;
     }
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        if (!(event.player instanceof ServerPlayer player)){
+        if (event.player.isDeadOrDying() || event.player.isRemoved()) return;
+        if (!(event.player instanceof ServerPlayer player)) {
+            FullStopCapability fullstopcap = grabCapability(event.player);
+            fullstopcap.setCurrentVelocity(event.player.getDeltaMovement());
             PacketHandler.sendToServer(new PlayerDeltaPacket(event.player.getDeltaMovement()));
             return;
         }

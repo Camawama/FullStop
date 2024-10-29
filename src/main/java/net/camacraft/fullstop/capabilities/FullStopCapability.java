@@ -39,13 +39,10 @@ public class FullStopCapability {
     @NotNull
     private Vec3 clientVelocity = Vec3.ZERO;
 
-    //private int lastSeenRiptiding = Integer.MAX_VALUE;
+    private double rotationVelocity = 0.0;
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
-
-    public static boolean recentlyRiptiding(LivingEntity entity) {
-        return entity.isAutoSpinAttack();
-    }
+//    private int bounced = 0;
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
         return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
@@ -72,6 +69,10 @@ public class FullStopCapability {
         this.clientVelocity = currentVelocity.scale(20);
     }
 
+    public void setCurrentRotVelocity(double rotationVelocity) {
+        this.rotationVelocity = rotationVelocity;
+    }
+
     public boolean isMostlyDownward() {
         Vec3 v = olderVelocity;
         // Uses the Pythagorean theorem to find the sideways velocity and compares it to the downward velocity
@@ -94,9 +95,17 @@ public class FullStopCapability {
     public void tick(LivingEntity entity) {
         tickVelocity(entity);
         tickSpeed();
+        tickRotation(entity);
 
         runningAverageDelta = (runningAverageDelta * 19 + stoppingForce) / 20;
     }
+
+//    private void tickBounced() {
+//        if (justBounced())
+//            bounced += 1;
+//    }
+
+
 
     private void tickSpeed() {
         // Stopping force initialized to 0
@@ -111,6 +120,11 @@ public class FullStopCapability {
         );
     }
 
+    private void tickRotation(LivingEntity entity) {
+        double rot = entity.getYRot();
+
+    }
+
     // Helper method to calculate the stopping force for an individual component
     private double calculateStoppingForceComponent(double current, double old) {
         // If the current component is smaller in magnitude or it changed direction (sign), we calculate stopping force
@@ -120,8 +134,6 @@ public class FullStopCapability {
             return 0.0;  // No stopping force if speed increased or stayed the same in this direction
         }
     }
-
-
 
     private void tickVelocity(Entity entity) {
         olderVelocity = oldVelocity;
@@ -148,6 +160,14 @@ public class FullStopCapability {
     public Vec3 getPreviousVelocity() {
         return oldVelocity;
     }
+
+//    public void setBounced() {
+//        bounced = 0;
+//    }
+//
+//    public boolean justBounced() {
+//        return bounced < 0;
+//    }
 
     public static class Provider implements ICapabilityProvider {
         public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
