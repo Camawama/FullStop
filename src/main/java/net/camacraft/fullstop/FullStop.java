@@ -2,6 +2,8 @@ package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.capabilities.FullStopCapability;
 import net.camacraft.fullstop.capabilities.PositionCapability;
+import net.camacraft.fullstop.effects.status.NoJumpEffect;
+import net.camacraft.fullstop.events.CommonModEvents;
 import net.camacraft.fullstop.handler.PacketHandler;
 import net.camacraft.fullstop.network.PlayerDeltaPacket;
 import net.minecraft.network.chat.Component;
@@ -10,6 +12,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSources;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -27,10 +30,13 @@ import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.registries.ObjectHolder;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -57,6 +63,7 @@ public class FullStop
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
+
     }
 
     @SubscribeEvent
@@ -66,11 +73,12 @@ public class FullStop
     }
 
 //    @SubscribeEvent
-//    public static void onJumpEvent(LivingEvent.LivingJumpEvent event) {
-//        // Cancel the jump event
-//        event.setCanceled(true);
+//    public void onLivingJump(LivingEvent.LivingJumpEvent event) {
+//        LivingEntity livingEntity = event.getEntity();
+//        if (livingEntity.hasEffect(CommonModEvents.NO_JUMP.get())) {
+//            livingEntity.setDeltaMovement(livingEntity.getDeltaMovement().x, 0, livingEntity.getDeltaMovement().z);
+//        }
 //    }
-// DETECT ONCE THE PLAYER HAS TAKEN DAMAGE AND PREVENT JUMPING FOR AS LONG AS THE SLOWNESS EFFECT GETS APPLIED
 
     public static FullStopCapability grabCapability(LivingEntity entity) {
         FullStopCapability fullstopcap = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
@@ -145,7 +153,8 @@ public class FullStop
         if (impactType == HorizontalImpactType.SOLID) {
             entity.level().playSound(null, entity,
                     SoundEvents.PLAYER_BIG_FALL, SoundSource.HOSTILE, volume, 0.8F);
-        } else if (impactType == HorizontalImpactType.SLIME){
+        }
+        if (impactType == HorizontalImpactType.SLIME) {
             entity.level().playSound(null, entity,
                     SoundEvents.SLIME_JUMP, SoundSource.BLOCKS, volume, 0.8F);
         }
@@ -155,12 +164,16 @@ public class FullStop
         entity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
                 (int) damage * 5, (int) damage / 2, false, false));
 
-//        entity.addEffect(new MobEffectInstance(MobEffects.JUMP,
+//        entity.addEffect(new MobEffectInstance(FullStop.JUMP,
 //                (int) damage * 5, 200, false, false));
+
+//        entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(), (int) damage * 5, 1));
     }
+
     private enum HorizontalImpactType {
         NONE, SLIME, SOLID, HONEY
     }
+
     public static HorizontalImpactType collidingKinetically(LivingEntity entity) {
         FullStopCapability fullstopcap = grabCapability(entity);
         AABB boundingBox = entity.getBoundingBox();
