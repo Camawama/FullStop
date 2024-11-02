@@ -1,5 +1,7 @@
 package net.camacraft.fullstop.network;
 
+import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.capabilities.FullStopCapability;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -29,9 +31,15 @@ public class PlayerDeltaPacket {
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
             // Work that needs to be thread-safe (most work)
-            ServerPlayer sender = ctx.get().getSender(); // the client that sent this packet
-            sender.getCapability(DELTAV_CAP)
-                    .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
+            ServerPlayer sendingPlayer = ctx.get().getSender(); // the client that sent this packet
+
+            if (sendingPlayer.isPassenger()) {
+                sendingPlayer.getVehicle().getCapability(DELTAV_CAP)
+                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
+            } else {
+                sendingPlayer.getCapability(DELTAV_CAP)
+                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
+            }
         });
         ctx.get().setPacketHandled(true);
     }

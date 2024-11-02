@@ -37,8 +37,7 @@ public class FullStopCapability {
     @NotNull
     private Vec3 currentVelocity = Vec3.ZERO;
 
-    @NotNull
-    private Vec3 clientVelocity = Vec3.ZERO;
+    private Vec3 clientVelocity = null;
 
     private double rotationVelocity = 0.0;
     private double stoppingForce = 0.0;
@@ -141,7 +140,8 @@ public class FullStopCapability {
         olderVelocity = oldVelocity;
         oldVelocity = currentVelocity;
 
-        if (entity instanceof Player) {
+
+        if (clientVelocity != null) {
             currentVelocity = clientVelocity;
         } else {
             currentVelocity = entity.getDeltaMovement().scale(20);

@@ -10,6 +10,8 @@ import net.minecraft.core.Vec3i;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerEntity;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -19,9 +21,11 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.horse.Horse;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
@@ -91,62 +95,34 @@ public class FullStop
     //
     //}
 
-//    @SubscribeEvent(priority = EventPriority.LOWEST)
-//    public static void onLevelTick(TickEvent.LevelTickEvent event) {
-//        AABB largestBb = new AABB(-3000, -64, -3000, 3000, 320, 3000);
-//        List<Entity> entities = event.level.getEntitiesOfClass(Entity.class, largestBb); //TODO implement a different way to scan all entities (this one lags)
-//
-//        for (Entity entity : entities) {
-//            onLivingTick(entity);
-//        }
-//    }
+    @SubscribeEvent
+    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+        ServerLevel level;
 
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
-        if (SERVER.velocityThreshold.get() == 0) return;
+        if (event.level instanceof  ServerLevel serverLevel) {
+            level = serverLevel;
+        } else return;
 
-        LivingEntity entity = event.getEntity();
-
-        if (entity.isDeadOrDying()) return;
-        if (entity.isRemoved()) return;
-
-        FullStopCapability fullstopcap = grabCapability(entity);
-        fullstopcap.tick(entity);
-
-        if (entity instanceof Player player) {
-            if (player.isCreative() || player.isSpectator()) return;
-            applyForceEffects(fullstopcap, entity);
-        }
-
-            if (entity.isFallFlying()) {
-                return;
+        for (Entity entity : level.getAllEntities()) {
+            if (entity != null && !(entity instanceof LivingEntity)) {
+                onEntityTick(entity);
             }
-
-
-        HorizontalImpactType horizontalImpactType = collidingKinetically(entity);
-        double damage = applyDamage(entity, fullstopcap, horizontalImpactType);
-
-        if (horizontalImpactType != HorizontalImpactType.NONE) {
-            bounceEntity(entity, horizontalImpactType, damage > 0);
-        }
-
-        if (horizontalImpactType == HorizontalImpactType.SLIME || horizontalImpactType == HorizontalImpactType.HONEY) {
-            stickyImpact(entity, horizontalImpactType);
-        }
-
-        if (damage > 0) {
-            impactDamageSound(entity, damage, horizontalImpactType);
-            applyDamageEffects(entity, damage);
         }
     }
 
-//    public static void onLivingTick(Entity entity) { //TODO Uncomment this when todo on line 97 is complete
+    @SubscribeEvent
+    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
+        Entity entity = event.getEntity();
+        onEntityTick(entity);
+    }
+
+//    @SubscribeEvent(priority = EventPriority.LOWEST)
+//    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
 //        if (SERVER.velocityThreshold.get() == 0) return;
 //
-//        if (entity instanceof LivingEntity living) {
-//            if (living.isDeadOrDying()) return;
-//        }
+//        LivingEntity entity = event.getEntity();
 //
+//        if (entity.isDeadOrDying()) return;
 //        if (entity.isRemoved()) return;
 //
 //        FullStopCapability fullstopcap = grabCapability(entity);
@@ -157,11 +133,9 @@ public class FullStop
 //            applyForceEffects(fullstopcap, entity);
 //        }
 //
-//        if (entity instanceof LivingEntity living) {
-//            if (living.isFallFlying()) {
+//            if (entity.isFallFlying()) {
 //                return;
 //            }
-//        }
 //
 //        HorizontalImpactType horizontalImpactType = collidingKinetically(entity);
 //        double damage = applyDamage(entity, fullstopcap, horizontalImpactType);
@@ -178,19 +152,59 @@ public class FullStop
 //            impactDamageSound(entity, damage, horizontalImpactType);
 //            applyDamageEffects(entity, damage);
 //        }
-//
-////        logToChat(entity, entity.isAutoSpinAttack());
-////        logToChat(entity, fullstopcap.getCurrentVelocity());
-////        logToChat(entity, entity.getYRot());
-////        logToChat(entity, entity.getYRot());
-//
-////        if (horizontalImpactType != HorizontalImpactType.NONE) {
-////            logToChat(entity, horizontalImpactType);
-////        }
-//
-////        logToChat(entity, entity.position());
-////        logToChat(entity, entityVelocity(entity));
 //    }
+
+    public static void onEntityTick(Entity entity) {
+        if (SERVER.velocityThreshold.get() == 0) return;
+
+        if (entity instanceof LivingEntity living) {
+            if (living.isDeadOrDying()) return;
+        }
+
+        if (entity.isRemoved()) return;
+
+        FullStopCapability fullstopcap = grabCapability(entity);
+        fullstopcap.tick(entity);
+
+        if (entity instanceof Player player) {
+            if (player.isCreative() || player.isSpectator()) return;
+            applyForceEffects(fullstopcap, entity);
+        }
+
+        if (entity instanceof LivingEntity living) {
+            if (living.isFallFlying()) {
+                return;
+            }
+        }
+
+        HorizontalImpactType horizontalImpactType = collidingKinetically(entity);
+        double damage = applyDamage(entity, fullstopcap, horizontalImpactType);
+
+        if (horizontalImpactType != HorizontalImpactType.NONE) {
+            bounceEntity(entity, horizontalImpactType, damage > 0);
+        }
+
+        if (horizontalImpactType == HorizontalImpactType.SLIME || horizontalImpactType == HorizontalImpactType.HONEY) {
+            stickyImpact(entity, horizontalImpactType);
+        }
+
+        if (damage > 0) {
+            impactDamageSound(entity, damage, horizontalImpactType);
+            applyDamageEffects(entity, damage);
+        }
+
+//        logToChat(entity, entity.isAutoSpinAttack());
+//        logToChat(entity, fullstopcap.getCurrentVelocity());
+//        logToChat(entity, entity.getYRot());
+//        logToChat(entity, entity.getYRot());
+
+//        if (horizontalImpactType != HorizontalImpactType.NONE) {
+//            logToChat(horizontalImpactType);
+//        }
+
+//        logToChat(entity, entity.position());
+//        logToChat(entity, entityVelocity(entity));
+    }
 
     private static void spawnParticle(Vec3 pos, HorizontalImpactType impactType) {
         ParticleOptions particleType;
@@ -289,14 +303,12 @@ public class FullStop
 
 //            colliding.set(true);  // Collision detected
             collisionTypeOrd.set(HorizontalImpactType.SOLID.ordinal());
-
-            if (blockState.isSlimeBlock()) {
-                collisionTypeOrd.set(HorizontalImpactType.SLIME.ordinal());
-            }
         });
 
         level.getBlockStates(expandedBox).forEach(blockState -> {
-            if (blockState.isStickyBlock() && !blockState.isSlimeBlock()) {
+            if (blockState.isSlimeBlock()) {
+                collisionTypeOrd.set(HorizontalImpactType.SLIME.ordinal());
+            } else if (blockState.isStickyBlock()) {
                 collisionTypeOrd.set(HorizontalImpactType.HONEY.ordinal());
             }
         });
@@ -331,6 +343,9 @@ public class FullStop
     }
 
     private static void bounceEntity(Entity entity, HorizontalImpactType horizontalImpactType, boolean hurt) {
+        if (entity.isVehicle() && !entity.level().isClientSide) {
+            return;
+        }
         FullStopCapability fullstopcap = grabCapability(entity);
 
         Vec3 preV = fullstopcap.getPreviousVelocity();
@@ -358,13 +373,26 @@ public class FullStop
         ).scale(0.05);
 
         entity.setDeltaMovement(newV);
-
-
     }
 
-    public static void logToChat(Entity entity, Object message) {
-        Component chatMessage = Component.literal(String.valueOf(message));
-        entity.sendSystemMessage(chatMessage);
+    public static void logToChat(Object... messages) {
+        Minecraft minecraft = Minecraft.getInstance();
+        StringBuilder message = new StringBuilder();
+        for (Object object : messages) {
+            message.append(object);
+            message.append(", ");
+        }
+        Component chatMessage = Component.literal(message.toString());
+
+        if (minecraft.isLocalServer()) {
+            if (minecraft.player != null) {
+                minecraft.player.sendSystemMessage(chatMessage);
+            }
+        } else {
+            for (Player player : minecraft.level.players()) {
+                player.sendSystemMessage(chatMessage);
+            }
+        }
     }
 
     private static double applyDamage(Entity entity, FullStopCapability fullstopcap, HorizontalImpactType horizontalImpactType) {
@@ -395,11 +423,23 @@ public class FullStop
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+//        if (event.player.isPassenger()) {
+//            logToChat(event.player, event.player.getVehicle().getDeltaMovement() + ", " + (event.player instanceof ServerPlayer));
+//        }
+
         if (event.player.isDeadOrDying() || event.player.isRemoved()) return;
         if (!(event.player instanceof ServerPlayer player)) {
             FullStopCapability fullstopcap = grabCapability(event.player);
             fullstopcap.setCurrentVelocity(event.player.getDeltaMovement());
-            PacketHandler.sendToServer(new PlayerDeltaPacket(event.player.getDeltaMovement()));
+
+            if (event.player.isPassenger()) {
+                Entity vehicle = event.player.getVehicle();
+                Vec3 vehicleDelta = vehicle.getDeltaMovement();
+                PacketHandler.sendToServer(new PlayerDeltaPacket(vehicleDelta));
+                onEntityTick(vehicle);
+            } else {
+                PacketHandler.sendToServer(new PlayerDeltaPacket(event.player.getDeltaMovement()));
+            }
             return;
         }
         if (!event.phase.equals(START)) return;
