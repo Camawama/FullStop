@@ -6,14 +6,36 @@
 
 <img src="https://media.forgecdn.net/avatars/thumbnails/1096/538/256/256/638642252069089539.png" alt="Mod Logo" width="128" height="128">
 
-#  Full Stop! 🛑 
-
 [Curseforge Page](https://www.curseforge.com/minecraft/mc-mods/full-stop)
 
-## General
+# 🛑 Full Stop! 
+Speed thrills, but it hurts. Expect the unexpected! 
 
-If you enjoy the mod and want to help support us, consider donating
-(todo)
+NOTICE: This mod is in Alpha. There will be many bugs! Please report all bugs on the issue tracker!
+
+ 
+## Overview
+Full Stop! introduces a new level of challenge to your Minecraft experience by simulating the dangers of velocity and impact. With every sprint, jump, and fall, you'll face realistic consequences that will keep you on your toes. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and was a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
+
+ 
+## Features (strikethrough means it hasn't been implemented yet)
+- 💥 Dynamic Damage System: Experience realistic damage based on speed and collision force. Deal more damage when moving toward a target and less when moving away. Sudden impacts can leave you reeling. 
+- 🛠️ Durability Scaling: The damage you deal affects the durability of your items, meaning every hit counts. 
+- 🌪️ G-Force Effects: High-velocity maneuvers can inflict blindness and nausea as you push the limits of your movement. 
+- 🔄 Knockback Mechanics: Running into players or walls won't just hurt—~~you'll both be sent flying in the opposite direction. ~~
+- ~~🌊 Environmental Challenges: Encounter pressure damage when submerged underwater and~~ experience slowness upon hard landings. 
+- ⚠️ Bounce Physics: Collide with walls at sharp angles to be knocked away realistically, adding a tactical element to movement. ⚠️
+ 
+
+## Planned Features/Known Bugs
+- Fix and refine config
+- Implement equal and opposite force transfer
+- Make it so that hitting a block at extreme velocities breaks the block
+- Implement pressure damage deep underwater
+- Add checks for spectator mode
+ 
+🚧 Warning 
+Speed is your enemy! Will you navigate the perils of movement, or will you fall victim to the forces of nature? 
 
 ## License & Use
 This project, FullStop, is licensed under the GNU General Public License v3.0 (GPLv3). This means:
@@ -21,17 +43,3 @@ This project, FullStop, is licensed under the GNU General Public License v3.0 (G
 * You may copy, distribute, and modify this software as long as any derivative work is also licensed under the GPLv3.
 * Any software that incorporates code from this project must also be released under the GPLv3.
 * The source code must be made available with any distributed version of this software or any derivatives.
-
-### You CAN
-* Use this mod in a modpack – Feel free to include this mod in any modpack, public or private.
-* Modify and distribute – You may modify this mod and distribute your modified version, but only if you also distribute the source code and license it under GPLv3.
-* Create your own addons or extensions – You can develop code that interacts with this mod, such as addons or compatibility layers, as long as they comply with GPLv3 requirements.
-* Submit contributions – You’re welcome to submit pull requests to this repository. By doing so, you agree that your contributions will be licensed under the GPLv3.
-
-### You CANNOT
-* Redistribute the mod without source code – If you distribute this mod, or a derivative of it, you must make the source code available as well, as per GPLv3 requirements.
-* Use any code from this mod in proprietary software – Any code based on or incorporating this mod must be released under GPLv3, meaning proprietary (closed-source) use is not permitted.
-* Re-license this mod – You cannot change the license of this mod or any derivative of it. Any modifications must continue to be licensed under GPLv3.
-
-### Disclaimer
-<sub>THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.</sub>
