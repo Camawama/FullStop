@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.capabilities;
 
+import net.camacraft.fullstop.FullStop;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
@@ -42,6 +43,7 @@ public class FullStopCapability {
     private double rotationVelocity = 0.0;
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
+    private FullStop.HorizontalImpactType impact = FullStop.HorizontalImpactType.NONE;
 //    private int bounced = 0;
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
@@ -92,7 +94,7 @@ public class FullStopCapability {
         return Math.signum(v1) != Math.signum(v2);
     }
 
-    public void tick(LivingEntity entity) {
+    public void tick(Entity entity) {
         tickVelocity(entity);
         tickSpeed();
         tickRotation(entity);
@@ -120,7 +122,7 @@ public class FullStopCapability {
         );
     }
 
-    private void tickRotation(LivingEntity entity) {
+    private void tickRotation(Entity entity) {
         double rot = entity.getYRot();
 
     }
@@ -159,6 +161,17 @@ public class FullStopCapability {
 
     public Vec3 getPreviousVelocity() {
         return oldVelocity;
+    }
+
+    public FullStop.HorizontalImpactType actualImpact(FullStop.HorizontalImpactType impactType) {
+        boolean same = this.impact == impactType;
+        this.impact = impactType;
+
+        if (same) {
+            return FullStop.HorizontalImpactType.NONE;
+        } else {
+            return impactType;
+        }
     }
 
 //    public void setBounced() {

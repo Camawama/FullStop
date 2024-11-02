@@ -5,7 +5,7 @@ issueTrackerURL="https://github.com/Camawama/FullStop/issues"
 
 [[mods]]
 modId="fullstop"
-version='1.20.1-1.0.2-alpha'
+version='1.20.1-1.0.3-alpha'
 displayName="Full Stop!"
 displayURL="https://github.com/Camawama/FullStop"
 logoFile="fullstop.png"
