@@ -1,4 +1,4 @@
-package net.camacraft.fullstop.effects.status;
+package net.camacraft.fullstop.common.effects;
 
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectCategory;

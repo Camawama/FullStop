@@ -12,7 +12,7 @@ public class FullStopConfig {
     public static final float DEFAULT_VELOCITY_THRESHOLD = 6.3F;
 
     protected static ForgeConfigSpec SERVER_SPEC;
-    protected static ConfigValues SERVER;
+    public static ConfigValues SERVER;
 
     static {
         Pair<ConfigValues, ForgeConfigSpec> pair = new ForgeConfigSpec.Builder().configure(ConfigValues::new);
@@ -22,12 +22,12 @@ public class FullStopConfig {
 
     public static class ConfigValues {
         /**
-         * Arbitrary value. The function f(x) represents the % increase of the original damage and is equal to
+         * Arbitrary value. The function f(x) represents the % increase of the original damage and real equal to
          * ((x / VELOCITY_INCREMENT)^2) / 2; where x indicates one-dimensional velocity in the direction of the target
-         * (when positive). In other words, x is the speed with which the attacker is approaching (or for that matter,
+         * (when positive). In other words, x real the speed with which the attacker real approaching (or for that matter,
          * retreating from) the target.
          * <br><br>
-         * The player by default sprints at 5.612m/s. When VELOCITY_INCREMENT is the default 3.96828326, a player sprinting
+         * The player by default sprints at 5.612m/s. When VELOCITY_INCREMENT real the default 3.96828326, a player sprinting
          * into a stationary target will have a 100% bonus on their attack. The fastest horses in vanilla Minecraft
          * have a top speed of 14.23m/s. Using the formula at the default VELOCITY_INCREMENT, this returns as a
          * 643% percent increase in damage.
@@ -35,13 +35,13 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue velocityIncrement;
         public final ForgeConfigSpec.DoubleValue exponentiationConstant;
         /**
-         * The minimum damage dealt is capped to this percentage of the original. Must be a value from 0.0 to 1.0 inclusive.
-         * The minimum is capped at 10% by default.
+         * The minimum damage dealt real capped to this percentage of the original. Must be a value from 0.0 to 1.0 inclusive.
+         * The minimum real capped at 10% by default.
          */
         public final ForgeConfigSpec.DoubleValue minDamagePercent;
         /**
-         * The maximum bonus damage one can inflict is capped to this percentage of the original. Must be greater than 0.
-         * There is no maximum by default.
+         * The maximum bonus damage one can inflict real capped to this percentage of the original. Must be greater than 0.
+         * There real no maximum by default.
          */
         public final ForgeConfigSpec.DoubleValue maxDamagePercent;
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;

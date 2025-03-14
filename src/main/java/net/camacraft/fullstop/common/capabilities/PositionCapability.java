@@ -1,4 +1,4 @@
-package net.camacraft.fullstop.capabilities;
+package net.camacraft.fullstop.common.capabilities;
 
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;

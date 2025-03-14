@@ -1,7 +1,7 @@
-package net.camacraft.fullstop.handler;
+package net.camacraft.fullstop.common.handler;
 
 import net.camacraft.fullstop.FullStop;
-import net.camacraft.fullstop.network.PlayerDeltaPacket;
+import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.network.NetworkDirection;
 import net.minecraftforge.network.NetworkRegistry;

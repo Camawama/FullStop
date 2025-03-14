@@ -1,6 +1,6 @@
-package net.camacraft.fullstop.capabilities;
+package net.camacraft.fullstop.common.capabilities;
 
-import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
@@ -22,6 +22,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import static net.camacraft.fullstop.FullStop.MOD_ID;
+import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 public class FullStopCapability {
 
@@ -42,7 +43,9 @@ public class FullStopCapability {
     private double rotationVelocity = 0.0;
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
-    private FullStop.HorizontalImpactType impact = FullStop.HorizontalImpactType.NONE;
+    private Collision.CollisionType impact = Collision.CollisionType.NONE;
+    private Collision.CollisionType currentCollison = Collision.CollisionType.NONE;
+    private boolean collisionPut = false;
 //    private int bounced = 0;
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
@@ -128,7 +131,7 @@ public class FullStopCapability {
 
     // Helper method to calculate the stopping force for an individual component
     private double calculateStoppingForceComponent(double current, double old) {
-        // If the current component is smaller in magnitude or it changed direction (sign), we calculate stopping force
+        // If the current component real smaller in magnitude or it changed direction (sign), we calculate stopping force
         if (Math.abs(current) < Math.abs(old) && !isBounce(current, old)) {
             return Math.abs(old - current);  // Return the absolute difference (stopping force)
         } else {
@@ -163,24 +166,41 @@ public class FullStopCapability {
         return oldVelocity;
     }
 
-    public FullStop.HorizontalImpactType actualImpact(FullStop.HorizontalImpactType impactType) {
+    public Collision.CollisionType actualImpact(Collision.CollisionType impactType) {
         boolean same = this.impact == impactType;
+        if(!same)
+            System.out.println("dbg");
         this.impact = impactType;
 
         if (same) {
-            return FullStop.HorizontalImpactType.NONE;
+            return Collision.CollisionType.NONE;
         } else {
             return impactType;
         }
     }
 
-//    public void setBounced() {
-//        bounced = 0;
-//    }
-//
-//    public boolean justBounced() {
-//        return bounced < 0;
-//    }
+    public Collision.CollisionType getCollision() {
+        return currentCollison;
+    }
+
+    public void setCurrentCollision(Collision.CollisionType collisionType) {
+        collisionPut = false;
+        currentCollison = collisionType;
+    }
+
+    public void putCollision(Collision.CollisionType collisionType) {
+        collisionPut = true;
+        currentCollison = collisionType;
+    }
+
+    public Collision.CollisionType popCollision() {
+        if (collisionPut) {
+            collisionPut = false;
+            return currentCollison;
+        } else {
+            return null;
+        }
+    }
 
     public static class Provider implements ICapabilityProvider {
         public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
@@ -203,5 +223,9 @@ public class FullStopCapability {
 
             return LazyOptional.empty();
         }
+    }
+
+    public static FullStopCapability grabCapability(Entity entity) {
+        return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
     }
 }

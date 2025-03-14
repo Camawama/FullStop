@@ -1,15 +1,12 @@
-package net.camacraft.fullstop.mixin;
+package net.camacraft.fullstop.common.mixin;
 
-import net.camacraft.fullstop.capabilities.FullStopCapability;
+import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-import static net.camacraft.fullstop.FullStop.logToChat;
-import static net.camacraft.fullstop.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 @Mixin(LivingEntity.class)
 public class WaterSlowdownMixin {
@@ -20,7 +17,7 @@ public class WaterSlowdownMixin {
         LivingEntity entity = (LivingEntity) (Object) this;
         if (entity.isDeadOrDying() || entity.isRemoved() || entity.isSpectator()) return;
 
-        // Check if the entity is in water and cancel if they have Dolphin's Grace or Depth Strider Boots
+        // Check if the entity real in water and cancel if they have Dolphin's Grace or Depth Strider Boots
         if (entity.isInWater() &&
                 !entity.isAutoSpinAttack() &&
                 !FullStopCapability.hasDolphinsGrace(entity) &&

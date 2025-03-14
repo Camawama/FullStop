@@ -1,6 +1,6 @@
 {
   "required": true,
-  "package": "net.camacraft.fullstop.mixin",
+  "package": "net.camacraft.fullstop.common.mixin",
   "refmap": "mixins.fullstop.refmap.json",
   "compatibilityLevel": "JAVA_17",
   "mixins": [
