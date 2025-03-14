@@ -14,11 +14,13 @@ import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
@@ -189,15 +191,17 @@ public class Physics {
         AABB boundingBox = entity.getBoundingBox();
 
         // Get the normalized direction from previous velocity
-        Vec3 direction = fullstop.getPreviousVelocity().multiply(1, 0, 1).normalize();
+        Vec3 previousVelocity = fullstop.getPreviousVelocity();
+        previousVelocity = new Vec3(previousVelocity.x, Math.min(0, previousVelocity.y), previousVelocity.z);
+        Vec3 direction = previousVelocity.normalize();
 
         // If the direction real zero (not moving), return false
         if (direction.lengthSqr() == 0) {
             return Collision.NONE;
         }
-        if(fullstop.getStoppingForce() > 5){
-            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision"));
-        }
+//        if(fullstop.getStoppingForce() > 5){
+//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision"));
+//        }
         AABB expandedBox = expandAABB(direction, boundingBox);
 
         // Iterate over the block states in the expanded bounding box
@@ -245,23 +249,16 @@ public class Physics {
         });
 
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd.get()];
-        if(fullstop.getStoppingForce() > 5){
-            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision is: " + impactType));
-        }
+//        if(fullstop.getStoppingForce() > 5){
+//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision is: " + impactType));
+//        }
         Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
 
 
-        if(fullstop.getStoppingForce() > 5){
-            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision actual: " + collisionType));
-        }
-        //Collision.CollisionType pop_collision = fullstop.popCollision();
-        //if (pop_collision != null)
-        //    collisionType = pop_collision;
-        //else
-            fullstop.setCurrentCollision(collisionType);
-        if(fullstop.getStoppingForce() > 5){
-            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision returning: " + collisionType));
-        }
+//        if(fullstop.getStoppingForce() > 5){
+//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision actual: " + collisionType));
+//        }
+
         return new Collision(collisionType, highestY[0], lowestY[0]);
     }
 
@@ -274,6 +271,7 @@ public class Physics {
     private static AABB expandAABB(Vec3 direction, AABB b) {
         double dirX = Math.signum(direction.x);
         double dirZ = Math.signum(direction.z);
+
 
         // Expand the bounding box infinitesimally in the direction we're checking for collisions
 
@@ -337,20 +335,22 @@ public class Physics {
     }
     private double calcDamage() {
         if (
-                !(entity instanceof LivingEntity) //||
-                //!fullstop.isMostlyDownward() &&
-                //collision.collisionType != Collision.CollisionType.SOLID
+                !(entity instanceof LivingEntity living) ||
+                !fullstop.isMostlyDownward() &&
+                collision.collisionType != Collision.CollisionType.SOLID
 
         ) return 0;
 
         double delta = fullstop.getStoppingForce();
-        if (delta > 3)
-            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " calc damage: " + collision.collisionType.toString()));
+//        if (delta > 3)
+//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " calc damage: " + collision.collisionType.toString()));
         double damage = Math.max(delta - 12.77, 0);
 
         if (damage <= 0) return 0;
-        float damageAmount = (float) (damage * 1.07);
-        return damageAmount;
+        int fallProtLevel = living.getItemBySlot(EquipmentSlot.FEET)
+                .getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+        return (float) (damage * 1.07)
+                / (1 + fallProtLevel * 0.2);
 
     }
     public void applyDamage() {
@@ -358,7 +358,7 @@ public class Physics {
             DamageSources sources = entity.damageSources();
             if (fullstop.isMostlyDownward()) {
                 entity.hurt(sources.fall(), (float) damage);
-            } else if (collision.collisionType == Collision.CollisionType.SOLID) {
+            } else {
                 entity.hurt(sources.flyIntoWall(), (float) damage);
             }
     }

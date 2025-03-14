@@ -44,8 +44,8 @@ public class FullStopCapability {
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
     private Collision.CollisionType impact = Collision.CollisionType.NONE;
-    private Collision.CollisionType currentCollison = Collision.CollisionType.NONE;
-    private boolean collisionPut = false;
+    private Vec3 currentPosition = Vec3.ZERO;
+    private Vec3 previousPosition = Vec3.ZERO;
 //    private int bounced = 0;
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
@@ -112,10 +112,16 @@ public class FullStopCapability {
 
 
     private void tickSpeed() {
+        Vec3 acc_prev = oldVelocity.subtract(olderVelocity);
+        Vec3 vel_expe = oldVelocity.add(acc_prev);
+        Vec3 vel_real = currentPosition.subtract(previousPosition);
+        double ratio = Math.min(1, vel_real.length() / vel_expe.length());
+        Vec3 instantVelocity = currentVelocity.add(acc_prev.scale(ratio));
+
         // Stopping force initialized to 0
-        double stoppingForceX = calculateStoppingForceComponent(currentVelocity.x, oldVelocity.x);
-        double stoppingForceY = calculateStoppingForceComponent(currentVelocity.y, oldVelocity.y);
-        double stoppingForceZ = calculateStoppingForceComponent(currentVelocity.z, oldVelocity.z);
+        double stoppingForceX = calculateStoppingForceComponent(instantVelocity.x, oldVelocity.x);
+        double stoppingForceY = calculateStoppingForceComponent(instantVelocity.y, oldVelocity.y);
+        double stoppingForceZ = calculateStoppingForceComponent(instantVelocity.z, oldVelocity.z);
 
         stoppingForce = Math.sqrt(
                 stoppingForceX * stoppingForceX +
@@ -143,6 +149,8 @@ public class FullStopCapability {
         olderVelocity = oldVelocity;
         oldVelocity = currentVelocity;
 
+        previousPosition = currentPosition;
+        currentPosition = entity.position();
 
         if (clientVelocity != null) {
             currentVelocity = clientVelocity;
@@ -176,29 +184,6 @@ public class FullStopCapability {
             return Collision.CollisionType.NONE;
         } else {
             return impactType;
-        }
-    }
-
-    public Collision.CollisionType getCollision() {
-        return currentCollison;
-    }
-
-    public void setCurrentCollision(Collision.CollisionType collisionType) {
-        collisionPut = false;
-        currentCollison = collisionType;
-    }
-
-    public void putCollision(Collision.CollisionType collisionType) {
-        collisionPut = true;
-        currentCollison = collisionType;
-    }
-
-    public Collision.CollisionType popCollision() {
-        if (collisionPut) {
-            collisionPut = false;
-            return currentCollison;
-        } else {
-            return null;
         }
     }
 

@@ -12,22 +12,19 @@ import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Prov
 
 public class PlayerDeltaPacket {
     private final Vec3 playerDelta;
-    private final Collision.CollisionType collision;
 
-    public PlayerDeltaPacket(Vec3 playerDelta, Collision.CollisionType collision) {
+    public PlayerDeltaPacket(Vec3 playerDelta) {
         this.playerDelta = playerDelta;
-        this.collision = collision;
     }
 
     public PlayerDeltaPacket(FriendlyByteBuf buffer) {
-        this(new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()), buffer.readEnum(Collision.CollisionType.class));
+        this(new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()));
     }
 
     public void encode(FriendlyByteBuf buffer) {
         buffer.writeDouble(this.playerDelta.x);
         buffer.writeDouble(this.playerDelta.y);
         buffer.writeDouble(this.playerDelta.z);
-        buffer.writeEnum(this.collision);
     }
 
     public void handle(Supplier<NetworkEvent.Context> ctx) {
@@ -37,16 +34,10 @@ public class PlayerDeltaPacket {
 
             if (sendingPlayer.isPassenger()) {
                 sendingPlayer.getVehicle().getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> {
-                            delta.setCurrentVelocity(this.playerDelta);
-                            delta.putCollision(this.collision);
-                        });
+                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
             } else {
                 sendingPlayer.getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> {
-                            delta.setCurrentVelocity(this.playerDelta);
-                            delta.putCollision(this.collision);
-                        });
+                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
             }
         });
         ctx.get().setPacketHandled(true);

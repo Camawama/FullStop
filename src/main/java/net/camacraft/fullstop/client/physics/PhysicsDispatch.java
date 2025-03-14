@@ -27,15 +27,14 @@ public class PhysicsDispatch {
         FullStopCapability fullstopcap = grabCapability(event.player);
         Vec3 playerDelta = event.player.getDeltaMovement();
         fullstopcap.setCurrentVelocity(playerDelta);
-        Collision.CollisionType collision = fullstopcap.getCollision();
 
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
             Vec3 vehicleDelta = vehicle.getDeltaMovement();
-            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(vehicleDelta, collision);
+            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(vehicleDelta);
             PacketHandler.sendToServer(deltaPacket);
         } else {
-            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(playerDelta, collision);
+            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(playerDelta);
             PacketHandler.sendToServer(deltaPacket);
         }
     }
