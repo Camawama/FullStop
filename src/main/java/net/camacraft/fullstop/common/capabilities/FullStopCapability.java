@@ -46,6 +46,7 @@ public class FullStopCapability {
     private Collision.CollisionType impact = Collision.CollisionType.NONE;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
+    private double scalar_acceleation = 0;
 //    private int bounced = 0;
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
@@ -101,7 +102,9 @@ public class FullStopCapability {
         tickSpeed();
         tickRotation(entity);
 
-        runningAverageDelta = (runningAverageDelta * 19 + stoppingForce) / 20;
+        if (Double.isNaN(runningAverageDelta))
+            runningAverageDelta = 0;
+        runningAverageDelta = (runningAverageDelta * 19 + scalar_acceleation) / 20;
     }
 
 //    private void tickBounced() {
@@ -128,6 +131,7 @@ public class FullStopCapability {
                 stoppingForceY * stoppingForceY +
                 stoppingForceZ * stoppingForceZ
         );
+        scalar_acceleation = instantVelocity.subtract(oldVelocity).length();
     }
 
     private void tickRotation(Entity entity) {

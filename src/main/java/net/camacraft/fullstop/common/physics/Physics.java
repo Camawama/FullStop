@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.physics;
 
+import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.client.Minecraft;
@@ -167,6 +168,7 @@ public class Physics {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.CONFUSION, 90, 0, false, false));
             }
+            //entity.sendSystemMessage(Component.literal(""+fullstop.getRunningAverageDelta()));
         }
     }
 
@@ -198,6 +200,7 @@ public class Physics {
     public Collision collidingKinetically() {
         AABB boundingBox = entity.getBoundingBox();
 
+
         // Get the normalized direction from previous velocity
         Vec3 previousVelocity = fullstop.getPreviousVelocity();
         Vec3 direction = previousVelocity.normalize();
@@ -206,7 +209,7 @@ public class Physics {
         if (direction.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
             return Collision.NONE;
         }
-//        if(fullstop.getStoppingForce() > 1){
+//        if(fullstop.getStoppingForce() > 5){
 //            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision " + System.currentTimeMillis() / 1000 % 60 + "s"));
 //        }
         AABB expandedBox = expandAABB(direction, boundingBox);
@@ -240,7 +243,7 @@ public class Physics {
                 Vec3 center = voxelShape.bounds().getCenter();
                 BlockState blockState = level.getBlockState(blockPosFromVec3(center));
                 Collision.CollisionType collisionHere;
-
+//                entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " " + blockState));
                 if (blockState.isStickyBlock()) {
                     collisionHere = Collision.CollisionType.SLIME;
                 } else {
@@ -254,13 +257,13 @@ public class Physics {
 
 
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-//        if(fullstop.getStoppingForce() > 1){
+//        if(fullstop.getStoppingForce() > 5){
 //            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision is: " + impactType));
 //        }
         Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
 
 
-//        if(fullstop.getStoppingForce() > 1){
+//        if(fullstop.getStoppingForce() > 5){
 //            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision actual: " + collisionType));
 //        }
 
@@ -268,8 +271,12 @@ public class Physics {
     }
 
     private static BlockPos blockPosFromVec3(Vec3 pos) {
-        Vec3i vec3i = new Vec3i((int) pos.x, (int) pos.y, (int) pos.z);
+        Vec3i vec3i = new Vec3i(floor(pos.x), floor(pos.y), floor(pos.z));
         return new BlockPos(vec3i);
+    }
+
+    private static int floor(double r) {
+        return (int) Math.floor(r);
     }
 
     @NotNull
@@ -324,8 +331,8 @@ public class Physics {
             perpScaleFactor = -0.0;
             paraScaleFactor = 0.0;
         } else if (damage > 0) {
-            perpScaleFactor = -1 / ( damage * damage );
-            paraScaleFactor = 1.0 / (Math.sqrt(damage));
+            perpScaleFactor = -1 / damage;
+            paraScaleFactor = 1.0 / Math.sqrt(damage);
         } else {
             perpScaleFactor = -0.5;
             paraScaleFactor = 0.5;
@@ -358,7 +365,6 @@ public class Physics {
                 collision.collisionType != Collision.CollisionType.SOLID
 
         ) return 0;
-
         double delta = fullstop.getStoppingForce();
 //        if (delta > 3)
 //            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " calc damage: " + collision.collisionType.toString()));

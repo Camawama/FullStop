@@ -12,5 +12,6 @@
   "config.velocitydamage.projectileMultiplier": "Projectile speeds (IN CALCULATIONS) are subtracted by this percentage of the original value. Set to 0 to disable projectile velocity buffs.",
   "config.velocitydamage.projectilesHaveMomentum": "If true, projectiles have the velocity of the entity who fired it added.",
   "config.velocitydamage.wildMode": "Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)",
-  "death.fell.accident.water": "%s flopped into the water"
+  "death.fell.accident.water": "%s flopped into the water",
+  "enchantment.minecraft.feather_falling": "Kinetic Protection"
 }

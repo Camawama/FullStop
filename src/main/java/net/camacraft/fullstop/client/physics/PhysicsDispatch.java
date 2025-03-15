@@ -15,8 +15,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
-import static net.camacraft.fullstop.common.capabilities.PositionCapability.Provider.POSITION_CAP;
-import static net.minecraftforge.event.TickEvent.Phase.START;
 
 public class PhysicsDispatch {
     @SubscribeEvent
