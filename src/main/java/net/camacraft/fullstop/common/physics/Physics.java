@@ -31,6 +31,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
@@ -199,11 +200,10 @@ public class Physics {
 
         // Get the normalized direction from previous velocity
         Vec3 previousVelocity = fullstop.getPreviousVelocity();
-        previousVelocity = new Vec3(previousVelocity.x, Math.min(0, previousVelocity.y), previousVelocity.z);
         Vec3 direction = previousVelocity.normalize();
 
         // If the direction real zero (not moving), return false
-        if (direction.lengthSqr() == 0) {
+        if (direction.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
             return Collision.NONE;
         }
 //        if(fullstop.getStoppingForce() > 1){
@@ -211,47 +211,49 @@ public class Physics {
 //        }
         AABB expandedBox = expandAABB(direction, boundingBox);
 
-        AtomicInteger collisionTypeOrd = new AtomicInteger(Collision.CollisionType.NONE.ordinal());
         Level level = entity.level();
 
         double[] highestY = {-64};
         double[] lowestY = {320};
+        boolean[] blocks_here = {false};
+        int[] collisionTypeOrd = {Collision.CollisionType.NONE.ordinal()};
 
-        level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
-
-            AABB bounds = voxelShape.bounds();
-
-            if (bounds.maxY > highestY[0]) {
-                highestY[0] = bounds.maxY;
-            }
-
-            if (bounds.minY < lowestY[0]) {
-                lowestY[0] = bounds.minY;
-            }
-
-            Vec3 center = voxelShape.bounds().getCenter();
-            BlockState blockState = level.getBlockState(blockPosFromVec3(center));
-            Collision.CollisionType collisionHere;
-
-            if (blockState.isStickyBlock()) {
-                collisionHere = Collision.CollisionType.SLIME;
-            } else {
-                collisionHere = Collision.CollisionType.SOLID;
-            } // this function cant see honey, no real collision?
-
-            if (collisionTypeOrd.get() < collisionHere.ordinal()) {
-                collisionTypeOrd.set(collisionHere.ordinal());
-            }
-        });
         level.getBlockStates(expandedBox).forEach(blockState -> { // this way we can see honey
             if (blockState.isStickyBlock() && !blockState.isSlimeBlock()) {
-                if (collisionTypeOrd.get() < Collision.CollisionType.HONEY.ordinal()) {
-                    collisionTypeOrd.set(Collision.CollisionType.HONEY.ordinal());
-                }
+                collisionTypeOrd[0] = Collision.CollisionType.HONEY.ordinal();
             }
+            blocks_here[0] = true;
         });
+        if (blocks_here[0])
+            level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
 
-        Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd.get()];
+                AABB bounds = voxelShape.bounds();
+
+                if (bounds.maxY > highestY[0]) {
+                    highestY[0] = bounds.maxY;
+                }
+
+                if (bounds.minY < lowestY[0]) {
+                    lowestY[0] = bounds.minY;
+                }
+
+                Vec3 center = voxelShape.bounds().getCenter();
+                BlockState blockState = level.getBlockState(blockPosFromVec3(center));
+                Collision.CollisionType collisionHere;
+
+                if (blockState.isStickyBlock()) {
+                    collisionHere = Collision.CollisionType.SLIME;
+                } else {
+                    collisionHere = Collision.CollisionType.SOLID;
+                } // this function cant see honey, no real collision?
+
+                if (collisionTypeOrd[0] < collisionHere.ordinal()) {
+                    collisionTypeOrd[0] = collisionHere.ordinal();
+                }
+            });
+
+
+        Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
 //        if(fullstop.getStoppingForce() > 1){
 //            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision is: " + impactType));
 //        }
