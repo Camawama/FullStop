@@ -67,6 +67,7 @@ public class PhysicsDispatch {
         Physics physics = new Physics(entity);
         physics.bounceEntity();
         physics.stickyImpactFeel();
+        physics.impactSound();
         physics.impactDamageSound();
     }
 

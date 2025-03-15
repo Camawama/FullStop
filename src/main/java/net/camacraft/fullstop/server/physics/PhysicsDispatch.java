@@ -51,7 +51,6 @@ public class PhysicsDispatch {
         physics.applyForceEffects();
         physics.bounceEntity();
         physics.applyDamage();
-        physics.impactSound();
         physics.applyDamageEffects();
     }
 }
