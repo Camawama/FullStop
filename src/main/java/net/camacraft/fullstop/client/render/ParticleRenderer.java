@@ -2,29 +2,25 @@ package net.camacraft.fullstop.client.render;
 
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.client.Minecraft;
+import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 public class ParticleRenderer {
 
-//    public static void spawnParticle(ParticleOptions particleType, Vec3 pos, Vec3 vel) {
-//
-//        Minecraft.getInstance().level.addParticle(
-//                particleType,
-//                pos.x, pos.y, pos.z,
-//                vel.x, vel.y, vel.z
-//
-//
-//        );
-//    }
-    public static void spawnParticle(Vec3 pos, Collision collision) {
+    public static void spawnParticle(Vec3 pos, Collision collision, BlockState blockState) {
         ParticleOptions particleType;
 
         if (collision.collisionType == Collision.CollisionType.SLIME) {
             particleType = ParticleTypes.ITEM_SLIME;
         } else if (collision.collisionType == Collision.CollisionType.HONEY) {
             particleType = ParticleTypes.FALLING_HONEY;
+        } else if (collision.collisionType == Collision.CollisionType.SOLID) {
+            particleType = new BlockParticleOption(ParticleTypes.BLOCK, blockState);
         } else {
             throw new IllegalStateException("not a sticky type");
         }

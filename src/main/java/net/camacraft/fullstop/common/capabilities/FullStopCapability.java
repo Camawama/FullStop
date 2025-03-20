@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.common.capabilities;
 
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.Physics;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
@@ -40,14 +41,18 @@ public class FullStopCapability {
 
     private Vec3 clientVelocity = null;
 
-    private double rotationVelocity = 0.0;
+    private double targetAngle = Double.NaN;
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
     private Collision.CollisionType impact = Collision.CollisionType.NONE;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
     private double scalar_acceleation = 0;
-//    private int bounced = 0;
+    private final Entity entity;
+
+    public FullStopCapability(Entity entity) {
+        this.entity = entity;
+    }
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
         return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
@@ -74,8 +79,8 @@ public class FullStopCapability {
         this.clientVelocity = currentVelocity.scale(20);
     }
 
-    public void setCurrentRotVelocity(double rotationVelocity) {
-        this.rotationVelocity = rotationVelocity;
+    public void setTargetAngle(double targetAngle) {
+        this.targetAngle = targetAngle;
     }
 
     public boolean isMostlyDownward() {
@@ -135,8 +140,29 @@ public class FullStopCapability {
     }
 
     private void tickRotation(Entity entity) {
+        if (entity instanceof Player || entity.isControlledByLocalInstance()) return;
         double rot = entity.getYRot();
+        float newYRot = (float) (rotationCorrection(1) + rot);
 
+        entity.setYRot(newYRot);
+        entity.setYHeadRot(newYRot);
+        entity.setYBodyRot(newYRot);
+
+        entity.yRotO = newYRot;
+    }
+
+    public double rotationCorrection(double delta) {
+        if (Double.isNaN(targetAngle)) {
+            return 0;
+        }
+
+        double correction = Physics.angleWrap(targetAngle - entity.getYRot());
+
+        if (correction < 5) {
+            targetAngle = Double.NaN;
+        }
+
+        return correction * 0.005 * delta;
     }
 
     // Helper method to calculate the stopping force for an individual component
@@ -167,7 +193,7 @@ public class FullStopCapability {
     public static void onAttachCapabilitiesEvent(AttachCapabilitiesEvent<Entity> event) {
         if ((event.getObject().getCapability(Provider.DELTAV_CAP).isPresent())) return;
 
-        event.addCapability(DELTA_VELOCITY, new Provider());
+        event.addCapability(DELTA_VELOCITY, new Provider(event.getObject()));
     }
 
     public Vec3 getCurrentVelocity() {
@@ -180,8 +206,6 @@ public class FullStopCapability {
 
     public Collision.CollisionType actualImpact(Collision.CollisionType impactType) {
         boolean same = this.impact == impactType;
-        if(!same)
-            System.out.println("dbg");
         this.impact = impactType;
 
         if (same) {
@@ -191,15 +215,24 @@ public class FullStopCapability {
         }
     }
 
+    public double getTargetAngle() {
+        return targetAngle;
+    }
+
     public static class Provider implements ICapabilityProvider {
         public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
+        private final Entity entity;
 
         public FullStopCapability capability = null;
         private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability);
 
+        public Provider(Entity entity) {
+            this.entity = entity;
+        }
+
         public FullStopCapability createCapability() {
             if (this.capability == null) {
-                this.capability = new FullStopCapability();
+                this.capability = new FullStopCapability(entity);
             }
             return this.capability;
         }

@@ -1,7 +1,6 @@
 package net.camacraft.fullstop.client.physics;
 
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
-import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
 import net.camacraft.fullstop.common.physics.Physics;
@@ -64,11 +63,13 @@ public class PhysicsDispatch {
 
         Physics physics = new Physics(entity);
         physics.bounceEntity();
-        physics.stickyImpactFeel();
+        physics.impactAesthetic();
         physics.impactSound();
         physics.impactDamageSound();
     }
 
-
-
+//    @SubscribeEvent
+//    public static void onClientTick(TickEvent.ClientTickEvent event) {
+//
+//    }
 }

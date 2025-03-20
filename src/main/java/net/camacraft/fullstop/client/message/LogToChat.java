@@ -2,6 +2,7 @@ package net.camacraft.fullstop.client.message;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 
 public class LogToChat {
@@ -26,4 +27,13 @@ public class LogToChat {
         }
     }
 
+    public static void sendTo(Entity entity, Object... messages) {
+        StringBuilder message = new StringBuilder();
+        for (Object object : messages) {
+            message.append(object);
+            message.append(", ");
+        }
+
+        entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client " : "server ") + message.toString()));
+    }
 }

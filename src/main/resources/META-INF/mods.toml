@@ -5,12 +5,12 @@ issueTrackerURL="https://github.com/Camawama/FullStop/issues"
 
 [[mods]]
 modId="fullstop"
-version='1.20.1-1.0.5-alpha'
+version='1.20.1-1.1.0-beta'
 displayName="Full Stop!"
 displayURL="https://github.com/Camawama/FullStop"
 logoFile="fullstop.png"
 credits="Thanks to kawaiicakes for creating the original mod, Velocity Based Damage Deluxe"
-authors="cama"
+authors="cama, joe_devel"
 description='''
 Speed thrills, but it hurts. Expect the unexpected!
 '''

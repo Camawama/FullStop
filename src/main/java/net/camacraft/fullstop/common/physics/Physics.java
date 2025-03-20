@@ -1,42 +1,37 @@
 package net.camacraft.fullstop.common.physics;
 
-import net.camacraft.fullstop.client.message.LogToChat;
+import net.camacraft.fullstop.client.render.ParticleRenderer;
+import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.ArrayList;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
-import static net.camacraft.fullstop.client.render.ParticleRenderer.spawnParticle;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
 
@@ -133,8 +128,8 @@ public class Physics {
         return entity.getDeltaMovement().add(0, RESTING_Y_DELTA, 0).scale(20);
     }
 
-    public void stickyImpactFeel() {
-        if (!collision.sticky()) return;
+    public void impactAesthetic() {
+        if (collision.fake()) return;
         double highestY = collision.highestYLevel;
         double lowestY = collision.lowestYLevel;
 
@@ -143,17 +138,37 @@ public class Physics {
         Vec3 lowestPos = new Vec3(pos.x, lowestY, pos.z);
         Vec3 midPos = highestPos.add(lowestPos).scale(0.5);
 
-        if (collision.collisionType == Collision.CollisionType.SLIME) {
-            entity.level().playSound(null, highestPos.x, highestPos.y, highestPos.z,
-                    SoundEvents.SLIME_BLOCK_FALL, SoundSource.BLOCKS, 0.5F, 1.0F);
-        } else if (collision.collisionType == Collision.CollisionType.HONEY) {
-            entity.level().playSound(null, highestPos.x, highestPos.y, highestPos.z,
-                    SoundEvents.HONEY_BLOCK_BREAK, SoundSource.BLOCKS, 0.5F, 1.0F);
+        for (BlockState blockState : collision.blockStates) {
+            ParticleRenderer.spawnParticle(pos, collision, blockState);
         }
 
-        spawnParticle(highestPos, collision);
-        spawnParticle(midPos, collision);
-        spawnParticle(pos, collision);
+//        spawnParticle(highestPos, collision);
+//        spawnParticle(midPos, collision);
+//        spawnParticle(pos, collision);
+    }
+
+    public void impactSound() {
+        float volume = (float) (fullstop.getStoppingForce() * 0.05);
+        float pitch = 1.0f;
+
+        if (collision.fake()) return;
+        for (BlockState blockState : collision.blockStates) {
+            SoundType soundType = blockState.getSoundType();
+            SoundEvent sound = soundType.getFallSound();
+            SoundPlayer.playSound(entity, sound, volume, pitch);
+        }
+    }
+
+    public void impactDamageSound() {
+        if (damage <= 0) return;
+
+        float volume = Math.min(0.1F * (float) damage, 1.0F);
+        float pitch = 0.5F;
+        SoundEvent sound = SoundEvents.PLAYER_BIG_FALL;
+
+        if (collision.collisionType == Collision.CollisionType.SOLID) {
+            SoundPlayer.playSound(entity, sound, volume, pitch);
+        }
     }
 
     public void applyForceEffects() {
@@ -168,23 +183,11 @@ public class Physics {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.CONFUSION, 90, 0, false, false));
             }
-            //entity.sendSystemMessage(Component.literal(""+fullstop.getRunningAverageDelta()));
         }
     }
 
     private static boolean isDamageImmune(LivingEntity living) {
         return living instanceof Player player && (player.isCreative() || player.isSpectator());
-    }
-
-    public void impactDamageSound() {
-        if (damage <= 0) return;
-
-        float volume = Math.min(0.1F * (float) damage, 1.0F);
-
-        if (collision.collisionType == Collision.CollisionType.SOLID) {
-            entity.level().playSound(Minecraft.getInstance().player, entity,
-                    SoundEvents.PLAYER_BIG_FALL, SoundSource.MASTER, volume, 0.8F);
-        }
     }
 
     public void applyDamageEffects() {
@@ -193,27 +196,31 @@ public class Physics {
             livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
                     (int) damage * 5, (int) damage / 2, false, false));
 
-//        entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(), (int) damage * 5, 1)); //TODO uncomment after custom status effect real implemented
+            if (entity instanceof Player player) {
+//              entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(),
+//                      (int) damage * 5, 1)); //TODO create custom NO_JUMP status effect
+
+//                if (damage >= 0.5) {
+//                    player.setForcedPose(Pose.SWIMMING); //TODO make the player enter the swim/prone state
+//                    player.refreshDimensions();
+//                }
+            }
         }
     }
 
     public Collision collidingKinetically() {
         AABB boundingBox = entity.getBoundingBox();
 
-
         // Get the normalized direction from previous velocity
         Vec3 previousVelocity = fullstop.getPreviousVelocity();
         Vec3 direction = previousVelocity.normalize();
 
-        // If the direction real zero (not moving), return false
+        // If not moving, return NONE
         if (direction.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
             return Collision.NONE;
         }
-//        if(fullstop.getStoppingForce() > 5){
-//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision " + System.currentTimeMillis() / 1000 % 60 + "s"));
-//        }
-        AABB expandedBox = expandAABB(direction, boundingBox);
 
+        AABB expandedBox = expandAABB(direction, boundingBox);
         Level level = entity.level();
 
         double[] highestY = {-64};
@@ -221,54 +228,54 @@ public class Physics {
         boolean[] blocks_here = {false};
         int[] collisionTypeOrd = {Collision.CollisionType.NONE.ordinal()};
 
-        level.getBlockStates(expandedBox).forEach(blockState -> { // this way we can see honey
+        // Variable to store the block type we collided with
+        ArrayList<BlockState> collidedBlockStates = new ArrayList<>(6);
+
+        level.getBlockStates(expandedBox).forEach(blockState -> {
             if (blockState.isStickyBlock() && !blockState.isSlimeBlock()) {
                 collisionTypeOrd[0] = Collision.CollisionType.HONEY.ordinal();
             }
             blocks_here[0] = true;
         });
-        if (blocks_here[0])
-            level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
 
+        if (blocks_here[0]) {
+            level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
                 AABB bounds = voxelShape.bounds();
 
                 if (bounds.maxY > highestY[0]) {
                     highestY[0] = bounds.maxY;
                 }
-
                 if (bounds.minY < lowestY[0]) {
                     lowestY[0] = bounds.minY;
                 }
 
                 Vec3 center = voxelShape.bounds().getCenter();
-                BlockState blockState = level.getBlockState(blockPosFromVec3(center));
+                BlockPos hitBlockPos = blockPosFromVec3(center);
+                BlockState blockState = level.getBlockState(hitBlockPos); // Get block state
+
+                // Store the collided block types
+                collidedBlockStates.add(blockState);
+
                 Collision.CollisionType collisionHere;
-//                entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " " + blockState));
                 if (blockState.isStickyBlock()) {
                     collisionHere = Collision.CollisionType.SLIME;
                 } else {
                     collisionHere = Collision.CollisionType.SOLID;
-                } // this function cant see honey, no real collision?
+                }
 
                 if (collisionTypeOrd[0] < collisionHere.ordinal()) {
                     collisionTypeOrd[0] = collisionHere.ordinal();
                 }
             });
-
+        }
 
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-//        if(fullstop.getStoppingForce() > 5){
-//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision is: " + impactType));
-//        }
         Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
 
-
-//        if(fullstop.getStoppingForce() > 5){
-//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " collision actual: " + collisionType));
-//        }
-
-        return new Collision(collisionType, highestY[0], lowestY[0]);
+        // Return collision with block types
+        return new Collision(collisionType, highestY[0], lowestY[0], collidedBlockStates);
     }
+
 
     private static BlockPos blockPosFromVec3(Vec3 pos) {
         Vec3i vec3i = new Vec3i(floor(pos.x), floor(pos.y), floor(pos.z));
@@ -284,10 +291,8 @@ public class Physics {
         double dirX = Math.signum(direction.x);
         double dirZ = Math.signum(direction.z);
 
-
         // Expand the bounding box infinitesimally in the direction we're checking for collisions
 
-        //AABB expandedBox = b.expandTowards(dX, 0, dZ);
         return new AABB(
                 dirX < 0 ? Math.nextDown(b.minX) : b.minX,
                 b.minY,
@@ -296,28 +301,17 @@ public class Physics {
                 b.maxY,
                 dirZ > 0 ? Math.nextUp(b.maxZ) : b.maxZ
         );
-//        double delta = 1;
-//        return new AABB(
-//                dirX < 0 ? b.minX - delta : b.minX,
-//                b.minY,
-//                dirZ < 0 ? b.minZ - delta : b.minZ,
-//                dirX > 0 ? b.maxX + delta : b.maxX,
-//                b.maxY,
-//                dirZ > 0 ? b.maxZ + delta : b.maxZ
-//        );
     }
 
     public void bounceEntity() {
         if (collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return;
-        if (!entity.level().isClientSide
+        if (damage == 0 && !entity.level().isClientSide
                 && (entity.hasControllingPassenger() || entity instanceof Player))
         {
             return;
         }
-//        entity.sendSystemMessage(Component.literal("bounce"));
 
         Vec3 preV = fullstop.getPreviousVelocity();
-//        entity.sendSystemMessage(Component.literal("prior motion: " + preV));
         Vec3 curV = fullstop.getCurrentVelocity();
         double perpScaleFactor, paraScaleFactor;
 
@@ -326,12 +320,11 @@ public class Physics {
         if (horizontalImpactType == Collision.CollisionType.SLIME) {
             perpScaleFactor = -1.0;
             paraScaleFactor = 1.0;
-            //entity.sendSystemMessage(Component.literal("perp-scale: " + perpScaleFactor + ", para-scale: " + paraScaleFactor));
         } else if (horizontalImpactType == Collision.CollisionType.HONEY) {
             perpScaleFactor = -0.0;
             paraScaleFactor = 0.0;
         } else if (damage > 0) {
-            perpScaleFactor = -1 / damage;
+            perpScaleFactor = -0.75 / Math.sqrt(Math.max(damage, 1));
             paraScaleFactor = 1.0 / Math.sqrt(damage);
         } else {
             perpScaleFactor = -0.5;
@@ -340,8 +333,6 @@ public class Physics {
 
         double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
         double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
-//        entity.sendSystemMessage(Component.literal("aCurV equal? " + (aCurVZ == aCurVX)));
-//        if (aCurVZ == aCurVX) entity.sendSystemMessage(Component.literal("aCurVX: " + aCurVX));
         Vec3 newV = (aCurVZ == aCurVX ?
                 new Vec3(
                         preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
@@ -354,10 +345,23 @@ public class Physics {
                         curV.y,
                         preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
                 )
-        ).scale(0.05);
-        //entity.sendSystemMessage(Component.literal("new motion: " + newV.scale(20)));
-        entity.setDeltaMovement(newV);
+        );
+        entity.setDeltaMovement(newV.scale(0.05));
+
+        double newAngle = Math.atan2(-newV.x, newV.z) / Math.PI * 180;
+
+        fullstop.setTargetAngle(newAngle);
     }
+
+    public static double angleWrap(double angle) {
+        angle += 180;
+        angle %= 360;
+        if (angle < 0) {
+            angle += 360;
+        }
+        return angle - 180;
+    }
+
     private double calcDamage() {
         if (
             !(entity instanceof LivingEntity living) || isDamageImmune(living) ||
@@ -367,7 +371,6 @@ public class Physics {
         ) return 0;
         double delta = fullstop.getStoppingForce();
 //        if (delta > 3)
-//            entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client" : "server") + " calc damage: " + collision.collisionType.toString()));
         double damage = Math.max(delta - 12.77, 0);
 
         if (damage <= 0) return 0;
@@ -379,26 +382,13 @@ public class Physics {
     }
     public void applyDamage() {
             if (damage <= 0) return;
+
             DamageSources sources = entity.damageSources();
             if (fullstop.isMostlyDownward()) {
                 entity.hurt(sources.fall(), (float) damage);
             } else {
                 entity.hurt(sources.flyIntoWall(), (float) damage);
             }
-    }
-    public void impactSound() {
-        if (collision.fake()) return;
-        SoundEvent sound = switch (collision.collisionType) {
-            case NONE -> SoundEvents.ENDER_DRAGON_DEATH; // unreachable
-            case SLIME -> SoundEvents.SLIME_BLOCK_FALL;
-            case SOLID -> SoundEvents.WOOL_HIT;
-            case HONEY -> SoundEvents.HONEY_BLOCK_FALL;
-        };
-        entity.level().playLocalSound(entity.blockPosition(),
-                sound, SoundSource.BLOCKS,
-                (float) (fullstop.getStoppingForce() * 0.05),
-                1.0f, false
-        );
     }
 
     public Physics(Entity entity) {
