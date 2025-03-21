@@ -1,12 +1,17 @@
 package net.camacraft.fullstop.common.mixin;
 
+import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
+import net.minecraft.sounds.SoundEvent;
+import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+
+import static net.camacraft.fullstop.client.message.LogToChat.logToChat;
 
 @Mixin(LivingEntity.class)
 public class WaterSlowdownMixin {
@@ -33,8 +38,7 @@ public class WaterSlowdownMixin {
 
             // Set the new velocity
             entity.setDeltaMovement(direction.scale(speed));
-        }
 
-        //logToChat(entity, entity.isAutoSpinAttack());
+        }
     }
 }

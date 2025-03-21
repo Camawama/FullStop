@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.physics;
 
+import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.client.render.ParticleRenderer;
 import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
@@ -174,12 +175,12 @@ public class Physics {
     public void applyForceEffects() {
         if (entity instanceof LivingEntity livingEntity) {
             if (isDamageImmune(livingEntity)) return;
-            if (fullstop.getRunningAverageDelta() > 5.0) {
+            if (fullstop.getRunningAverageDelta() > 3.0) {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.BLINDNESS, 30, 0, false, false));
             }
 
-            if (fullstop.getRunningAverageDelta() > 3.0) {
+            if (fullstop.getRunningAverageDelta() > 1.0) {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.CONFUSION, 90, 0, false, false));
             }
@@ -348,9 +349,10 @@ public class Physics {
         );
         entity.setDeltaMovement(newV.scale(0.05));
 
-        double newAngle = Math.atan2(-newV.x, newV.z) / Math.PI * 180;
-
-        fullstop.setTargetAngle(newAngle);
+        if (horizontalImpactType == Collision.CollisionType.SLIME) {
+            double newAngle = Math.atan2(-newV.x, newV.z) / Math.PI * 180;
+            fullstop.setTargetAngle(newAngle);
+        }
     }
 
     public static double angleWrap(double angle) {

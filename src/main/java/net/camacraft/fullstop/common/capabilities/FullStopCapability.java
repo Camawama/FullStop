@@ -47,7 +47,7 @@ public class FullStopCapability {
     private Collision.CollisionType impact = Collision.CollisionType.NONE;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
-    private double scalar_acceleation = 0;
+    private double scalarHorizaontalAcceleation = 0;
     private final Entity entity;
 
     public FullStopCapability(Entity entity) {
@@ -109,7 +109,7 @@ public class FullStopCapability {
 
         if (Double.isNaN(runningAverageDelta))
             runningAverageDelta = 0;
-        runningAverageDelta = (runningAverageDelta * 19 + scalar_acceleation) / 20;
+        runningAverageDelta = (runningAverageDelta * 19 + scalarHorizaontalAcceleation) / 20;
     }
 
 //    private void tickBounced() {
@@ -136,7 +136,7 @@ public class FullStopCapability {
                 stoppingForceY * stoppingForceY +
                 stoppingForceZ * stoppingForceZ
         );
-        scalar_acceleation = instantVelocity.subtract(oldVelocity).length();
+        scalarHorizaontalAcceleation = instantVelocity.subtract(oldVelocity).multiply(1, 0, 1).length();
     }
 
     private void tickRotation(Entity entity) {
@@ -158,7 +158,7 @@ public class FullStopCapability {
 
         double correction = Physics.angleWrap(targetAngle - entity.getYRot());
 
-        if (correction < 5) {
+        if (Math.abs(correction) < 0.5) {
             targetAngle = Double.NaN;
         }
 
