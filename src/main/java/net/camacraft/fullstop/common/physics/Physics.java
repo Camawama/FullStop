@@ -18,6 +18,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ItemStack;
@@ -31,6 +32,7 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.List;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
@@ -153,6 +155,10 @@ public class Physics {
         float pitch = 1.0f;
 
         if (collision.fake()) return;
+        if (fullstop.getStoppingForce() <= 2.0) return;
+
+//        logToChat(fullstop.getStoppingForce());
+
         for (BlockState blockState : collision.blockStates) {
             SoundType soundType = blockState.getSoundType();
             SoundEvent sound = soundType.getFallSound();
@@ -180,7 +186,7 @@ public class Physics {
                         MobEffects.BLINDNESS, 30, 0, false, false));
             }
 
-            if (fullstop.getRunningAverageDelta() > 1.0) {
+            if (fullstop.getRunningAverageDelta() > 1.35) {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.CONFUSION, 90, 0, false, false));
             }
@@ -194,8 +200,9 @@ public class Physics {
     public void applyDamageEffects() {
         if (damage <= 0) return;
         if (entity instanceof LivingEntity livingEntity) {
+            int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
-                    (int) damage * 5, (int) damage / 2, false, false));
+                    (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
 
             if (entity instanceof Player player) {
 //              entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(),
@@ -270,13 +277,27 @@ public class Physics {
             });
         }
 
+        List<Entity> collidingEntities = level.getEntities(
+                entity,
+                expandedBox,
+                e -> e instanceof LivingEntity && e != entity && !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
+        );
+
+        if (!collidingEntities.isEmpty()) {
+            collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.ENTITY.ordinal());
+        }
+
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-        Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
+//        Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
+
+
+//        if (entity instanceof ServerPlayer) {
+//            LogToChat.logToChat(fullstop.getCurrentVelocity().length());
+//        }
 
         // Return collision with block types
-        return new Collision(collisionType, highestY[0], lowestY[0], collidedBlockStates);
+        return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates);
     }
-
 
     private static BlockPos blockPosFromVec3(Vec3 pos) {
         Vec3i vec3i = new Vec3i(floor(pos.x), floor(pos.y), floor(pos.z));
@@ -304,8 +325,18 @@ public class Physics {
         );
     }
 
+    private void handleEntityCollision() {
+        if (collision.collisionType != Collision.CollisionType.ENTITY) return;
+
+        // Option 1: hard stop
+        if (fullstop.getCurrentVelocity().length() < 6.0) return;
+        entity.setDeltaMovement(Vec3.ZERO);
+    }
+
+
     public void bounceEntity() {
-        if (collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return;
+        handleEntityCollision();
+        if (entity.isCrouching() || collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return; //added entity.IsCrouching()
         if (damage == 0 && !entity.level().isClientSide
                 && (entity.hasControllingPassenger() || entity instanceof Player))
         {
@@ -349,11 +380,41 @@ public class Physics {
         );
         entity.setDeltaMovement(newV.scale(0.05));
 
-        if (horizontalImpactType == Collision.CollisionType.SLIME) {
-            double newAngle = Math.atan2(-newV.x, newV.z) / Math.PI * 180;
-            fullstop.setTargetAngle(newAngle);
+        if (!SERVER.rotateCamera.get()) { //returns if config is false so entity doesn't rotate when bouncing
+            return;
         }
+
+        if (fullstop.getStoppingForce() < 3.0) return; // prevent rotation in creative for players
+
+        if (entity instanceof Player) {
+            if (((Player) entity).getAbilities().flying) return;
+        }
+
+        double newAngle = Math.atan2(-newV.x, newV.z);
+        double currentAngle = Math.atan2(-curV.x, curV.z);
+
+        double targetAngle = switch (horizontalImpactType) {
+            case NONE -> 0.0;
+            case SLIME -> newAngle;
+//            case SLIME -> mixAngles(newAngle, newV.length(), currentAngle, 2.0);
+            case HONEY -> Double.NaN;
+            case SOLID -> Double.NaN;
+            case ENTITY -> Double.NaN;
+//            case SOLID -> mixAngles(
+//                    newAngle,1.0,
+//                    currentAngle,12.0
+//            );
+        } / Math.PI * 180;
+
+        fullstop.setTargetAngle(targetAngle);
     }
+
+//    private double mixAngles(double angleA, double weightA, double angleB, double weightB) {
+//        angleA += 360;
+//        angleB += 360;
+//        double angleAverage = (angleA * weightA + angleB * weightB) / (weightA + weightB);
+//        return angleAverage - 360;
+//    }
 
     public static double angleWrap(double angle) {
         angle += 180;
@@ -364,26 +425,71 @@ public class Physics {
         return angle - 180;
     }
 
-    private double calcDamage() {
-        if (
-            !(entity instanceof LivingEntity living) || isDamageImmune(living) ||
-                !fullstop.isMostlyDownward() &&
-                collision.collisionType != Collision.CollisionType.SOLID
+    private double calcKineticDamage() {
 
+//        if (entity instanceof LivingEntity living && entity instanceof Player) {
+//            logToChat("is damage immune", isDamageImmune(living), "is mostly downward", fullstop.isMostlyDownward(), "collision type", collision.collisionType);
+//        }
+//        if (entity instanceof ServerPlayer) {
+//            logToChat(fullstop);
+//        }
+
+        if (
+                !(entity instanceof LivingEntity living) ||
+                        isDamageImmune(living) ||
+                        (!fullstop.isMostlyDownward() &&
+                                collision.collisionType != Collision.CollisionType.SOLID &&
+                                collision.collisionType != Collision.CollisionType.ENTITY)
         ) return 0;
+
+//        if (living instanceof Player player) {
+//            logToChat(player.isSwimming(), player.isInWater()); // DEBUG
+//        }
+
+        if (living.isSwimming() && living.isInWater()) return 0; //attempt to prevent damage when the player is in the swimming state and in water
+
+        if (fullstop.getIsDamageImmune()) return 0;
+
+//        if (living instanceof ServerPlayer) {
+//            if (((ServerPlayer) living).isChangingDimension()) return 0; //attempt to prevent damage when teleporting between dimensions | This shit simply doesn't work at all
+//        }
+
         double delta = fullstop.getStoppingForce();
 //        if (delta > 3)
-        double damage = Math.max(delta - 12.77, 0);
+
+        double damage;
+        if (!fullstop.isMostlyDownward()) {
+            damage = Math.max(delta - SERVER.velocityDamageThresholdHorizontal.get(), 0);
+        } else {
+            damage = Math.max(delta - SERVER.velocityDamageThresholdVertical.get(), 0);
+        }
+
 
         if (damage <= 0) return 0;
-        int fallProtLevel = living.getItemBySlot(EquipmentSlot.FEET)
-                .getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-        return (float) (damage * 1.07)
-                / (1 + fallProtLevel * 0.2);
+        int fallProtLevel = living.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
 
+        MobEffectInstance jumpBoostEffect = living.getEffect(MobEffects.JUMP);
+        int jumpBoostLevel;
+
+        if (jumpBoostEffect == null) {
+            jumpBoostLevel = 0;
+        } else {
+            jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
+        }
+
+        if (fullstop.isMostlyDownward()) {
+            damage -= jumpBoostLevel;
+        }
+
+        if (!fullstop.isMostlyDownward()) {
+
+        }
+
+        return (float) (damage * 1.07) / (1 + fallProtLevel * 0.2);
     }
-    public void applyDamage() {
-            if (damage <= 0) return;
+
+    public void applyKineticDamage() {
+            if (damage < 1) return;
 
             DamageSources sources = entity.damageSources();
             if (fullstop.isMostlyDownward()) {
@@ -391,6 +497,8 @@ public class Physics {
             } else {
                 entity.hurt(sources.flyIntoWall(), (float) damage);
             }
+
+            //logToChat("damaged ", entity);
     }
 
     public Physics(Entity entity) {
@@ -399,7 +507,7 @@ public class Physics {
 
         this.entity = entity;
         collision = collidingKinetically();
-        damage = calcDamage();
+        damage = calcKineticDamage();
     }
 
     public static boolean unphysable(Entity entity) {

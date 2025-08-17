@@ -16,15 +16,17 @@ public class LogToChat {
         }
         Component chatMessage = Component.literal(message.toString());
 
-        if (minecraft.isLocalServer()) {
-            if (minecraft.player != null) {
-                minecraft.player.sendSystemMessage(chatMessage);
+        minecraft.execute(() -> {
+            if (minecraft.isLocalServer()) {
+                if (minecraft.player != null) {
+                    minecraft.player.sendSystemMessage(chatMessage);
+                }
+            } else if (minecraft.level != null) {
+                for (Player player : minecraft.level.players()) {
+                    player.sendSystemMessage(chatMessage);
+                }
             }
-        } else {
-            for (Player player : minecraft.level.players()) {
-                player.sendSystemMessage(chatMessage);
-            }
-        }
+        });
     }
 
     public static void sendTo(Entity entity, Object... messages) {
@@ -33,7 +35,14 @@ public class LogToChat {
             message.append(object);
             message.append(", ");
         }
+        Component chatMessage = Component.literal(
+                (entity.level().isClientSide ? "client " : "server ") + message
+        );
 
-        entity.sendSystemMessage(Component.literal((entity.level().isClientSide ? "client " : "server ") + message.toString()));
+        if (entity.level().isClientSide) {
+            Minecraft.getInstance().execute(() -> entity.sendSystemMessage(chatMessage));
+        } else {
+            entity.sendSystemMessage(chatMessage);
+        }
     }
 }

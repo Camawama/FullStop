@@ -6,6 +6,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
@@ -47,7 +48,10 @@ public class FullStopCapability {
     private Collision.CollisionType impact = Collision.CollisionType.NONE;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
-    private double scalarHorizaontalAcceleation = 0;
+    private double scalarHorizontalAcceleration = 0;
+    private boolean isDamageImmune = false;
+    private boolean hasTeleported = false;
+    private double teleportCooldown = 0;
     private final Entity entity;
 
     public FullStopCapability(Entity entity) {
@@ -58,17 +62,28 @@ public class FullStopCapability {
         return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
     }
 
-    public static boolean hasDepthStrider(LivingEntity entity) {
-        if (entity instanceof Player player) {
-            ItemStack boots = player.getInventory().getArmor(3); // Index 3 corresponds to boots
+//    public static boolean hasDepthStrider(LivingEntity entity) {
+//        if (entity instanceof Player player) {
+//            ItemStack boots = player.getInventory().getArmor(3); // Index 3 corresponds to boots
+//
+//            return !boots.isEmpty() && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0; //OLD DEPTH STRIDER CHECK
+//        }
+//        return false;
+//    }
 
-            return !boots.isEmpty() && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
-        }
-        return false;
+    public static boolean hasDepthStrider(LivingEntity entity) {
+        ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET); // works for any LivingEntity
+
+        return !boots.isEmpty() &&
+                EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
     }
 
     public double getStoppingForce() {
       return stoppingForce;
+    }
+
+    public boolean getIsDamageImmune() {
+        return isDamageImmune;
     }
 
     public double getRunningAverageDelta() {
@@ -81,6 +96,10 @@ public class FullStopCapability {
 
     public void setTargetAngle(double targetAngle) {
         this.targetAngle = targetAngle;
+    }
+
+    public void setHasTeleported(boolean value) {
+        this.hasTeleported = value;
     }
 
     public boolean isMostlyDownward() {
@@ -106,10 +125,11 @@ public class FullStopCapability {
         tickVelocity(entity);
         tickSpeed();
         tickRotation(entity);
+        tickTeleport();
 
         if (Double.isNaN(runningAverageDelta))
             runningAverageDelta = 0;
-        runningAverageDelta = (runningAverageDelta * 19 + scalarHorizaontalAcceleation) / 20;
+        runningAverageDelta = (runningAverageDelta * 19 + scalarHorizontalAcceleration) / 20;
     }
 
 //    private void tickBounced() {
@@ -117,7 +137,20 @@ public class FullStopCapability {
 //            bounced += 1;
 //    }
 
+    private void tickTeleport() {
 
+        if (hasTeleported) {
+            teleportCooldown = 20;
+            hasTeleported = false;
+        }
+
+        if (teleportCooldown > 0) {
+            teleportCooldown--;
+            isDamageImmune = true;
+        } else {
+            isDamageImmune = false;
+        }
+    }
 
     private void tickSpeed() {
         Vec3 acc_prev = oldVelocity.subtract(olderVelocity);
@@ -136,7 +169,7 @@ public class FullStopCapability {
                 stoppingForceY * stoppingForceY +
                 stoppingForceZ * stoppingForceZ
         );
-        scalarHorizaontalAcceleation = instantVelocity.subtract(oldVelocity).multiply(1, 0, 1).length();
+        scalarHorizontalAcceleration = instantVelocity.subtract(oldVelocity).multiply(1, 0, 1).length();
     }
 
     private void tickRotation(Entity entity) {
@@ -204,20 +237,16 @@ public class FullStopCapability {
         return oldVelocity;
     }
 
-    public Collision.CollisionType actualImpact(Collision.CollisionType impactType) {
-        boolean same = this.impact == impactType;
-        this.impact = impactType;
-
-        if (same) {
-            return Collision.CollisionType.NONE;
-        } else {
-            return impactType;
-        }
-    }
-
-    public double getTargetAngle() {
-        return targetAngle;
-    }
+//    public Collision.CollisionType actualImpact(Collision.CollisionType impactType) {
+//        boolean same = this.impact == impactType;
+//        this.impact = impactType;
+//
+//        if (same) {
+//            return Collision.CollisionType.NONE;
+//        } else {
+//            return impactType;
+//        }
+//    }
 
     public static class Provider implements ICapabilityProvider {
         public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});

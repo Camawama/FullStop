@@ -22,7 +22,7 @@ public class WaterSlowdownMixin {
         LivingEntity entity = (LivingEntity) (Object) this;
         if (entity.isDeadOrDying() || entity.isRemoved() || entity.isSpectator()) return;
 
-        // Check if the entity real in water and cancel if they have Dolphin's Grace or Depth Strider Boots
+        // Check if the entity is in water and cancel water drag if they have Dolphin's Grace or Depth Strider Boots
         if (entity.isInWater() &&
                 !entity.isAutoSpinAttack() &&
                 !FullStopCapability.hasDolphinsGrace(entity) &&

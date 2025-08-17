@@ -3,10 +3,10 @@ package net.camacraft.fullstop;
 import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.effects.EffectEvents;
-import net.camacraft.fullstop.common.physics.PhysicsRegistry;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
@@ -14,6 +14,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.loading.FMLEnvironment;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.FullStopConfig.SERVER_SPEC;
@@ -27,12 +28,15 @@ public class FullStop
      * For some reason entities on the ground still have a negative delta Y change of this value.
      */
 
-
     public FullStop() {
         MinecraftForge.EVENT_BUS.register(FullStop.class);
-        MinecraftForge.EVENT_BUS.register(PhysicsRegistry.class);
-        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.PhysicsDispatch.class);
+
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.PhysicsDispatch.class);
+        }
+
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.PhysicsDispatch.class);
+
         MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
@@ -43,24 +47,11 @@ public class FullStop
 
     }
 
-
-
-
-
 //    @SubscribeEvent
 //    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
 //        Entity entity = event.getEntity();
 //        onEntityTick(entity);
 //    }
-
-
-
-
-
-
-
-
-
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
@@ -73,8 +64,4 @@ public class FullStop
 
         projectile.setDeltaMovement(projectile.getDeltaMovement().add(ownerVelocity));
     }
-
-
-
-
 }

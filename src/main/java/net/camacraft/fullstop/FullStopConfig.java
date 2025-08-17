@@ -10,6 +10,8 @@ public class FullStopConfig {
     public static final float DEFAULT_MAXIMUM_DMG = Float.MAX_VALUE;
     public static final float DEFAULT_PROJECTILE_MULTIPLIER = 1.00F;
     public static final float DEFAULT_VELOCITY_THRESHOLD = 6.3F;
+    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77F;
+    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     protected static ForgeConfigSpec SERVER_SPEC;
     public static ConfigValues SERVER;
@@ -47,7 +49,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
         public final ForgeConfigSpec.BooleanValue wildMode;
-        public final ForgeConfigSpec.DoubleValue velocityThreshold;
+        public final ForgeConfigSpec.BooleanValue rotateCamera;
+        public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
+        public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
 
         protected ConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -75,11 +79,11 @@ public class FullStopConfig {
                     .comment("Default: " + Float.MAX_VALUE)
                     .defineInRange("maxDamagePercent", DEFAULT_MAXIMUM_DMG, 0, Float.MAX_VALUE);
 
-            this.velocityThreshold = builder
-                    .comment("The velocity over which entities slamming into walls will take damage. Set to 0 to disable this.")
-                    .translation(key("velocityThreshold"))
-                    .comment("Default: 6.3")
-                    .defineInRange("velocityThreshold", DEFAULT_VELOCITY_THRESHOLD, 0, Float.MAX_VALUE);
+            this.rotateCamera = builder
+                    .comment("Enables camera rotation when bouncing on a slime block")
+                    .translation(key("rotateCamera"))
+                    .comment("Default: true")
+                    .define("rotateCamera", true);
 
             builder.pop();
             builder.push("Projectile settings");
@@ -91,16 +95,31 @@ public class FullStopConfig {
                     .defineInRange("projectileMultiplier", DEFAULT_PROJECTILE_MULTIPLIER, 0, 1.00);
 
             this.projectilesHaveMomentum = builder
-                    .comment("If true, projectiles have the velocity of the entity who fired it added.")
+                    .comment("If true, entities who fire a projectile have their velocity applied to the projectile")
                     .translation(key("projectilesHaveMomentum"))
-                    .comment("Default: true")
-                    .define("projectilesHaveMomentum", true);
+                    .comment("Default: false")
+                    .define("projectilesHaveMomentum", false);
 
             this.wildMode = builder
                     .comment("Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)")
                     .translation(key("wildMode"))
                     .comment("Default: true")
                     .define("wildMode", true);
+
+            builder.pop();
+            builder.push("Kinetic Damage settings");
+
+            this.velocityDamageThresholdHorizontal = builder
+                    .comment("This value determines how fast an entity must be moving in order to apply kinetic damage horizontally. Very low values may be unplayable!")
+                    .translation(key("velocityDamageThresholdHorizontal"))
+                    .comment("Default: 12.77")
+                    .defineInRange("velocityDamageThresholdHorizontal", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL, 0, 100);
+
+            this.velocityDamageThresholdVertical = builder
+                    .comment("This value determines how fast an entity must be moving in order to apply kinetic damage vertically. Very low values may be unplayable!")
+                    .translation(key("velocityDamageThresholdVertical"))
+                    .comment("Default: 12.77")
+                    .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL, 0, 100);
 
             builder.pop();
         }

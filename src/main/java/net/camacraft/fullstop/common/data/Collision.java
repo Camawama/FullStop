@@ -9,7 +9,7 @@ public class Collision {
 
     public enum CollisionType {
         // do not reorder, ordinal is used for priority.
-        NONE, SLIME, HONEY, SOLID,
+        NONE, SLIME, HONEY, SOLID, ENTITY,
     }
 
     public final CollisionType collisionType;

@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.client.render;
 
+import com.ibm.icu.text.MessagePattern;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.particles.BlockParticleOption;
@@ -21,6 +22,8 @@ public class ParticleRenderer {
             particleType = ParticleTypes.FALLING_HONEY;
         } else if (collision.collisionType == Collision.CollisionType.SOLID) {
             particleType = new BlockParticleOption(ParticleTypes.BLOCK, blockState);
+        } else if (collision.collisionType == Collision.CollisionType.ENTITY) {
+            particleType = ParticleTypes.ASH;
         } else {
             throw new IllegalStateException("not a sticky type");
         }
