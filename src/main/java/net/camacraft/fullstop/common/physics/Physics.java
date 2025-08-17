@@ -329,7 +329,7 @@ public class Physics {
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
 
         // Option 1: hard stop
-        if (fullstop.getCurrentVelocity().length() < 6.0) return;
+        if (fullstop.getCurrentVelocity().length() < 5.0) return;
         entity.setDeltaMovement(Vec3.ZERO);
     }
 
