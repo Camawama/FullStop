@@ -341,6 +341,9 @@ public class Physics {
 //    }
 
     private void handleEntityCollision() {
+        if (!SERVER.entityCollisionDamage.get()) {
+            return;
+        }
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
 
         // Option 1: hard stop
@@ -453,6 +456,12 @@ public class Physics {
 
         if (fullstop.getIsDamageImmune()) return 0;
 
+        if (collision.collisionType == Collision.CollisionType.ENTITY) {
+            if (!SERVER.entityCollisionDamage.get()) {
+                return 0;
+            }
+        }
+
         double delta = fullstop.getStoppingForce();
 
         double damage;
@@ -518,17 +527,22 @@ public class Physics {
 
         // Define base colors
         int green   = 0x00FF00; // bright green
+        int yellow  = 0xFFFF00; // yellow
         int red     = 0xFF0000; // bright red
         int darkRed = 0x800000; // dark red
 
         int rgb;
-        if (t < 0.8) {
-            // From green → red between 0% and 80% of max
-            double nt = t / 0.8;
-            rgb = lerpColor(green, red, nt);
+        if (t < 0.33) {
+            // Green → Yellow
+            double nt = t / 0.33;
+            rgb = lerpColor(green, yellow, nt);
+        } else if (t < 0.66) {
+            // Yellow → Red
+            double nt = (t - 0.33) / 0.33;
+            rgb = lerpColor(yellow, red, nt);
         } else {
-            // From red → dark red between 80%–100%
-            double nt = (t - 0.8) / 0.2;
+            // Red → Dark Red
+            double nt = (t - 0.66) / 0.34; // use 0.34 to cover remainder up to 1.0
             rgb = lerpColor(red, darkRed, nt);
         }
 

@@ -51,6 +51,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue wildMode;
         public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
+        public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
 
@@ -127,6 +128,12 @@ public class FullStopConfig {
                     .translation(key("velocityDamageThresholdVertical"))
                     .comment("Default: 12.77")
                     .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL, 0, 100);
+
+            this.entityCollisionDamage = builder
+                    .comment("When enabled, colliding with entities will cause kinetic damage")
+                    .translation(key("entityCollisionDamage"))
+                    .comment("Default: false")
+                    .define("entityCollisionDamage", false);
 
             builder.pop();
         }
