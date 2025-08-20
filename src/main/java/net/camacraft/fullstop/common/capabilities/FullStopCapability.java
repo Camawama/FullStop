@@ -3,12 +3,14 @@ package net.camacraft.fullstop.common.capabilities;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.Physics;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
@@ -22,11 +24,13 @@ import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraftforge.common.util.INBTSerializable;
 
 import static net.camacraft.fullstop.FullStop.MOD_ID;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
-public class FullStopCapability {
+public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public static final ResourceLocation DELTA_VELOCITY = new ResourceLocation(MOD_ID, "delta_velocity");
     public static final double BOUNCE_THRESHOLD = 0.6;
@@ -52,6 +56,7 @@ public class FullStopCapability {
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
     private double teleportCooldown = 0;
+    private boolean joinedForFirstTime = false;
     private final Entity entity;
 
     public FullStopCapability(Entity entity) {
@@ -60,6 +65,18 @@ public class FullStopCapability {
 
     public static boolean hasDolphinsGrace(LivingEntity entity) {
         return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
+    }
+
+    public static boolean hasElytraEquipped(LivingEntity entity) {
+        ItemStack chestStack = entity.getItemBySlot(EquipmentSlot.CHEST);
+
+        if (chestStack.getItem() instanceof ElytraItem) {
+            // Calculate remaining durability
+            int remainingDurability = chestStack.getMaxDamage() - chestStack.getDamageValue();
+            return remainingDurability > 1; // Returns false if 1 or less
+        }
+
+        return false; // Not wearing Elytra
     }
 
 //    public static boolean hasDepthStrider(LivingEntity entity) {
@@ -90,6 +107,12 @@ public class FullStopCapability {
         return runningAverageDelta;
     }
 
+    public double getTeleportCooldown() {
+        return teleportCooldown;
+    }
+
+    public boolean getJoinedForFirstTime() { return joinedForFirstTime; }
+
     public void setCurrentVelocity(Vec3 currentVelocity) {
         this.clientVelocity = currentVelocity.scale(20);
     }
@@ -102,10 +125,18 @@ public class FullStopCapability {
         this.hasTeleported = value;
     }
 
+    public void setJoinedForFirstTime(boolean value) { this.joinedForFirstTime = value; }
+
     public boolean isMostlyDownward() {
         Vec3 v = olderVelocity;
         // Uses the Pythagorean theorem to find the sideways velocity and compares it to the downward velocity
         return (- v.y) > Math.sqrt(v.x * v.x + v.z * v.z);
+    }
+
+    public boolean isMostlyUpward() {
+        Vec3 v = olderVelocity;
+        // Uses the Pythagorean theorem to find the sideways velocity and compares it to the upward velocity
+        return v.y > Math.sqrt(v.x * v.x + v.z * v.z);
     }
 
     /*private static double differenceOfVelocities(double v1, double v2) {
@@ -125,7 +156,7 @@ public class FullStopCapability {
         tickVelocity(entity);
         tickSpeed();
         tickRotation(entity);
-        tickTeleport();
+        tickImmunity();
 
         if (Double.isNaN(runningAverageDelta))
             runningAverageDelta = 0;
@@ -137,7 +168,7 @@ public class FullStopCapability {
 //            bounced += 1;
 //    }
 
-    private void tickTeleport() {
+    private void tickImmunity() {
 
         if (hasTeleported) {
             teleportCooldown = 20;
@@ -150,6 +181,14 @@ public class FullStopCapability {
         } else {
             isDamageImmune = false;
         }
+
+//        if (hasTeleported) {
+//            isDamageImmune = true;
+//        }
+//
+//        if (isDamageImmune) {
+//            isDamageImmune = false;
+//        }
     }
 
     private void tickSpeed() {
@@ -237,29 +276,36 @@ public class FullStopCapability {
         return oldVelocity;
     }
 
-//    public Collision.CollisionType actualImpact(Collision.CollisionType impactType) {
-//        boolean same = this.impact == impactType;
-//        this.impact = impactType;
-//
-//        if (same) {
-//            return Collision.CollisionType.NONE;
-//        } else {
-//            return impactType;
-//        }
-//    }
+    @Override
+    public CompoundTag serializeNBT() {
+        CompoundTag tag = new CompoundTag();
 
-    public static class Provider implements ICapabilityProvider {
+        // Save only the fields you want to persist
+        tag.putBoolean("JoinedForFirstTime", joinedForFirstTime);
+
+        return tag;
+    }
+
+    @Override
+    public void deserializeNBT(CompoundTag nbt) {
+
+        // Load the fields you saved
+        joinedForFirstTime = nbt.getBoolean("JoinedForFirstTime");
+
+    }
+
+    public static class Provider implements ICapabilityProvider, INBTSerializable<CompoundTag> {
         public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
         private final Entity entity;
 
-        public FullStopCapability capability = null;
+        private FullStopCapability capability = null;
         private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability);
 
         public Provider(Entity entity) {
             this.entity = entity;
         }
 
-        public FullStopCapability createCapability() {
+        private FullStopCapability createCapability() {
             if (this.capability == null) {
                 this.capability = new FullStopCapability(entity);
             }
@@ -271,10 +317,50 @@ public class FullStopCapability {
             if (cap == DELTAV_CAP) {
                 return lazyHandler.cast();
             }
-
             return LazyOptional.empty();
         }
+
+        // 🔹 Add serialization support
+        @Override
+        public CompoundTag serializeNBT() {
+            return createCapability().serializeNBT();
+        }
+
+        @Override
+        public void deserializeNBT(CompoundTag nbt) {
+            createCapability().deserializeNBT(nbt);
+        }
     }
+
+//    public static class Provider implements ICapabilityProvider {
+//        public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
+//        private final Entity entity;
+//
+//        public FullStopCapability capability = null;
+//        private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability); // OLD PROVIDER WITHOUT NBT SERIALIZATION
+//
+//        public Provider(Entity entity) {
+//            this.entity = entity;
+//        }
+//
+//        public FullStopCapability createCapability() {
+//            if (this.capability == null) {
+//                this.capability = new FullStopCapability(entity);
+//            }
+//            return this.capability;
+//        }
+//
+//
+//
+//        @Override
+//        public @NotNull <T> LazyOptional<T> getCapability(@NotNull Capability<T> cap, @Nullable Direction side) {
+//            if (cap == DELTAV_CAP) {
+//                return lazyHandler.cast();
+//            }
+//
+//            return LazyOptional.empty();
+//        }
+//    }
 
     public static FullStopCapability grabCapability(Entity entity) {
         return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);

@@ -47,12 +47,6 @@ public class FullStop
 
     }
 
-//    @SubscribeEvent
-//    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
-//        Entity entity = event.getEntity();
-//        onEntityTick(entity);
-//    }
-
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
         if (!(SERVER.projectilesHaveMomentum.get())) return;

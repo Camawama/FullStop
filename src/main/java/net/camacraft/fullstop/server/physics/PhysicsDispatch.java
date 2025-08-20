@@ -1,11 +1,16 @@
 package net.camacraft.fullstop.server.physics;
 
+import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.physics.Physics;
 import net.camacraft.fullstop.server.CancelEvents;
+import net.minecraft.client.multiplayer.chat.report.ReportEnvironment;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Pose;
@@ -14,8 +19,10 @@ import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
+import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -32,18 +39,8 @@ public class PhysicsDispatch {
         if (event.level instanceof ServerLevel level) {
             level.getAllEntities().forEach(PhysicsDispatch::onEntityTick);
         }
-
-//        if (!(event.level instanceof ServerLevel)) return;
-//        try {
-//            PhysicsRegistry.server.forEach(PhysicsDispatch::onEntityTick);
-//        } catch (ConcurrentModificationException e ){
-//            System.out.println("concurrent modification");
-//        }
-
-//        if (horizontalImpactType != HorizontalImpactType.NONE) {
-//            logToChat(horizontalImpactType);
-//        }
     }
+
     // Lowest priority so other mods have a chance to change the damage prior to this
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingHurt(LivingHurtEvent event) {
@@ -71,7 +68,21 @@ public class PhysicsDispatch {
     public static void onEntityTeleport(EntityTeleportEvent event) {
         if (event.getEntity() instanceof LivingEntity living) {
             FullStopCapability cap = grabCapability(living);
+        }
+    }
+
+    @SubscribeEvent
+    public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        if (event.getEntity() instanceof LivingEntity living) {
+            FullStopCapability cap = grabCapability(living);
             cap.setHasTeleported(true);
+
+            if (living instanceof ServerPlayer) {
+                if (!cap.getJoinedForFirstTime()) {
+                    cap.setHasTeleported(true);
+                    cap.setJoinedForFirstTime(true);
+                }
+            }
         }
     }
 

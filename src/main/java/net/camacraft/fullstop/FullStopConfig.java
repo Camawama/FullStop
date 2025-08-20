@@ -10,7 +10,7 @@ public class FullStopConfig {
     public static final float DEFAULT_MAXIMUM_DMG = Float.MAX_VALUE;
     public static final float DEFAULT_PROJECTILE_MULTIPLIER = 1.00F;
     public static final float DEFAULT_VELOCITY_THRESHOLD = 6.3F;
-    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77F;
+    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77f;
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     protected static ForgeConfigSpec SERVER_SPEC;
@@ -50,6 +50,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
         public final ForgeConfigSpec.BooleanValue wildMode;
         public final ForgeConfigSpec.BooleanValue rotateCamera;
+        public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
 
@@ -80,10 +81,16 @@ public class FullStopConfig {
                     .defineInRange("maxDamagePercent", DEFAULT_MAXIMUM_DMG, 0, Float.MAX_VALUE);
 
             this.rotateCamera = builder
-                    .comment("Enables camera rotation when bouncing on a slime block")
+                    .comment("When true, enables camera rotation when bouncing on a slime block")
                     .translation(key("rotateCamera"))
                     .comment("Default: true")
                     .define("rotateCamera", true);
+
+            this.deathMessageAppend = builder
+                    .comment("When true, adds the velocity to the death message")
+                    .translation(key("deathMessageAppend"))
+                    .comment("Default: true")
+                    .define("deathMessageAppend", true);
 
             builder.pop();
             builder.push("Projectile settings");

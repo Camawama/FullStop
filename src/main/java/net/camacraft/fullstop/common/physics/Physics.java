@@ -5,13 +5,18 @@ import net.camacraft.fullstop.client.render.ParticleRenderer;
 import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.Style;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -157,8 +162,6 @@ public class Physics {
         if (collision.fake()) return;
         if (fullstop.getStoppingForce() <= 2.0) return;
 
-//        logToChat(fullstop.getStoppingForce());
-
         for (BlockState blockState : collision.blockStates) {
             SoundType soundType = blockState.getSoundType();
             SoundEvent sound = soundType.getFallSound();
@@ -181,12 +184,12 @@ public class Physics {
     public void applyForceEffects() {
         if (entity instanceof LivingEntity livingEntity) {
             if (isDamageImmune(livingEntity)) return;
-            if (fullstop.getRunningAverageDelta() > 3.0) {
+            if (fullstop.getRunningAverageDelta() > 5.0) {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.BLINDNESS, 30, 0, false, false));
             }
 
-            if (fullstop.getRunningAverageDelta() > 1.35) {
+            if (fullstop.getRunningAverageDelta() > 2.0) {
                 livingEntity.addEffect(new MobEffectInstance(
                         MobEffects.CONFUSION, 90, 0, false, false));
             }
@@ -204,15 +207,10 @@ public class Physics {
             livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
                     (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
 
-            if (entity instanceof Player player) {
+//            if (entity instanceof Player player) {
 //              entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(),
 //                      (int) damage * 5, 1)); //TODO create custom NO_JUMP status effect
-
-//                if (damage >= 0.5) {
-//                    player.setForcedPose(Pose.SWIMMING); //TODO make the player enter the swim/prone state
-//                    player.refreshDimensions();
-//                }
-            }
+//            }
         }
     }
 
@@ -288,12 +286,6 @@ public class Physics {
         }
 
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-//        Collision.CollisionType collisionType = fullstop.actualImpact(impactType);
-
-
-//        if (entity instanceof ServerPlayer) {
-//            LogToChat.logToChat(fullstop.getCurrentVelocity().length());
-//        }
 
         // Return collision with block types
         return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates);
@@ -314,7 +306,6 @@ public class Physics {
         double dirZ = Math.signum(direction.z);
 
         // Expand the bounding box infinitesimally in the direction we're checking for collisions
-
         return new AABB(
                 dirX < 0 ? Math.nextDown(b.minX) : b.minX,
                 b.minY,
@@ -325,6 +316,30 @@ public class Physics {
         );
     }
 
+// NEW AABB EXPANSION THAT IS SUPPOSED TO EXPAND UPWARDS AND DOWNWARDS (CHATGPT USED)
+//    @NotNull
+//    private static AABB expandAABB(Vec3 direction, AABB b) {
+//        double dirX = Math.signum(direction.x);
+//        double dirY = Math.signum(direction.y);
+//        double dirZ = Math.signum(direction.z);
+//
+//        return new AABB(
+//                // X min
+//                dirX < 0 ? Math.nextDown(b.minX) : b.minX,
+//                // Y min
+//                dirY < 0 ? Math.nextDown(b.minY) : b.minY,
+//                // Z min
+//                dirZ < 0 ? Math.nextDown(b.minZ) : b.minZ,
+//
+//                // X max
+//                dirX > 0 ? Math.nextUp(b.maxX) : b.maxX,
+//                // Y max
+//                dirY > 0 ? Math.nextUp(b.maxY) : b.maxY,
+//                // Z max
+//                dirZ > 0 ? Math.nextUp(b.maxZ) : b.maxZ
+//        );
+//    }
+
     private void handleEntityCollision() {
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
 
@@ -332,7 +347,6 @@ public class Physics {
         if (fullstop.getCurrentVelocity().length() < 6.1) return;
         entity.setDeltaMovement(Vec3.ZERO);
     }
-
 
     public void bounceEntity() {
         handleEntityCollision();
@@ -380,11 +394,11 @@ public class Physics {
         );
         entity.setDeltaMovement(newV.scale(0.05));
 
-        if (!SERVER.rotateCamera.get()) { //returns if config is false so entity doesn't rotate when bouncing
+        if (!SERVER.rotateCamera.get()) { //returns if config is false so entity doesn't rotate when bouncing but should probably make this a client config
             return;
         }
 
-        if (fullstop.getStoppingForce() < 3.0) return; // prevent rotation in creative for players
+        if (fullstop.getStoppingForce() < 3.0) return;
 
         if (entity instanceof Player) {
             if (((Player) entity).getAbilities().flying) return;
@@ -396,25 +410,13 @@ public class Physics {
         double targetAngle = switch (horizontalImpactType) {
             case NONE -> 0.0;
             case SLIME -> newAngle;
-//            case SLIME -> mixAngles(newAngle, newV.length(), currentAngle, 2.0);
             case HONEY -> Double.NaN;
             case SOLID -> Double.NaN;
             case ENTITY -> Double.NaN;
-//            case SOLID -> mixAngles(
-//                    newAngle,1.0,
-//                    currentAngle,12.0
-//            );
         } / Math.PI * 180;
 
         fullstop.setTargetAngle(targetAngle);
     }
-
-//    private double mixAngles(double angleA, double weightA, double angleB, double weightB) {
-//        angleA += 360;
-//        angleB += 360;
-//        double angleAverage = (angleA * weightA + angleB * weightB) / (weightA + weightB);
-//        return angleAverage - 360;
-//    }
 
     public static double angleWrap(double angle) {
         angle += 180;
@@ -427,38 +429,34 @@ public class Physics {
 
     private double calcKineticDamage() {
 
-//        if (entity instanceof LivingEntity living && entity instanceof Player) {
-//            logToChat("is damage immune", isDamageImmune(living), "is mostly downward", fullstop.isMostlyDownward(), "collision type", collision.collisionType);
-//        }
-//        if (entity instanceof ServerPlayer) {
-//            logToChat(fullstop);
-//        }
+        if (entity instanceof LivingEntity && entity instanceof ServerPlayer) {
 
-        if (
-                !(entity instanceof LivingEntity living) ||
-                        isDamageImmune(living) ||
-                        (!fullstop.isMostlyDownward() &&
-                                collision.collisionType != Collision.CollisionType.SOLID &&
-                                collision.collisionType != Collision.CollisionType.ENTITY)
-        ) return 0;
+//            if (fullstop.isMostlyUpward()) {
+//                LogToChat.logToChat("is mostly upward");
+//            } else if (fullstop.isMostlyDownward()) {
+//                LogToChat.logToChat("is mostly downward");
+//            } else {
+//                LogToChat.logToChat("is mostly horizontal");
+//            }
 
-//        if (living instanceof Player player) {
-//            logToChat(player.isSwimming(), player.isInWater()); // DEBUG
-//        }
+//            LogToChat.logToChat(collision.collisionType);
+
+        }
+
+        if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+            return 0;
+        }
+
+        if (!fullstop.isMostlyDownward() && collision.collisionType != Collision.CollisionType.SOLID && collision.collisionType != Collision.CollisionType.ENTITY) return 0;
 
         if (living.isSwimming() && living.isInWater()) return 0; //attempt to prevent damage when the player is in the swimming state and in water
 
         if (fullstop.getIsDamageImmune()) return 0;
 
-//        if (living instanceof ServerPlayer) {
-//            if (((ServerPlayer) living).isChangingDimension()) return 0; //attempt to prevent damage when teleporting between dimensions | This shit simply doesn't work at all
-//        }
-
         double delta = fullstop.getStoppingForce();
-//        if (delta > 3)
 
         double damage;
-        if (!fullstop.isMostlyDownward()) {
+        if (!fullstop.isMostlyDownward() || !fullstop.isMostlyUpward()) {
             damage = Math.max(delta - SERVER.velocityDamageThresholdHorizontal.get(), 0);
         } else {
             damage = Math.max(delta - SERVER.velocityDamageThresholdVertical.get(), 0);
@@ -477,34 +475,112 @@ public class Physics {
             jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
         }
 
-        if (fullstop.isMostlyDownward()) {
+        if (fullstop.isMostlyDownward() || !fullstop.isMostlyUpward()) {
             damage -= jumpBoostLevel;
-        }
-
-        if (!fullstop.isMostlyDownward()) {
-
         }
 
         return (float) (damage * 1.07) / (1 + fallProtLevel * 0.2);
     }
 
-    public void applyKineticDamage() {
-            if (damage < 1) return;
+    private static int lerpColor(int color1, int color2, double t) {
+        int r1 = (color1 >> 16) & 0xFF;
+        int g1 = (color1 >> 8) & 0xFF;
+        int b1 = color1 & 0xFF;
 
-            DamageSources sources = entity.damageSources();
+        int r2 = (color2 >> 16) & 0xFF;
+        int g2 = (color2 >> 8) & 0xFF;
+        int b2 = color2 & 0xFF;
+
+        int r = (int)(r1 + (r2 - r1) * t);
+        int g = (int)(g1 + (g2 - g1) * t);
+        int b = (int)(b1 + (b2 - b1) * t);
+
+        return (r << 16) | (g << 8) | b;
+    }
+
+
+    public void applyKineticDamage() {
+
+        double previousVelocity = fullstop.getPreviousVelocity().length();
+        if (damage < 1) return;
+
+//        if (entity instanceof LivingEntity living) {
+//            if (living.isFallFlying()) {  // TODO prevent damage when entity is fall flying but has large velocity change
+//
+//            }
+//        }
+
+        // Decide on the color dynamically based on velocity
+        TextColor color;
+
+        double maxVelocity = 78.40;
+        double t = Math.min(previousVelocity / maxVelocity, 1.0); // normalize to 0–1
+
+        // Define base colors
+        int green   = 0x00FF00; // bright green
+        int red     = 0xFF0000; // bright red
+        int darkRed = 0x800000; // dark red
+
+        int rgb;
+        if (t < 0.8) {
+            // From green → red between 0% and 80% of max
+            double nt = t / 0.8;
+            rgb = lerpColor(green, red, nt);
+        } else {
+            // From red → dark red between 80%–100%
+            double nt = (t - 0.8) / 0.2;
+            rgb = lerpColor(red, darkRed, nt);
+        }
+
+        color = TextColor.fromRgb(rgb);
+
+
+        String velocityToDisplay = String.format("(going %.2f m/s)", previousVelocity); // Eventually append this onto the "Flopped in water" death message when collision detection works going up and down
+
+        DamageSources sources = entity.damageSources();
+
+        // Pick which vanilla DamageType to wrap
+        DamageSource baseSource = fullstop.isMostlyDownward()
+                ? sources.fall()
+                : sources.flyIntoWall();
+
+        if (!SERVER.deathMessageAppend.get()) {
             if (fullstop.isMostlyDownward()) {
                 entity.hurt(sources.fall(), (float) damage);
             } else {
                 entity.hurt(sources.flyIntoWall(), (float) damage);
             }
+            return;
+        }
 
-            //logToChat("damaged ", entity);
+        // Wrap the base source with a custom one that overrides the death message
+        DamageSource customSource = new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public Component getLocalizedDeathMessage(LivingEntity victim) {
+                Component base = super.getLocalizedDeathMessage(victim);
+
+                boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
+
+                // Append "while flying" if Elytra equipped
+                Component flyingComponent = hasElytra
+                        ? Component.literal(" with Elytra")
+                        : Component.empty();
+
+                // Build a colored component for the velocity
+                Component velocityComponent = Component.literal(" " + velocityToDisplay)
+                        .withStyle(Style.EMPTY.withColor(color));
+
+                return base.copy().append(flyingComponent).append(velocityComponent);
+            }
+        };
+
+        // Apply the custom damage
+        entity.hurt(customSource, (float) damage);
     }
 
     public Physics(Entity entity) {
         fullstop = grabCapability(entity);
         fullstop.tick(entity);
-
         this.entity = entity;
         collision = collidingKinetically();
         damage = calcKineticDamage();
