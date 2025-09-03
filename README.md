@@ -4,7 +4,7 @@
 
 [<img alt="Discord" src="https://img.shields.io/discord/824044029502292011?style=for-the-badge&logo=discord"/>](https://discord.gg/c9DshjA8jF)
 
-<img src="https://media.forgecdn.net/avatars/thumbnails/1096/538/256/256/638642252069089539.png" alt="Mod Logo" width="128" height="128">
+<img src="https://raw.githubusercontent.com/Camawama/FullStop/main/logo.png" alt="Mod Logo" width="128" height="128">
 
 [Curseforge Page](https://www.curseforge.com/minecraft/mc-mods/full-stop)
 
