@@ -10,8 +10,16 @@ import net.minecraft.world.level.block.state.BlockState;
 public class SoundPlayer {
 
     public static void playSound(Entity entity, SoundEvent sound, float volume, float pitch) {
-
-        entity.level().playLocalSound(entity.blockPosition(), sound, SoundSource.BLOCKS, volume, pitch, false);
-
+        Level level = entity.level();
+        if (!level.isClientSide()) {
+            level.playSound(
+                    null, // player = null → all nearby players will hear it
+                    entity.blockPosition(),
+                    sound,
+                    SoundSource.BLOCKS,
+                    volume,
+                    pitch
+            );
+        }
     }
 }

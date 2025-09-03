@@ -23,7 +23,7 @@ public class ParticleRenderer {
         } else if (collision.collisionType == Collision.CollisionType.SOLID) {
             particleType = new BlockParticleOption(ParticleTypes.BLOCK, blockState);
         } else if (collision.collisionType == Collision.CollisionType.ENTITY) {
-            particleType = ParticleTypes.DAMAGE_INDICATOR;
+            particleType = ParticleTypes.CLOUD;
         } else {
             throw new IllegalStateException("not a sticky type");
         }

@@ -109,7 +109,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public double getTeleportCooldown() {
         return teleportCooldown;
-    }
+    } //eventually add a config option to modify how long the cooldown lasts
 
     public boolean getJoinedForFirstTime() { return joinedForFirstTime; }
 
@@ -362,7 +362,14 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 //        }
 //    }
 
-    public static FullStopCapability grabCapability(Entity entity) {
-        return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new);
+
+
+
+//    public static FullStopCapability grabCapability(Entity entity) {
+//        return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new); //OLD grabCapability
+//    }
+
+    public static @Nullable FullStopCapability grabCapability(Entity entity) {
+        return entity.getCapability(DELTAV_CAP).orElse(null);
     }
 }

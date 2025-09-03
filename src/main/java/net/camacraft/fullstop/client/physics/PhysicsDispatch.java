@@ -48,8 +48,6 @@ public class PhysicsDispatch {
         Physics physics = new Physics(entity);
         physics.bounceEntity();
         physics.impactAesthetic();
-        physics.impactSound();
-        physics.impactDamageSound();
 
 //        if (!(entity instanceof Player player)) return;
 //        if (!player.isSwimming()) {

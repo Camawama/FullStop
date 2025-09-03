@@ -15,17 +15,22 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.vehicle.AbstractMinecart;
+import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.Level;
@@ -37,6 +42,7 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
@@ -112,9 +118,8 @@ public class Physics {
         float newDamage = calculateNewDamage((float) approachVelocity, originalDamage);
         int damageRatio = Math.round(newDamage / originalDamage);
 
-        if (attacker instanceof Player) {
-            Player player = (Player) attacker;
-            ItemStack item = player.getItemInHand(InteractionHand.MAIN_HAND);
+        if (attacker instanceof LivingEntity living) {
+            ItemStack item = living.getItemInHand(InteractionHand.MAIN_HAND);
             if (item.isDamageableItem()) {
                 int currentValue = item.getDamageValue();
                 item.setDamageValue(currentValue + damageRatio - 1);
@@ -140,6 +145,7 @@ public class Physics {
         if (collision.fake()) return;
         double highestY = collision.highestYLevel;
         double lowestY = collision.lowestYLevel;
+        if (fullstop.getStoppingForce() < 4.0) return;
 
         Vec3 pos = entity.position();
         Vec3 highestPos = new Vec3(pos.x, highestY, pos.z);
@@ -156,11 +162,31 @@ public class Physics {
     }
 
     public void impactSound() {
-        float volume = (float) (fullstop.getStoppingForce() * 0.05);
-        float pitch = 1.0f;
+        float volume = ((float) (fullstop.getStoppingForce() * 0.05f));
+
+        if (collision.blockStates != null && !collision.blockStates.isEmpty()) {
+            volume /= (collision.blockStates.size() + 1); // +1 avoids over-shrinking
+        }
+
+        if (collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
+            volume /= (collision.collidingEntities.size() + 1);
+        }
+
+        volume = Mth.clamp(volume, 0.0f, 2.0f);
+
+        float minPitch = 0.9f;
+        float maxPitch = 1.7f;
+        float pitch = (float) Mth.clamp(minPitch + (fullstop.getStoppingForce() / 100f) * (maxPitch - minPitch), minPitch, maxPitch);
 
         if (collision.fake()) return;
-        if (fullstop.getStoppingForce() <= 2.0) return;
+
+        if (fullstop.getStoppingForce() <= 6.0) return;
+
+        if (!(entity instanceof LivingEntity) && collision.collisionType == Collision.CollisionType.ENTITY) return;
+
+        for (Entity collidedEntity : collision.collidingEntities) {
+            SoundPlayer.playSound(collidedEntity, SoundEvents.BOOK_PUT, volume, pitch); // This sound works surprisingly well for entity collision!
+        }
 
         for (BlockState blockState : collision.blockStates) {
             SoundType soundType = blockState.getSoundType();
@@ -202,6 +228,7 @@ public class Physics {
 
     public void applyDamageEffects() {
         if (damage <= 0) return;
+        if (fullstop.getIsDamageImmune()) return;
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
@@ -227,6 +254,8 @@ public class Physics {
         }
 
         AABB expandedBox = expandAABB(direction, boundingBox);
+
+        @SuppressWarnings("resource")
         Level level = entity.level();
 
         double[] highestY = {-64};
@@ -275,20 +304,26 @@ public class Physics {
             });
         }
 
-        List<Entity> collidingEntities = level.getEntities(
-                entity,
-                expandedBox,
-                e -> e instanceof LivingEntity && e != entity && !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
-        );
+        List<Entity> collidingEntities = Collections.emptyList();
 
-        if (!collidingEntities.isEmpty()) {
-            collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.ENTITY.ordinal());
+        if (SERVER.entityCollisionDamage.get()) { //SERVER.entityCollisionDamage will be split in the future
+            collidingEntities = level.getEntities(
+                    entity,
+                    expandedBox,
+                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart) &&
+                            e != entity &&
+                            !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
+            );
+
+            if (!collidingEntities.isEmpty()) {
+                collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.ENTITY.ordinal());
+            }
         }
 
         Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
 
-        // Return collision with block types
-        return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates);
+        // Return collision with block types or entities
+        return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates, collidingEntities);
     }
 
     private static BlockPos blockPosFromVec3(Vec3 pos) {
@@ -341,14 +376,53 @@ public class Physics {
 //    }
 
     private void handleEntityCollision() {
-        if (!SERVER.entityCollisionDamage.get()) {
-            return;
-        }
+        if (!SERVER.entityCollisionDamage.get()) return; //TODO split entity velocity transfer into it's own config option
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
+        if (fullstop.getCurrentVelocity().length() < 5.0) return;
 
-        // Option 1: hard stop
-        if (fullstop.getCurrentVelocity().length() < 6.1) return;
-        entity.setDeltaMovement(Vec3.ZERO);
+//        if (entity instanceof Player) {
+//            LogToChat.logToChat(collision.collidingEntities);
+//        }
+
+        if (entity instanceof LivingEntity) {
+            for (Entity collidedEntity : collision.collidingEntities) {
+                if (collidedEntity instanceof LivingEntity) {
+
+//                    if (entity instanceof Player) { // DEBUG CODE
+//                        ((LivingEntity) collidedEntity).addEffect(new MobEffectInstance(
+//                                MobEffects.GLOWING,
+//                                10,
+//                                1,
+//                                false,
+//                                false,
+//                                false
+//                        ));
+//                    }
+
+                    if (collidedEntity instanceof Player) {
+                        if (!entity.level().isClientSide()) {
+                            entity.setDeltaMovement(Vec3.ZERO);
+                            entity.hasImpulse = true;
+                        }
+                    } else {
+                        if (!entity.level().isClientSide() && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && collidedEntity.getPassengers().isEmpty()) {
+                            if (!entity.isCrouching() && !(collidedEntity instanceof AgeableMob ageable && ageable.isBaby())) {
+                                entity.startRiding(collidedEntity, true);
+                            }
+                        }
+                        if (!entity.isPassengerOfSameVehicle(collidedEntity)) {
+                            entity.setDeltaMovement(Vec3.ZERO);
+                            entity.hasImpulse = true;
+                            collidedEntity.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.05));
+                        }
+                    }
+                } else if (collidedEntity instanceof Boat || collidedEntity instanceof Minecart) {
+                    if (!entity.level().isClientSide() && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && collidedEntity.getPassengers().isEmpty()) {
+                        entity.startRiding(collidedEntity, true); // This does not work everytime for boats. I am confused
+                    }
+                }
+            }
+        }
     }
 
     public void bounceEntity() {
@@ -446,6 +520,10 @@ public class Physics {
 
         }
 
+//        if (!entity.isAttackable()) {
+//            return 0;
+//        }
+
         if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
             return 0;
         }
@@ -465,7 +543,7 @@ public class Physics {
         double delta = fullstop.getStoppingForce();
 
         double damage;
-        if (!fullstop.isMostlyDownward() || !fullstop.isMostlyUpward()) {
+        if (!fullstop.isMostlyDownward()) {
             damage = Math.max(delta - SERVER.velocityDamageThresholdHorizontal.get(), 0);
         } else {
             damage = Math.max(delta - SERVER.velocityDamageThresholdVertical.get(), 0);
@@ -484,7 +562,7 @@ public class Physics {
             jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
         }
 
-        if (fullstop.isMostlyDownward() || !fullstop.isMostlyUpward()) {
+        if (fullstop.isMostlyDownward()) {
             damage -= jumpBoostLevel;
         }
 
@@ -564,9 +642,30 @@ public class Physics {
             } else {
                 entity.hurt(sources.flyIntoWall(), (float) damage);
             }
-            return;
+        } else {
+            DamageSource customSource = getCustomSource(baseSource, velocityToDisplay, color);
+
+            if (collision.collidingEntities == null) return;
+
+            // Apply the custom damage
+            if (!collision.collidingEntities.isEmpty()) {
+                entity.hurt(customSource, (float) damage / collision.collidingEntities.size());
+            } else {
+                entity.hurt(customSource, (float) damage);
+            }
         }
 
+        float entityDamage = (float) damage / collision.collidingEntities.size();
+
+        for (Entity entity : collision.collidingEntities) {
+            entity.hurt(sources.flyIntoWall(), entityDamage);
+        }
+
+//        LogToChat.logToChat(collision.collidingEntities);
+    }
+
+    @NotNull
+    private static DamageSource getCustomSource(DamageSource baseSource, String velocityToDisplay, TextColor color) {
         // Wrap the base source with a custom one that overrides the death message
         DamageSource customSource = new DamageSource(baseSource.typeHolder()) {
             @Override
@@ -575,7 +674,7 @@ public class Physics {
 
                 boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
 
-                // Append "while flying" if Elytra equipped
+                // Append if Elytra equipped
                 Component flyingComponent = hasElytra
                         ? Component.literal(" with Elytra")
                         : Component.empty();
@@ -587,20 +686,31 @@ public class Physics {
                 return base.copy().append(flyingComponent).append(velocityComponent);
             }
         };
-
-        // Apply the custom damage
-        entity.hurt(customSource, (float) damage);
+        return customSource;
     }
 
     public Physics(Entity entity) {
         fullstop = grabCapability(entity);
+
+//        if (entity instanceof ServerPlayer) {
+//            LogToChat.logToChat(fullstop.getCurrentVelocity());
+//        }
+
         fullstop.tick(entity);
         this.entity = entity;
         collision = collidingKinetically();
+
+//        if (collision.collisionType != null) {
+//            if (entity instanceof ServerPlayer) {
+//                LogToChat.logToChat(collision.collisionType);
+//            }
+//        }
+
         damage = calcKineticDamage();
     }
 
     public static boolean unphysable(Entity entity) {
+        if (entity == null) return true;
         if (entity.noPhysics) return true;
         if (entity instanceof LivingEntity livingEntity)
             if (livingEntity.isDeadOrDying())

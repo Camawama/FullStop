@@ -127,10 +127,10 @@ public class FullStopConfig {
                     .comment("This value determines how fast an entity must be moving in order to apply kinetic damage vertically. Very low values may be unplayable!")
                     .translation(key("velocityDamageThresholdVertical"))
                     .comment("Default: 12.77")
-                    .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL, 0, 100);
+                    .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL, 0, 100);
 
             this.entityCollisionDamage = builder
-                    .comment("When enabled, colliding with entities will cause kinetic damage")
+                    .comment("When enabled, colliding with entities will cause kinetic damage. This is a highly experimental feature, use at your own risk!")
                     .translation(key("entityCollisionDamage"))
                     .comment("Default: false")
                     .define("entityCollisionDamage", false);

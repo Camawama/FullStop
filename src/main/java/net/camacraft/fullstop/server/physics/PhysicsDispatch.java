@@ -60,7 +60,9 @@ public class PhysicsDispatch {
     public static void onEntityChangeDimension(EntityTravelToDimensionEvent event) {
         if (event.getEntity() instanceof LivingEntity living) {
             FullStopCapability cap = grabCapability(living);
-            cap.setHasTeleported(true);
+            if (cap != null) {
+                cap.setHasTeleported(true);
+            }
         }
     }
 
@@ -68,6 +70,9 @@ public class PhysicsDispatch {
     public static void onEntityTeleport(EntityTeleportEvent event) {
         if (event.getEntity() instanceof LivingEntity living) {
             FullStopCapability cap = grabCapability(living);
+            if (cap != null) {
+                cap.setHasTeleported(true);
+            }
         }
     }
 
@@ -75,12 +80,14 @@ public class PhysicsDispatch {
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
         if (event.getEntity() instanceof LivingEntity living) {
             FullStopCapability cap = grabCapability(living);
-            cap.setHasTeleported(true);
+            if (cap != null) {
+                cap.setHasTeleported(true);
 
-            if (living instanceof ServerPlayer) {
-                if (!cap.getJoinedForFirstTime()) {
-                    cap.setHasTeleported(true);
-                    cap.setJoinedForFirstTime(true);
+                if (living instanceof ServerPlayer) {
+                    if (!cap.getJoinedForFirstTime()) {
+                        cap.setHasTeleported(true);
+                        cap.setJoinedForFirstTime(true);
+                    }
                 }
             }
         }
@@ -100,6 +107,8 @@ public class PhysicsDispatch {
         Physics physics = new Physics(entity);
         physics.applyForceEffects();
         physics.bounceEntity();
+        physics.impactSound();
+        physics.impactDamageSound();
         physics.applyKineticDamage();
         physics.applyDamageEffects();
     }
