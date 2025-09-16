@@ -23,7 +23,7 @@ public class SprainEffect extends MobEffect {
         }
 
         if (!canBypass) {
-            // Prevent upward jumping
+            // Slow down jumping
             if (entity.getDeltaMovement().y > 0) {
                 entity.setDeltaMovement(
                         entity.getDeltaMovement().x,
