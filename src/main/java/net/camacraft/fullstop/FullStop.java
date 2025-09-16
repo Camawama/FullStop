@@ -2,7 +2,7 @@ package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
-import net.camacraft.fullstop.common.effects.EffectEvents;
+import net.camacraft.fullstop.common.effects.ModEffects;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
@@ -14,6 +14,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.ModLoadingContext;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.loading.FMLEnvironment;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
@@ -29,6 +30,11 @@ public class FullStop
      */
 
     public FullStop() {
+        // ✅ Register deferred registers (blocks, items, effects, etc.) on the MOD event bus
+        var modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+        ModEffects.MOB_EFFECTS.register(modEventBus);
+
+        // ✅ Register listeners/event handlers on the FORGE bus
         MinecraftForge.EVENT_BUS.register(FullStop.class);
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
@@ -36,15 +42,12 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.PhysicsDispatch.class);
-
         MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
-        MinecraftForge.EVENT_BUS.register(EffectEvents.class);
         MinecraftForge.EVENT_BUS.register(LogToChat.class);
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
-
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)

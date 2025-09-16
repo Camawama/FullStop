@@ -5,7 +5,7 @@ import net.camacraft.fullstop.client.render.ParticleRenderer;
 import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
-import net.minecraft.ChatFormatting;
+import net.camacraft.fullstop.common.effects.ModEffects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Vec3i;
 import net.minecraft.network.chat.Component;
@@ -25,6 +25,8 @@ import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.horse.Horse;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -231,13 +233,16 @@ public class Physics {
         if (fullstop.getIsDamageImmune()) return;
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-            livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
-                    (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
 
-//            if (entity instanceof Player player) {
-//              entity.addEffect(new MobEffectInstance(CommonModEvents.NO_JUMP.get(),
-//                      (int) damage * 5, 1)); //TODO create custom NO_JUMP status effect
-//            }
+            if (fullstop.isMostlyDownward()) {
+                livingEntity.addEffect(new MobEffectInstance(ModEffects.SPRAIN.get(),
+                        (int) (damage * 10 * (1.0 - fallProtLevel * 0.2)), 0, false, false));
+            } else {
+                livingEntity.addEffect(new MobEffectInstance(MobEffects.BLINDNESS,
+                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
+                livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
+                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
+            }
         }
     }
 
@@ -416,13 +421,24 @@ public class Physics {
                             collidedEntity.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.05));
                         }
                     }
-                } else if (collidedEntity instanceof Boat || collidedEntity instanceof Minecart) {
-                    if (!entity.level().isClientSide() && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && collidedEntity.getPassengers().isEmpty()) {
-                        entity.startRiding(collidedEntity, true); // This does not work everytime for boats. I am confused
+                } else if (collidedEntity instanceof Minecart minecart) {
+                    if (!entity.isCrouching() && !entity.level().isClientSide() && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && collidedEntity.getPassengers().isEmpty()) {
+                        entity.startRiding(minecart, true);
+                        minecart.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.05));
+                    }
+
+                } else if (collidedEntity instanceof Boat boat) {
+                    if (!entity.isCrouching() && !entity.level().isClientSide() && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && collidedEntity.getPassengers().isEmpty()) {
+                        entity.startRiding(boat, true);
+                        boat.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.15)); // TODO COLLISIONS ARE NOT PROPERLY DETECTED FOR BOATS, THEREFORE, THIS DOESN'T WORK.
                     }
                 }
             }
         }
+
+//        if (entity instanceof Minecart) {
+//
+//        }
     }
 
     public void bounceEntity() {
@@ -538,6 +554,10 @@ public class Physics {
             if (!SERVER.entityCollisionDamage.get()) {
                 return 0;
             }
+        }
+
+        if (entity instanceof Horse && damage < 1.0) {
+            return 0;
         }
 
         double delta = fullstop.getStoppingForce();
