@@ -236,13 +236,13 @@ public class Physics {
 
             if (fullstop.isMostlyDownward()) {
                 livingEntity.addEffect(new MobEffectInstance(ModEffects.SPRAIN.get(),
-                        (int) (damage * 10 * (1.0 - fallProtLevel * 0.2)), 0, false, false));
+                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), 0, false, false));
             } else {
                 livingEntity.addEffect(new MobEffectInstance(MobEffects.BLINDNESS,
                         (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
-                livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
-                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
             }
+            livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
+                    (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
         }
     }
 

@@ -8,7 +8,7 @@ import net.minecraft.world.entity.player.Player;
 public class SprainEffect extends MobEffect {
 
     public SprainEffect() {
-        super(MobEffectCategory.HARMFUL, 0x8B5A2B); // Brownish color
+        super(MobEffectCategory.HARMFUL, 0x8B5A2B);
     }
 
     @Override
