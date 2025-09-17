@@ -25,6 +25,7 @@ import net.minecraft.world.entity.AgeableMob;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.animal.horse.Horse;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -418,7 +419,9 @@ public class Physics {
                         if (!entity.isPassengerOfSameVehicle(collidedEntity)) {
                             entity.setDeltaMovement(Vec3.ZERO);
                             entity.hasImpulse = true;
-                            collidedEntity.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.05));
+                            if (!(collidedEntity instanceof IronGolem)) {
+                                collidedEntity.setDeltaMovement(fullstop.getPreviousVelocity().scale(0.05));
+                            }
                         }
                     }
                 } else if (collidedEntity instanceof Minecart minecart) {
@@ -556,7 +559,7 @@ public class Physics {
             }
         }
 
-        if (entity instanceof Horse && damage < 1.0) {
+        if (entity instanceof Horse && damage < 1.0) { // BAND-AID FIX FOR HORSE DAMAGE
             return 0;
         }
 
@@ -605,108 +608,213 @@ public class Physics {
         return (r << 16) | (g << 8) | b;
     }
 
-
     public void applyKineticDamage() {
-
         double previousVelocity = fullstop.getPreviousVelocity().length();
         if (damage < 1) return;
 
-//        if (entity instanceof LivingEntity living) {
-//            if (living.isFallFlying()) {  // TODO prevent damage when entity is fall flying but has large velocity change
-//
-//            }
-//        }
-
         // Decide on the color dynamically based on velocity
         TextColor color;
-
         double maxVelocity = 78.40;
-        double t = Math.min(previousVelocity / maxVelocity, 1.0); // normalize to 0–1
+        double t = Math.min(previousVelocity / maxVelocity, 1.0);
 
-        // Define base colors
-        int green   = 0x00FF00; // bright green
-        int yellow  = 0xFFFF00; // yellow
-        int red     = 0xFF0000; // bright red
-        int darkRed = 0x800000; // dark red
+        int green   = 0x00FF00;
+        int yellow  = 0xFFFF00;
+        int red     = 0xFF0000;
+        int darkRed = 0x800000;
 
         int rgb;
         if (t < 0.33) {
-            // Green → Yellow
             double nt = t / 0.33;
             rgb = lerpColor(green, yellow, nt);
         } else if (t < 0.66) {
-            // Yellow → Red
             double nt = (t - 0.33) / 0.33;
             rgb = lerpColor(yellow, red, nt);
         } else {
-            // Red → Dark Red
-            double nt = (t - 0.66) / 0.34; // use 0.34 to cover remainder up to 1.0
+            double nt = (t - 0.66) / 0.34;
             rgb = lerpColor(red, darkRed, nt);
         }
-
         color = TextColor.fromRgb(rgb);
 
-
-        String velocityToDisplay = String.format("(going %.2f m/s)", previousVelocity); // Eventually append this onto the "Flopped in water" death message when collision detection works going up and down
-
+        String velocityToDisplay = String.format("(going %.2f m/s)", previousVelocity);
         DamageSources sources = entity.damageSources();
 
-        // Pick which vanilla DamageType to wrap
-        DamageSource baseSource = fullstop.isMostlyDownward()
-                ? sources.fall()
-                : sources.flyIntoWall();
+        // --- Case 1: Vertical / Wall damage applied to self ---
+        if (collision.collisionType != Collision.CollisionType.ENTITY) {
+            DamageSource baseSource = fullstop.isMostlyDownward()
+                    ? sources.fall()
+                    : sources.flyIntoWall();
 
-        if (!SERVER.deathMessageAppend.get()) {
-            if (fullstop.isMostlyDownward()) {
-                entity.hurt(sources.fall(), (float) damage);
+            DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward());
+            entity.hurt(customSource, (float) damage); // full damage since no entity split
+        }
+
+        // --- Case 2: Entity collision damage ---
+        if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null) {
+            // Filter out Iron Golems for damage purposes
+            List<LivingEntity> validTargets = collision.collidingEntities.stream()
+                    .filter(e -> e instanceof LivingEntity)
+                    .map(e -> (LivingEntity) e)
+                    .filter(living -> !(living instanceof IronGolem))
+                    .toList();
+
+            // Pick ANY collided entity (even Iron Golem) just for death message
+            LivingEntity collidedExample = collision.collidingEntities.stream()
+                    .filter(e -> e instanceof LivingEntity)
+                    .map(e -> (LivingEntity) e)
+                    .findFirst()
+                    .orElse(null);
+
+            int colliders = validTargets.size();
+            float entityDamage = (colliders == 0) ? (float) damage : (float) damage / (colliders + 1);
+
+            // --- Always apply damage to self ---
+            DamageSource selfSource;
+            if (collidedExample != null) {
+                selfSource = makeEntityCollisionSelfSource(
+                        sources.flyIntoWall(),
+                        (LivingEntity) entity,
+                        collidedExample,
+                        velocityToDisplay,
+                        color,
+                        fullstop.isMostlyDownward()
+                );
             } else {
-                entity.hurt(sources.flyIntoWall(), (float) damage);
+                selfSource = makeSelfSource(
+                        sources.flyIntoWall(),
+                        velocityToDisplay,
+                        color,
+                        fullstop.isMostlyDownward()
+                );
             }
-        } else {
-            DamageSource customSource = getCustomSource(baseSource, velocityToDisplay, color);
+            entity.hurt(selfSource, entityDamage);
 
-            if (collision.collidingEntities == null) return;
-
-            // Apply the custom damage
-            if (!collision.collidingEntities.isEmpty()) {
-                entity.hurt(customSource, (float) damage / collision.collidingEntities.size());
-            } else {
-                entity.hurt(customSource, (float) damage);
+            // --- Apply damage to valid targets only (Iron Golems excluded) ---
+            for (LivingEntity target : validTargets) {
+                DamageSource attackerSource = makeEntityAttackerSource(
+                        sources,
+                        (LivingEntity) entity,
+                        velocityToDisplay,
+                        color,
+                        fullstop.isMostlyDownward()
+                );
+                target.hurt(attackerSource, entityDamage);
             }
         }
 
-        float entityDamage = (float) damage / collision.collidingEntities.size();
+    }
 
-        for (Entity entity : collision.collidingEntities) {
-            entity.hurt(sources.flyIntoWall(), entityDamage);
-        }
 
-//        LogToChat.logToChat(collision.collidingEntities);
+    @NotNull
+    private static DamageSource makeSelfSource(DamageSource baseSource,
+                                               String velocityToDisplay,
+                                               TextColor color,
+                                               boolean isMostlyDownward) {
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public Component getLocalizedDeathMessage(LivingEntity victim) {
+                if (isMostlyDownward) {
+                    // Vanilla fall message + velocity
+                    Component base = super.getLocalizedDeathMessage(victim);
+
+                    boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
+                    Component flyingComponent = hasElytra
+                            ? Component.literal(" with Elytra")
+                            : Component.empty();
+
+                    Component velocityComponent = Component.literal(" " + velocityToDisplay)
+                            .withStyle(Style.EMPTY.withColor(color));
+
+                    return base.copy().append(flyingComponent).append(velocityComponent);
+                } else {
+                    // Horizontal kinetic phrasing
+                    Component velocityComponent = Component.literal(" " + velocityToDisplay)
+                            .withStyle(Style.EMPTY.withColor(color));
+
+                    return Component.literal("")
+                            .append(victim.getDisplayName())
+                            .append(" experienced kinetic energy")
+                            .append(velocityComponent);
+                }
+            }
+        };
     }
 
     @NotNull
-    private static DamageSource getCustomSource(DamageSource baseSource, String velocityToDisplay, TextColor color) {
-        // Wrap the base source with a custom one that overrides the death message
-        DamageSource customSource = new DamageSource(baseSource.typeHolder()) {
+    private static DamageSource makeEntityAttackerSource(DamageSources sources,
+                                                         LivingEntity attacker,
+                                                         String velocityToDisplay,
+                                                         TextColor color,
+                                                         boolean isMostlyDownward) {
+        // Create a vanilla attacker source (keeps the attacker reference for aggro)
+        DamageSource base = (attacker instanceof Player p)
+                ? sources.playerAttack(p)
+                : sources.mobAttack(attacker);
+
+        return new DamageSource(base.typeHolder()) {
             @Override
             public Component getLocalizedDeathMessage(LivingEntity victim) {
-                Component base = super.getLocalizedDeathMessage(victim);
+                Component attackerName = attacker.getDisplayName()
+                        .copy()
+                        .withStyle(s -> s.withColor(color));
 
-                boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
-
-                // Append if Elytra equipped
-                Component flyingComponent = hasElytra
-                        ? Component.literal(" with Elytra")
-                        : Component.empty();
-
-                // Build a colored component for the velocity
                 Component velocityComponent = Component.literal(" " + velocityToDisplay)
                         .withStyle(Style.EMPTY.withColor(color));
 
-                return base.copy().append(flyingComponent).append(velocityComponent);
+                if (isMostlyDownward) {
+                    return Component.literal("")
+                            .append(victim.getDisplayName())
+                            .append(" was crushed by ")
+                            .append(attackerName)
+                            .append(velocityComponent);
+                } else {
+                    return Component.literal("")
+                            .append(victim.getDisplayName())
+                            .append(" was hit by ")
+                            .append(attackerName)
+                            .append(velocityComponent);
+                }
+            }
+
+            // ✅ Keep attacker reference for aggro
+            @Override
+            public Entity getEntity() {
+                return base.getEntity();
             }
         };
-        return customSource;
+    }
+
+    @NotNull
+    private static DamageSource makeEntityCollisionSelfSource(DamageSource baseSource,
+                                                              LivingEntity victim,
+                                                              LivingEntity collided,
+                                                              String velocityToDisplay,
+                                                              TextColor color,
+                                                              boolean isMostlyDownward) {
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public Component getLocalizedDeathMessage(LivingEntity v) {
+                // Leave the collided entity's name uncolored
+                Component collidedName = collided.getDisplayName();
+
+                // Only the velocity text is colored
+                Component velocityComponent = Component.literal(" " + velocityToDisplay)
+                        .withStyle(Style.EMPTY.withColor(color));
+
+                if (isMostlyDownward) {
+                    return Component.literal("")
+                            .append(victim.getDisplayName())
+                            .append(" was crushed by ")
+                            .append(collidedName)
+                            .append(velocityComponent);
+                } else {
+                    return Component.literal("")
+                            .append(victim.getDisplayName())
+                            .append(" slammed into ")
+                            .append(collidedName)
+                            .append(velocityComponent);
+                }
+            }
+        };
     }
 
     public Physics(Entity entity) {
