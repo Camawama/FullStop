@@ -3,7 +3,6 @@ package net.camacraft.fullstop.common.capabilities;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.Physics;
 import net.minecraft.core.Direction;
-import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -15,6 +14,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.CapabilityManager;
 import net.minecraftforge.common.capabilities.CapabilityToken;
@@ -26,6 +26,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraftforge.common.util.INBTSerializable;
+
+import java.util.Objects;
 
 import static net.camacraft.fullstop.FullStop.MOD_ID;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
@@ -55,9 +57,12 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private double scalarHorizontalAcceleration = 0;
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
+    private boolean hasDismounted = false;
     private double teleportCooldown = 0;
+    private double dismountCooldown = 0;
     private boolean joinedForFirstTime = false;
     private final Entity entity;
+    private Vec3 acceleration;
 
     public FullStopCapability(Entity entity) {
         this.entity = entity;
@@ -99,6 +104,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
       return stoppingForce;
     }
 
+    public Vec3 getAcceleration() {
+        return acceleration;
+    }
+
     public boolean getIsDamageImmune() {
         return isDamageImmune;
     }
@@ -110,6 +119,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     public double getTeleportCooldown() {
         return teleportCooldown;
     } //eventually add a config option to modify how long the cooldown lasts
+
+    public double getDismountCooldown() {
+        return dismountCooldown;
+    }
 
     public boolean getJoinedForFirstTime() { return joinedForFirstTime; }
 
@@ -123,6 +136,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public void setHasTeleported(boolean value) {
         this.hasTeleported = value;
+    }
+
+    public void setHasDismounted(boolean value) {
+        this.hasDismounted = value;
     }
 
     public void setJoinedForFirstTime(boolean value) { this.joinedForFirstTime = value; }
@@ -157,6 +174,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         tickSpeed();
         tickRotation(entity);
         tickImmunity();
+        tickRiding();
 
         if (Double.isNaN(runningAverageDelta))
             runningAverageDelta = 0;
@@ -167,6 +185,17 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 //        if (justBounced())
 //            bounced += 1;
 //    }
+
+    private void tickRiding() {
+        if (hasDismounted) {
+            dismountCooldown = 20;
+            hasDismounted = false;
+        }
+
+        if (dismountCooldown > 0) {
+            dismountCooldown--;
+        }
+    }
 
     private void tickImmunity() {
 
@@ -208,6 +237,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                 stoppingForceY * stoppingForceY +
                 stoppingForceZ * stoppingForceZ
         );
+
+        acceleration = new Vec3 (instantVelocity.x - olderVelocity.x, instantVelocity.y - olderVelocity.y, instantVelocity.z - olderVelocity.z);
+
         scalarHorizontalAcceleration = instantVelocity.subtract(oldVelocity).multiply(1, 0, 1).length();
     }
 
@@ -258,6 +290,14 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             currentVelocity = clientVelocity;
         } else {
             currentVelocity = entity.getDeltaMovement().scale(20);
+        }
+
+        if (entity instanceof LivingEntity living) {
+            double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
+
+            if (currentVelocity.y >= gravity * -20 && currentVelocity.y < 0) { // TODO REMOVE MULTIPLICATION AFTER UNSCALING THE ENTIRE MOD BY 20 😂
+                currentVelocity = new Vec3(currentVelocity.x, 0, currentVelocity.z);
+            }
         }
     }
 

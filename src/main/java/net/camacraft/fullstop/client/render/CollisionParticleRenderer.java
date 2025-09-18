@@ -1,17 +1,14 @@
 package net.camacraft.fullstop.client.render;
 
-import com.ibm.icu.text.MessagePattern;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
-public class ParticleRenderer {
+public class CollisionParticleRenderer {
 
     public static void spawnParticle(Vec3 pos, Collision collision, BlockState blockState) {
         ParticleOptions particleType;

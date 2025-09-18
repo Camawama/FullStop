@@ -8,8 +8,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
@@ -42,11 +44,23 @@ public class PhysicsDispatch {
         }
     }
 
+    @SubscribeEvent
+    public static void onDismount(EntityMountEvent event) {
+        if (event.getEntity() instanceof LivingEntity living) {
+            FullStopCapability cap = grabCapability(living);
+
+            if (cap != null) {
+                cap.setHasDismounted(true);
+            }
+        }
+    }
+
     private static void onEntityTick(Entity entity) {
         if (Physics.unphysable(entity)) return;
 
         Physics physics = new Physics(entity);
         physics.bounceEntity();
+//        physics.impactSound();
         physics.impactAesthetic();
 
 //        if (!(entity instanceof Player player)) return;

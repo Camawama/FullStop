@@ -20,6 +20,7 @@ import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.Items;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
 import net.minecraftforge.event.entity.living.LivingDeathEvent;
@@ -85,8 +86,7 @@ public class PhysicsDispatch {
 
                 if (living instanceof ServerPlayer) {
                     if (!cap.getJoinedForFirstTime()) {
-                        cap.setHasTeleported(true);
-                        cap.setJoinedForFirstTime(true);
+                        cap.setJoinedForFirstTime(true); // Old check that could be useful for checking if a player has joined for the first time
                     }
                 }
             }

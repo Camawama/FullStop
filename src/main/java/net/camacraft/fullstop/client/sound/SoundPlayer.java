@@ -11,6 +11,7 @@ public class SoundPlayer {
 
     public static void playSound(Entity entity, SoundEvent sound, float volume, float pitch) {
         Level level = entity.level();
+
         if (!level.isClientSide()) {
             level.playSound(
                     null, // player = null → all nearby players will hear it
@@ -21,5 +22,6 @@ public class SoundPlayer {
                     pitch
             );
         }
+
     }
 }
