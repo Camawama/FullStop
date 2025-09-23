@@ -1,6 +1,5 @@
 package net.camacraft.fullstop.common.network;
 
-import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.phys.Vec3;
@@ -34,10 +33,10 @@ public class PlayerDeltaPacket {
 
             if (sendingPlayer.isPassenger()) {
                 sendingPlayer.getVehicle().getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
+                        .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
             } else {
                 sendingPlayer.getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> delta.setCurrentVelocity(this.playerDelta));
+                        .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
             }
         });
         ctx.get().setPacketHandled(true);

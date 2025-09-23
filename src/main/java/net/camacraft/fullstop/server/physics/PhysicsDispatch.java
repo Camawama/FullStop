@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics;
 
+import com.google.common.collect.Lists;
 import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.physics.Physics;
@@ -28,17 +29,30 @@ import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
+import java.util.List;
+
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.client.message.LogToChat.logToChat;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
 import static net.camacraft.fullstop.common.physics.Physics.calcNewDamage;
 
 public class PhysicsDispatch {
+
+//    @SubscribeEvent
+//    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+//
+//        if (event.level instanceof ServerLevel level) {
+//            level.getAllEntities().forEach(PhysicsDispatch::onEntityTick);
+//        }
+//    }
+
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-
         if (event.level instanceof ServerLevel level) {
-            level.getAllEntities().forEach(PhysicsDispatch::onEntityTick);
+            List<Entity> entities = Lists.newArrayList(level.getAllEntities());
+            for (Entity entity : entities) {
+                onEntityTick(entity);
+            }
         }
     }
 
@@ -105,6 +119,7 @@ public class PhysicsDispatch {
 //        }
 
         Physics physics = new Physics(entity);
+        physics.handleEntityCollision();
         physics.applyForceEffects();
         physics.bounceEntity();
         physics.impactSound();

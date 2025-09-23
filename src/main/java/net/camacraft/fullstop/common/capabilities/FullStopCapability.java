@@ -41,12 +41,12 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private Vec3 olderVelocity = Vec3.ZERO;
 
     @NotNull
-    private Vec3 oldVelocity = Vec3.ZERO;
+    private Vec3 oldScaledVelocity = Vec3.ZERO;
 
     @NotNull
-    private Vec3 currentVelocity = Vec3.ZERO;
+    private Vec3 currentScaledVelocity = Vec3.ZERO;
 
-    private Vec3 clientVelocity = null;
+    private Vec3 clientScaledVelocity = null;
 
     private double targetAngle = Double.NaN;
     private double stoppingForce = 0.0;
@@ -126,8 +126,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public boolean getJoinedForFirstTime() { return joinedForFirstTime; }
 
-    public void setCurrentVelocity(Vec3 currentVelocity) {
-        this.clientVelocity = currentVelocity.scale(20);
+    public void setCurrentNativeVelocity(Vec3 currentScaledVelocity) {
+        this.clientScaledVelocity = currentScaledVelocity.scale(20);
     }
 
     public void setTargetAngle(double targetAngle) {
@@ -138,8 +138,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         this.hasTeleported = value;
     }
 
-    public void setHasDismounted(boolean value) {
-        this.hasDismounted = value;
+    public void justDismounted() {
+        setCurrentNativeVelocity(Vec3.ZERO);
+        this.hasDismounted = true;
     }
 
     public void setJoinedForFirstTime(boolean value) { this.joinedForFirstTime = value; }
@@ -209,7 +210,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             isDamageImmune = true;
         } else {
             isDamageImmune = false;
+//            if (entity.) {}
+
         }
+
 
 //        if (hasTeleported) {
 //            isDamageImmune = true;
@@ -221,16 +225,16 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     }
 
     private void tickSpeed() {
-        Vec3 acc_prev = oldVelocity.subtract(olderVelocity);
-        Vec3 vel_expe = oldVelocity.add(acc_prev);
+        Vec3 acc_prev = oldScaledVelocity.subtract(olderVelocity);
+        Vec3 vel_expe = oldScaledVelocity.add(acc_prev);
         Vec3 vel_real = currentPosition.subtract(previousPosition);
         double ratio = Math.min(1, vel_real.length() / vel_expe.length());
-        Vec3 instantVelocity = currentVelocity.add(acc_prev.scale(ratio));
+        Vec3 instantVelocity = currentScaledVelocity.add(acc_prev.scale(ratio));
 
         // Stopping force initialized to 0
-        double stoppingForceX = calculateStoppingForceComponent(instantVelocity.x, oldVelocity.x);
-        double stoppingForceY = calculateStoppingForceComponent(instantVelocity.y, oldVelocity.y);
-        double stoppingForceZ = calculateStoppingForceComponent(instantVelocity.z, oldVelocity.z);
+        double stoppingForceX = calculateStoppingForceComponent(instantVelocity.x, oldScaledVelocity.x);
+        double stoppingForceY = calculateStoppingForceComponent(instantVelocity.y, oldScaledVelocity.y);
+        double stoppingForceZ = calculateStoppingForceComponent(instantVelocity.z, oldScaledVelocity.z);
 
         stoppingForce = Math.sqrt(
                 stoppingForceX * stoppingForceX +
@@ -240,7 +244,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         acceleration = new Vec3 (instantVelocity.x - olderVelocity.x, instantVelocity.y - olderVelocity.y, instantVelocity.z - olderVelocity.z);
 
-        scalarHorizontalAcceleration = instantVelocity.subtract(oldVelocity).multiply(1, 0, 1).length();
+        scalarHorizontalAcceleration = instantVelocity.subtract(oldScaledVelocity).multiply(1, 0, 1).length();
     }
 
     private void tickRotation(Entity entity) {
@@ -280,23 +284,23 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     }
 
     private void tickVelocity(Entity entity) {
-        olderVelocity = oldVelocity;
-        oldVelocity = currentVelocity;
+        olderVelocity = oldScaledVelocity;
+        oldScaledVelocity = currentScaledVelocity;
 
         previousPosition = currentPosition;
         currentPosition = entity.position();
 
-        if (clientVelocity != null) {
-            currentVelocity = clientVelocity;
+        if (clientScaledVelocity != null) {
+            currentScaledVelocity = clientScaledVelocity;
         } else {
-            currentVelocity = entity.getDeltaMovement().scale(20);
+            currentScaledVelocity = entity.getDeltaMovement().scale(20);
         }
 
         if (entity instanceof LivingEntity living) {
             double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
 
-            if (currentVelocity.y >= gravity * -20 && currentVelocity.y < 0) { // TODO REMOVE MULTIPLICATION AFTER UNSCALING THE ENTIRE MOD BY 20 😂
-                currentVelocity = new Vec3(currentVelocity.x, 0, currentVelocity.z);
+            if (currentScaledVelocity.y >= gravity * -20 && currentScaledVelocity.y < 0) { // TODO REMOVE MULTIPLICATION AFTER UNSCALING THE ENTIRE MOD BY 20 😂
+                currentScaledVelocity = new Vec3(currentScaledVelocity.x, 0, currentScaledVelocity.z);
             }
         }
     }
@@ -308,12 +312,20 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         event.addCapability(DELTA_VELOCITY, new Provider(event.getObject()));
     }
 
-    public Vec3 getCurrentVelocity() {
-        return currentVelocity;
+    public Vec3 getCurrentNativeVelocity() {
+        return currentScaledVelocity.scale(0.05);
     }
 
-    public Vec3 getPreviousVelocity() {
-        return oldVelocity;
+    public Vec3 getPreviousNativeVelocity() {
+        return oldScaledVelocity.scale(0.05);
+    }
+
+    public Vec3 getCurrentScaledVelocity() {
+        return currentScaledVelocity;
+    }
+
+    public Vec3 getPreviousScaledVelocity() {
+        return oldScaledVelocity;
     }
 
     @Override

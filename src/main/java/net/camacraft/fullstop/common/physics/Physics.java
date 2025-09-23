@@ -7,6 +7,7 @@ import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
+import net.minecraft.client.resources.sounds.Sound;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
@@ -28,9 +29,11 @@ import net.minecraft.world.entity.animal.horse.SkeletonHorse;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
@@ -42,12 +45,17 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
@@ -140,7 +148,7 @@ public class Physics {
 
     public static Vec3 entityVelocity(Entity entity) {
         if (entity instanceof ServerPlayer) {
-            return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new).getCurrentVelocity();
+            return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new).getCurrentScaledVelocity();
         }
 
         return entity.getDeltaMovement().add(0, RESTING_Y_DELTA, 0).scale(20);
@@ -197,6 +205,11 @@ public class Physics {
             SoundType soundType = blockState.getSoundType();
             SoundEvent sound = soundType.getFallSound();
             SoundPlayer.playSound(entity, sound, volume, pitch);
+
+            if (entity instanceof Minecart) {
+                SoundPlayer.playSound(entity, SoundEvents.IRON_GOLEM_HURT, volume / 2, pitch * (float) Math.random());
+                SoundPlayer.playSound(entity, SoundEvents.ANVIL_FALL, volume / 2, pitch * (float) Math.random());
+            }
         }
     }
 
@@ -207,7 +220,7 @@ public class Physics {
         float pitch = 0.5F;
         SoundEvent sound = SoundEvents.PLAYER_BIG_FALL;
 
-        if (collision.collisionType == Collision.CollisionType.SOLID) {
+        if (collision.collisionType == Collision.CollisionType.SOLID && !(entity instanceof Minecart)) {
             SoundPlayer.playSound(entity, sound, volume, pitch);
         }
     }
@@ -233,6 +246,11 @@ public class Physics {
 
     public void applyDamageEffects() {
         if (damage <= 0) return;
+
+        if (entity instanceof ServerPlayer) {
+            LogToChat.logToChat(damage);
+        }
+
         if (fullstop.getIsDamageImmune()) return;
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
@@ -250,7 +268,7 @@ public class Physics {
     }
 
     public Collision collidingKinetically() {
-        Vec3 previousVelocity = fullstop.getPreviousVelocity().scale(0.05);
+        Vec3 previousVelocity = fullstop.getPreviousScaledVelocity().scale(0.05);
         if (previousVelocity.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
             return Collision.NONE;
         }
@@ -259,8 +277,12 @@ public class Physics {
         AABB box = entity.getBoundingBox();
         Vec3 direction = fullstop.getAcceleration().normalize().reverse();
 
-        // Limit ray length to just ahead of the bounding box face
-        double rayLength = Math.min(previousVelocity.length(), 0.01); // clamp ~half block ahead
+        double rayLength;
+        if (entity instanceof Arrow) {
+            rayLength = Math.min(previousVelocity.length(), 0.00);
+        } else {
+            rayLength = Math.min(previousVelocity.length(), 0.50); // TODO CHANGE BACK TO 0.01 AFTER FIGURING OUT THE CENTER RAY BS. AT 0.01, UPWARD DAMAGE DOES NOT WORK
+        }
 
         // 8 corners + center
         List<Vec3> rayStarts = List.of(
@@ -332,6 +354,7 @@ public class Physics {
                     e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart)
                             && e != entity
                             && !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
+                            && !(e.isPassengerOfSameVehicle(entity))
             );
 
             if (!collidingEntities.isEmpty()) {
@@ -566,206 +589,168 @@ public class Physics {
         return false;
     }
 
-    private double getEntityWeight(Entity entity) {
+    /**
+     * Returns a list of the given entity and ALL passengers
+     * (including passengers of passengers, etc.).
+     */
+    private List<Entity> getAllStackEntities(Entity start) {
+        List<Entity> list = new ArrayList<>();
+
+        // Depth-first recursion
+        list.add(start);
+        for (Entity passenger : start.getPassengers()) {
+            list.addAll(getAllStackEntities(passenger));
+        }
+
+        return list;
+    }
+
+    private double getEntityMass(Entity entity) {
         AABB box = entity.getBoundingBox();
         double entityVolume = (box.maxX - box.minX) * (box.maxY - box.minY) * (box.maxZ - box.minZ);
 
         if (entity instanceof LivingEntity living && living.isFallFlying()) {
-            return entityVolume * 3;
+            return entityVolume / 20;
         }
-
         if (entity instanceof IronGolem) {
             return entityVolume * 8;
-        } else if (entity instanceof Skeleton || entity instanceof SkeletonHorse) {
+        }
+        if (entity instanceof Skeleton || entity instanceof SkeletonHorse) {
             return entityVolume / 3;
         }
 
         return entityVolume;
     }
 
-    private boolean tryStartRidingSafely(Entity rider, Entity vehicle, double velocitySimilarityThreshold) {
-        if (rider == null || vehicle == null) return false;
-        if (rider.level().isClientSide()) return false; // server-only behavior
-        if (!rider.isAlive() || !vehicle.isAlive()) return false;
-        if (rider == vehicle) return false;
+    // NOT NEEDED CURRENTLY, MAY BE USEFUL IN THE FUTURE
+//    private double getEntityWeight(Entity entity) {
+//        // 0.08 is the default gravity.
+//        double entityGravity = 0.08;
+//        double entityWeight;
+//
+//        if (entity instanceof LivingEntity living) {
+//            AttributeInstance attributeInstance = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
+//            entityGravity = attributeInstance.getValue();
+//        }
+//
+//        entityWeight = getEntityMass(entity) * entityGravity;
+//
+//        return entityWeight;
+//    }
 
-        // Weight check
-        if (getEntityWeight(rider) >= getEntityWeight(vehicle)) return false;
+    private boolean tryStartRidingSafely(Entity vehicle) {
+        if (vehicle == null) return false;
+        if (entity.level().isClientSide()) return false; // server-only behavior
+        if (!entity.isAlive() || !vehicle.isAlive()) return false;
+        if (entity == vehicle) return false;
+
+        // Do not mount if crouching
+        if (entity.isCrouching()) return false;
 
         // Basic already-riding checks
-        if (rider.getVehicle() == vehicle) return false;          // already riding this vehicle
-        if (vehicle.getVehicle() == rider) return false;          // vehicle is riding rider (immediate cycle)
+        if (entity.getVehicle() != null) return false;          // already riding a vehicle
+        if (vehicle.getVehicle() == entity) return false;          // vehicle is riding rider (immediate cycle)
         if (!vehicle.getPassengers().isEmpty()) return false;
-        if (rider.isPassengerOfSameVehicle(vehicle)) return false; // same vehicle chain already
+        if (entity.isPassengerOfSameVehicle(vehicle)) return false; // same vehicle chain already
 
         // Ride cooldown check
-        if (grabCapability(rider).getDismountCooldown() > 0) return false;
+        if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
 
         // Prevent deeper cycles: ensure rider isn't somewhere in vehicle's chain and vice versa
-        if (isInPassengerChain(rider, vehicle) || isInPassengerChain(vehicle, rider)) return false;
-
-        // Optional velocity similarity check (pass <= 0 to disable)
-        if (velocitySimilarityThreshold > 0) {
-            Vec3 v1 = grabCapability(rider).getCurrentVelocity();
-            Vec3 v2 = grabCapability(vehicle).getCurrentVelocity();
-            if (velocitiesAreSimilar(v1, v2, velocitySimilarityThreshold)) {
-                return false;
-            }
-        }
+        if (isInPassengerChain(entity, vehicle) || isInPassengerChain(vehicle, entity)) return false;
 
         // Finally, attempt to mount
-        return rider.startRiding(vehicle, true);
+        return entity.startRiding(vehicle, true);
     }
 
     // Now the refactored handleEntityCollision method:
 
-    private void handleEntityCollision() {
+    public void handleEntityCollision() {
         if (!SERVER.entityCollisionDamage.get()) return;
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
 
-        // Small early exit to avoid extra work
-        Vec3 currentVelocity = fullstop.getCurrentVelocity();
-        double currentSpeed = currentVelocity.length();
-        if (currentSpeed < 5.0) return;
+        Vec3 entityVelocity = fullstop.getPreviousNativeVelocity();
+        double currentSpeed = fullstop.getCurrentNativeVelocity().length();
+
+//         Early exit if speed is below threshold
+        if (currentSpeed < 0.15) return; // TODO FIND THE RIGHT THRESHOLD
 
         Level level = entity.level();
         boolean isServer = !level.isClientSide();
 
-        // Cache previous velocity and direction (used for transfers)
-        Vec3 prevVelocity = fullstop.getPreviousVelocity(); // used for transfer
-        double velocitySimilarityThreshold = 0.1;
+        double velocitySimilarityThreshold = 0.005;
+        double ridingAngleSteepness = 1.8;  // 1.8 may need to be adjusted
 
         // Make sure entity is living (you said add for non-living later)
         if (!(entity instanceof LivingEntity)) return;
 
+        ArrayList<Entity> ridableList = new ArrayList();
+
         // Iterate the collided entities safely
-        for (Entity collidedEntityRaw : collision.collidingEntities) {
-            if (collidedEntityRaw == null) continue;
-            if (collidedEntityRaw == entity) continue;
-            if (collidedEntityRaw.isRemoved() || !collidedEntityRaw.isAlive()) continue;
+        for (Entity collidedEntity : collision.collidingEntities) {
+            if (collidedEntity == null) continue;
+            if (collidedEntity == entity) continue;
+            if (collidedEntity.isRemoved() || !collidedEntity.isAlive()) continue;
 
-            // Short-circuit: if we already ended up mounting earlier in this method, stop.
-            // (we will return after a successful mount below)
+            if (!(collidedEntity instanceof LivingEntity) && !(collidedEntity instanceof Minecart) && !(collidedEntity instanceof Boat)) {
+                continue;
+            }
 
-            // Distinguish by type
-            if (collidedEntityRaw instanceof LivingEntity collidedLiving) {
-                // caches
-                Vec3 entityVel = grabCapability(entity).getCurrentVelocity();
-                Vec3 collidedVel = grabCapability(collidedLiving).getCurrentVelocity();
+            Vec3 collidedEntityVel = grabCapability(collidedEntity).getCurrentNativeVelocity();
+            Vec3 entityVelocityDifference = collidedEntityVel.subtract(entityVelocity); // MIGHT NEED TO BE SWAPPED
+            double relativeVertical = entityVelocityDifference.y;
+            double relativeHorizontal = Math.hypot(entityVelocityDifference.x, entityVelocityDifference.z);
 
-                // If collided is player: stop the hitter immediately (special-case)
-                if (collidedLiving instanceof Player) {
-                    if (isServer) {
-                        entity.setDeltaMovement(Vec3.ZERO);
-                        entity.hasImpulse = true;
-                    }
-                    // do not attempt riding players further
-                    continue;
-                }
+                if (relativeHorizontal * ridingAngleSteepness > relativeVertical) {
+                continue;
+            }
 
-                // If the main entity is mostly downward (falling into collided entity)
-                if (isServer && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward()) {
-                    // prefer to mount the collided entity if it has no passengers
-                    if (collidedLiving.getPassengers().isEmpty()) {
-                        if (!entity.isCrouching()) {
-                            if (!velocitiesAreSimilar(entityVel, collidedVel, velocitySimilarityThreshold)) {
-                                boolean mounted = tryStartRidingSafely(entity, collidedLiving, velocitySimilarityThreshold);
-                                if (mounted) {
-                                    // transfer some small portion of previous velocity to target
-                                    if (!(collidedLiving instanceof IronGolem)) {
-                                        collidedLiving.setDeltaMovement(prevVelocity.scale(0.05));
-                                    }
-                                    // stop the hitter
-                                    entity.setDeltaMovement(Vec3.ZERO);
-                                    grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                                    entity.hasImpulse = true;
-                                    return; // mounted one, stop processing
-                                }
-                            }
-                        }
-                    } else { // collided has passengers: try to mount first passenger instead
-                        Entity firstPassenger = collidedLiving.getPassengers().stream().findFirst().orElse(null);
-                        if (firstPassenger != null) {
-                            boolean mounted = tryStartRidingSafely(entity, firstPassenger, velocitySimilarityThreshold);
-                            if (mounted) {
-                                if (!(firstPassenger instanceof IronGolem)) {
-                                    firstPassenger.setDeltaMovement(prevVelocity.scale(0.05));
-                                }
-                                entity.setDeltaMovement(Vec3.ZERO);
-                                grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                                entity.hasImpulse = true;
-                                return;
-                            }
-                        }
-                    }
-                }
+            if (relativeVertical < velocitySimilarityThreshold) {
+                continue;
+            }
 
-                // Upward collisions: someone hitting the main entity from below (swap roles)
-                if (isServer && !fullstop.isMostlyDownward() && fullstop.isMostlyUpward()) {
-                    // avoid immediate cycles: use tryStartRidingSafely
-                    if (entity.getPassengers().isEmpty()) {
-                        boolean mounted = tryStartRidingSafely(collidedLiving, entity, velocitySimilarityThreshold);
-                        if (mounted) {
-                            // transfer velocity to collided
-                            if (!(collidedLiving instanceof IronGolem)) {
-                                collidedLiving.setDeltaMovement(prevVelocity.scale(0.05));
-                            }
-                            entity.setDeltaMovement(Vec3.ZERO);
-                            grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                            entity.hasImpulse = true;
-                            return;
-                        }
-                    } else {
-                        Entity firstPassenger = entity.getPassengers().stream().findFirst().orElse(null);
-                        if (firstPassenger != null) {
-                            boolean mounted = tryStartRidingSafely(collidedLiving, firstPassenger, velocitySimilarityThreshold);
-                            if (mounted) {
-                                if (!(collidedLiving instanceof IronGolem)) {
-                                    collidedLiving.setDeltaMovement(prevVelocity.scale(0.05));
-                                }
-                                entity.setDeltaMovement(Vec3.ZERO);
-                                grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                                entity.hasImpulse = true;
-                                return;
-                            }
-                        }
-                    }
-                }
+            ridableList.add(collidedEntity);
+        }
 
-                // If they are not the same passenger-vehicle chain, apply velocity transfer and stop the hitter.
-                if (!entity.isPassengerOfSameVehicle(collidedLiving)) {
-                    if (!(collidedLiving instanceof IronGolem)) {
-                        collidedLiving.setDeltaMovement(prevVelocity.scale(0.05));
-                    }
-                    entity.setDeltaMovement(Vec3.ZERO);
-                    grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                    entity.hasImpulse = true;
-                }
+        double closestEntityDistance = Double.POSITIVE_INFINITY;
+        double closestEntityVerticalDisplacement = Double.POSITIVE_INFINITY;
+        Entity closestEntity = null;
 
-            } else if (collidedEntityRaw instanceof AbstractMinecart minecart) {
-                if (!entity.isCrouching() && isServer && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && minecart.getPassengers().isEmpty()) {
-                    boolean mounted = tryStartRidingSafely(entity, minecart, velocitySimilarityThreshold);
-                    if (mounted) {
-                        minecart.setDeltaMovement(prevVelocity.scale(0.05));
-                        entity.setDeltaMovement(Vec3.ZERO);
-                        grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                        entity.hasImpulse = true;
-                        return;
-                    }
-                }
-            } else if (collidedEntityRaw instanceof Boat boat) {
-                if (!entity.isCrouching() && isServer && fullstop.isMostlyDownward() && !fullstop.isMostlyUpward() && boat.getPassengers().isEmpty()) {
-                    boolean mounted = tryStartRidingSafely(entity, boat, velocitySimilarityThreshold);
-                    if (mounted) {
-                        boat.setDeltaMovement(prevVelocity.scale(0.15));
-                        entity.setDeltaMovement(Vec3.ZERO);
-                        grabCapability(entity).setCurrentVelocity(Vec3.ZERO);
-                        entity.hasImpulse = true;
-                        return;
-                    }
-                }
-            } // other types: ignore
-        } // end for
+        for (Entity ridableEntity : ridableList) {
+            if (ridableEntity == entity) continue;
+            Vec3 entityPos = entity.getPosition(0);
+            Vec3 ridableEntityPos = ridableEntity.getPosition(0);
+            double x = entityPos.x - ridableEntityPos.x;
+            double z = entityPos.z - ridableEntityPos.z;
+            double distance = Math.hypot(x, z);
+            double verticalDisplacement = entityPos.y - ridableEntityPos.y;
+
+            if (closestEntityDistance > distance || (closestEntityDistance == distance && closestEntityVerticalDisplacement > verticalDisplacement)) {
+
+                // Weight check
+                if (getEntityMass(entity) >= getEntityMass(ridableEntity)) continue;
+
+                closestEntity = ridableEntity;
+                closestEntityDistance = distance;
+                closestEntityVerticalDisplacement = verticalDisplacement;
+            }
+        }
+
+        tryStartRidingSafely(closestEntity);
+
+        for (Entity collidedEntity : collision.collidingEntities) {
+            Vec3 away = entity.position().subtract(collidedEntity.position()).normalize();
+//            entity.setDeltaMovement(collidedEntity.getDeltaMovement());
+
+            if (!(collidedEntity instanceof IronGolem)) {
+                collidedEntity.setDeltaMovement(entity.getDeltaMovement());
+            }
+
+            double bounceStrength = entity.getDeltaMovement().length(); // TODO Fix entity bounce back when hitting another entity
+//            entity.setDeltaMovement(away.scale(bounceStrength));
+            entity.setDeltaMovement(Vec3.ZERO);
+            entity.hasImpulse = true;
+        }
     }
 
 
@@ -790,18 +775,24 @@ public class Physics {
     }
 
     public void bounceEntity() {
-        handleEntityCollision();
-        if (entity.isCrouching() || collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return; //added entity.IsCrouching()
+        if (entity.isCrouching() || collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return;
 
         if (damage == 0 && !entity.level().isClientSide
                 && (entity.hasControllingPassenger() || entity instanceof Player)) {
             return;
         }
 
-        if (fullstop.isMostlyUpward() || fullstop.isMostlyDownward()) return; // BAND-AID FIX TO PREVENT BOUNCING WHEN FALLING OR HITTING THE UNDERSIDE OF BLOCKS. THIS WILL HAVE TO BE REPLACED WHEN ADDING SLIME BLOCKS BOUNCING ENTITIES DOWNWARD TOO
+//        // Handle upward bounces separately
+//        if (fullstop.isMostlyUpward()) {
+//            handleUpwardBounce();
+//            return;
+//        }
 
-        Vec3 preV = fullstop.getPreviousVelocity();
-        Vec3 curV = fullstop.getCurrentVelocity();
+        if (fullstop.isMostlyDownward()) return;
+        // skip falling/slime-top collision, let vanilla handle those
+
+        Vec3 preV = fullstop.getPreviousScaledVelocity();
+        Vec3 curV = fullstop.getCurrentScaledVelocity();
         double perpScaleFactor, paraScaleFactor;
 
         Collision.CollisionType horizontalImpactType = collision.collisionType;
@@ -810,8 +801,8 @@ public class Physics {
             perpScaleFactor = -1.0;
             paraScaleFactor = 1.0;
         } else if (horizontalImpactType == Collision.CollisionType.HONEY) {
-            perpScaleFactor = -0.0; // HONEY MUST BE ZERO
-            paraScaleFactor = 0.0; // HONEY MUST BE ZERO
+            perpScaleFactor = -0.0;
+            paraScaleFactor = 0.0;
         } else if (damage > 0) {
             perpScaleFactor = -0.75 / Math.sqrt(Math.max(damage, 1));
             paraScaleFactor = 1.0 / Math.sqrt(damage);
@@ -835,18 +826,14 @@ public class Physics {
                         preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
                 )
         );
+
+        if (entity instanceof Minecart) return;
+
         entity.setDeltaMovement(newV.scale(0.05));
-//        grabCapability(entity).setCurrentVelocity(newV.scale(0.05));
 
-        if (!SERVER.rotateCamera.get()) { //returns if config is false so entity doesn't rotate when bouncing but should probably make this a client config
-            return;
-        }
-
+        if (!SERVER.rotateCamera.get()) return;
         if (fullstop.getStoppingForce() < 3.0) return;
-
-        if (entity instanceof Player) {
-            if (((Player) entity).getAbilities().flying) return;
-        }
+        if (entity instanceof Player && ((Player) entity).getAbilities().flying) return;
 
         double newAngle = Math.atan2(-newV.x, newV.z);
         double currentAngle = Math.atan2(-curV.x, curV.z);
@@ -862,6 +849,39 @@ public class Physics {
         fullstop.setTargetAngle(targetAngle);
     }
 
+    // Upward bounce handler (broken)
+    private void handleUpwardBounce() {
+        Collision.CollisionType impactType = collision.collisionType;
+        Vec3 curV = fullstop.getCurrentScaledVelocity();
+        Vec3 newV;
+
+        switch (impactType) {
+            case SLIME -> {
+                // Invert vertical velocity to push entity back down
+                // Scale by ~0.9 to simulate bounciness but slightly reduced
+                newV = new Vec3(curV.x, -curV.y * 0.9, curV.z);
+            }
+            case HONEY, SOLID -> {
+                // Cancel vertical velocity (stick/stop)
+                newV = new Vec3(curV.x, 0.0, curV.z);
+            }
+            case ENTITY -> {
+                // Weak rebound or cancel — tweak as desired
+                newV = new Vec3(curV.x, -curV.y * 0.25, curV.z);
+            }
+            default -> {
+                return; // nothing to do
+            }
+        }
+
+        if (entity instanceof Minecart) return;
+
+        entity.setDeltaMovement(newV);
+
+        // Optional: add camera rotation logic here too, if you want upward bounce to rotate POV
+    }
+
+
     public static double angleWrap(double angle) {
         angle += 180;
         angle %= 360;
@@ -871,29 +891,8 @@ public class Physics {
         return angle - 180;
     }
 
-    private double calcKineticDamage() {
-
-        if (entity instanceof LivingEntity && entity instanceof ServerPlayer) {
-
-//            if (fullstop.isMostlyUpward()) {
-//                LogToChat.logToChat("is mostly upward");
-//            } else if (fullstop.isMostlyDownward()) {
-//                LogToChat.logToChat("is mostly downward");
-//            } else {
-//                LogToChat.logToChat("is mostly horizontal");
-//            }
-
-//            LogToChat.logToChat(collision.collisionType);
-
-        }
-
-//        if (!entity.isAttackable()) {
-//            return 0;
-//        }
-
-        if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
-            return 0;
-        }
+    private double calcKineticDamageTotal() {
+        // TODO Finish moving things into the seperate entity damage calculations instead of here
 
         if (entity instanceof Mob mob) {
             if (mob.isLeashed() && fullstop.isMostlyDownward() && collision.fake()) return 0;
@@ -901,51 +900,26 @@ public class Physics {
 
         if (!fullstop.isMostlyDownward() && collision.collisionType != Collision.CollisionType.SOLID && collision.collisionType != Collision.CollisionType.ENTITY) return 0;
 
-        if (living.isSwimming() && living.isInWater()) return 0; //attempt to prevent damage when the player is in the swimming state and in water
-
-        if (fullstop.getIsDamageImmune()) return 0;
-
         if (collision.collisionType == Collision.CollisionType.ENTITY) {
             if (!SERVER.entityCollisionDamage.get()) {
                 return 0;
             }
         }
 
-        if (entity instanceof Horse && damage < 1.0) { // BAND-AID FIX FOR HORSE DAMAGE
-            return 0;
-        }
+        if (entity instanceof IronGolem) return 0;
 
-        double delta = fullstop.getStoppingForce();
+        double stoppingForce = fullstop.getStoppingForce();
 
         double damage;
         if (!fullstop.isMostlyDownward()) {
-            damage = Math.max(delta - SERVER.velocityDamageThresholdHorizontal.get(), 0);
+            damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdHorizontal.get(), 0);
         } else {
-            damage = Math.max(delta - SERVER.velocityDamageThresholdVertical.get(), 0);
+            damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdVertical.get(), 0);
         }
-
 
         if (damage <= 0) return 0;
 
-        int fallProtLevel = living.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-
-        MobEffectInstance jumpBoostEffect = living.getEffect(MobEffects.JUMP);
-        int jumpBoostLevel;
-
-        if (jumpBoostEffect == null) {
-            jumpBoostLevel = 0;
-        } else {
-            jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
-        }
-
-        if (fullstop.isMostlyDownward() && !fullstop.isMostlyUpward()) {
-            damage -= jumpBoostLevel;
-            if (damage <= 0) return 0;
-        }
-
-        damage = damage / 0.648 * getEntityWeight(entity);
-
-        return (float) (damage * 1.07) / (1 + fallProtLevel * 0.2);
+        return (float) (damage * 1.07);
     }
 
     private static int lerpColor(int color1, int color2, double t) {
@@ -965,7 +939,7 @@ public class Physics {
     }
 
     public void applyKineticDamage() {
-        double previousVelocity = fullstop.getPreviousVelocity().length();
+        double previousVelocity = fullstop.getPreviousScaledVelocity().length();
         if (damage < 1) return;
 
         // Decide on the color dynamically based on velocity
@@ -1005,7 +979,6 @@ public class Physics {
                 baseSource = sources.flyIntoWall();
             }
 
-
             DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
             entity.hurt(customSource, (float) damage); // full damage since no entity split
         }
@@ -1038,7 +1011,11 @@ public class Physics {
                 float pitch = basePitch - (float)damage * 0.02f;
                 pitch = clamp(pitch, 0.7f, 1.2f); // reasonable range
 
-                SoundPlayer.playSound(entity, SoundEvents.IRON_GOLEM_HURT, volume, pitch);
+                SoundPlayer.playSound(golem, SoundEvents.IRON_GOLEM_HURT, volume, pitch);
+
+                if (entity instanceof LivingEntity livingTarget) {
+                    golem.setTarget(livingTarget);
+                }
             }
 
             // Pick ANY collided entity (even Iron Golem) just for death message
@@ -1049,20 +1026,20 @@ public class Physics {
                     .orElse(null);
 
             int colliders = validTargets.size();
-            float entityDamage = (colliders == 0) ? (float) damage : (float) damage / (colliders + 1);
+            float splitEntityDamage = (float) damage / (colliders + 1);
 
             if (!entity.onGround() && !collision.collidingEntities.stream().findFirst().get().onGround()) {
                 if (velocitiesAreSimilar(entity.getDeltaMovement(), collision.collidingEntities.stream().findFirst().get().getDeltaMovement(), 0.1)) {
-                    entityDamage = 0;
+                    splitEntityDamage = 0;
                 }
             }
 
             // --- Always apply damage to self ---
             DamageSource selfSource;
-            if (collidedExample != null) {
+            if (collidedExample != null && entity instanceof LivingEntity living) {
                 selfSource = makeEntityCollisionSelfSource(
                         sources.flyIntoWall(),
-                        (LivingEntity) entity,
+                        living,
                         collidedExample,
                         velocityToDisplay,
                         color,
@@ -1078,18 +1055,88 @@ public class Physics {
                         fullstop.isMostlyUpward()
                 );
             }
-            entity.hurt(selfSource, entityDamage);
+
+            if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+                splitEntityDamage = 0;
+            }
+
+            double horseFallDampening = 1.0; // TODO POTENTIAL CONFIG OPTION
+            if (entity instanceof Horse && splitEntityDamage < horseFallDampening && fullstop.isMostlyDownward()) { // BAND-AID FIX FOR HORSE DAMAGE
+                splitEntityDamage = 0;
+            }
+
+            if (entity instanceof LivingEntity livingEntity) {
+                int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+
+                MobEffectInstance jumpBoostEffect = livingEntity.getEffect(MobEffects.JUMP);
+                int jumpBoostLevel;
+
+                if (jumpBoostEffect == null) {
+                    jumpBoostLevel = 1;
+                } else {
+                    jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
+                }
+
+                if (!fullstop.isMostlyDownward() || fullstop.isMostlyUpward()) {
+                    jumpBoostLevel = 1;
+                }
+            }
+
+            if (splitEntityDamage <= 0) {
+                splitEntityDamage = 0;
+            }
+
+            List<Entity> collidedEntities = collision.collidingEntities;
+
+            double targetMass = collidedEntities.stream().mapToDouble(this::getEntityMass).average().orElse(0.0);
+            double attackerMass = getEntityMass(entity);
+
+            if (attackerMass < 0.001) attackerMass = 0.001;
+
+            float attackerDamageScale = (float) (targetMass / attackerMass);
+
+            float attackerScaledDamage = splitEntityDamage * attackerDamageScale;
+
+            if (fullstop.isMostlyDownward()) {
+                double rideChainCount = getAllStackEntities(entity).size();
+                attackerScaledDamage = attackerScaledDamage / (float) rideChainCount; // TODO I WAS IN THE MIDDLE OF SPLITTING DAMAGE BETWEEN AN ENTIRE ENTITY STACK
+                for (Entity passenger : getAllStackEntities(entity)) {
+                    passenger.hurt(selfSource, attackerScaledDamage);
+
+                    LogToChat.logToChat("self damage:", entity, " passenger damage:", passenger);
+                }
+            } else {
+                // APPLY SELF DAMAGE
+                entity.hurt(selfSource, attackerScaledDamage);
+
+//                LogToChat.logToChat("self damage:", entity);
+            }
+
+            //TODO CREATE FINAL splitEntityDamage FORMULA THAT INCLUDES jumpBoostLevel, fallProtLevel, etc
 
             // --- Apply damage to valid targets only (Iron Golems excluded) ---
-            for (LivingEntity target : validTargets) {
-                DamageSource attackerSource = makeEntityAttackerSource(
-                        sources,
-                        (LivingEntity) entity,
-                        velocityToDisplay,
-                        color,
-                        fullstop.isMostlyDownward()
-                );
-                target.hurt(attackerSource, entityDamage);
+            if (entity instanceof LivingEntity living) {
+                for (LivingEntity target : validTargets) {
+                    DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
+
+                    float targetDamageScale = (float) (attackerMass / getEntityMass(target));
+                    float targetScaledDamage = splitEntityDamage * targetDamageScale;
+
+                    if (fullstop.getIsDamageImmune()) {
+                        splitEntityDamage = 0;
+                    }
+
+                    int fallProtLevel = target.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+
+
+
+                    // TODO TARGET ENTITY FEATHER FALLING DAMAGE CALCULATION
+
+                    //TODO FINAL splitEntityDamage formula
+
+                    // APPLY TARGET DAMAGE
+                    target.hurt(attackerSource, targetScaledDamage);
+                }
             }
         }
 
@@ -1230,21 +1277,23 @@ public class Physics {
     public Physics(Entity entity) {
         fullstop = grabCapability(entity);
 
-//        if (entity instanceof ServerPlayer) {
-//            LogToChat.logToChat(getEntityWeight(entity));
-//        }
-
         fullstop.tick(entity);
         this.entity = entity;
         collision = collidingKinetically();
 
-//        if (collision.collisionType != null) {
-//            if (entity instanceof ServerPlayer) {
-//                LogToChat.logToChat(collision.collisionType);
-//            }
+//        if (entity instanceof ServerPlayer) {
+//            double rawWeight = getEntityWeight(entity);
+//            double displayKg = rawWeight * 1350.0;
+//            double displayLbs = displayKg * 2.20462;
+//
+//            LogToChat.logToChat(Math.round(displayKg), "Kg", Math.round(displayLbs), "Lbs");
 //        }
 
-        damage = calcKineticDamage();
+//        if (entity instanceof ServerPlayer) {
+//            LogToChat.logToChat(collision.collisionType);
+//        }
+
+        damage = calcKineticDamageTotal();
     }
 
     public static boolean unphysable(Entity entity) {

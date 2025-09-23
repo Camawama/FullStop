@@ -24,7 +24,7 @@ public class PhysicsDispatch {
 
         FullStopCapability fullstopcap = grabCapability(event.player);
         Vec3 playerDelta = event.player.getDeltaMovement();
-        fullstopcap.setCurrentVelocity(playerDelta);
+        fullstopcap.setCurrentNativeVelocity(playerDelta);
 
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
@@ -36,11 +36,22 @@ public class PhysicsDispatch {
             PacketHandler.sendToServer(deltaPacket);
         }
     }
+
+//    @SubscribeEvent
+//    public static void onLevelTick(TickEvent.LevelTickEvent event) {
+//
+//        if (event.level instanceof ClientLevel level) {
+//            level.tickingEntities.forEach(PhysicsDispatch::onEntityTick);
+//        }
+//    }
+
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-
         if (event.level instanceof ClientLevel level) {
-            level.tickingEntities.forEach(PhysicsDispatch::onEntityTick);
+            // Take a snapshot so modifications during physics won't crash
+            for (Entity entity : level.entitiesForRendering()) {
+                onEntityTick(entity);
+            }
         }
     }
 
@@ -50,7 +61,7 @@ public class PhysicsDispatch {
             FullStopCapability cap = grabCapability(living);
 
             if (cap != null) {
-                cap.setHasDismounted(true);
+                cap.justDismounted();
             }
         }
     }
@@ -59,6 +70,7 @@ public class PhysicsDispatch {
         if (Physics.unphysable(entity)) return;
 
         Physics physics = new Physics(entity);
+        physics.handleEntityCollision();
         physics.bounceEntity();
 //        physics.impactSound();
         physics.impactAesthetic();
