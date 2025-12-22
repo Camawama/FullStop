@@ -63,6 +63,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private boolean joinedForFirstTime = false;
     private final Entity entity;
     private Vec3 acceleration;
+    private long lastTick = -1;
+    private int soundCooldown = 0;
 
     public FullStopCapability(Entity entity) {
         this.entity = entity;
@@ -98,6 +100,22 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         return !boots.isEmpty() &&
                 EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
+    }
+
+    public void setSoundCooldown(int ticks) {
+        this.soundCooldown = ticks;
+    }
+
+    public boolean canPlaySound() {
+        return soundCooldown <= 0;
+    }
+
+    public long getLastTick() {
+        return lastTick;
+    }
+
+    public void setLastTick(long tick) {
+        this.lastTick = tick;
     }
 
     public double getStoppingForce() {
@@ -176,6 +194,11 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         tickRotation(entity);
         tickImmunity();
         tickRiding();
+
+        // Decrease sound cooldown
+        if (soundCooldown > 0) {
+            soundCooldown--;
+        }
 
         if (Double.isNaN(runningAverageDelta))
             runningAverageDelta = 0;
@@ -273,13 +296,25 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         return correction * 0.005 * delta;
     }
 
-    // Helper method to calculate the stopping force for an individual component
+//    // Helper method to calculate the stopping force for an individual component
+//    private double calculateStoppingForceComponent(double current, double old) {
+//        // If the current component real smaller in magnitude or it changed direction (sign), we calculate stopping force
+//        if (Math.abs(current) < Math.abs(old) && !isBounce(current, old)) {
+//            return Math.abs(old - current);  // Return the absolute difference (stopping force)
+//        } else {
+//            return 0.0;  // No stopping force if speed increased or stayed the same in this direction
+//        }
+//    }
+
     private double calculateStoppingForceComponent(double current, double old) {
-        // If the current component real smaller in magnitude or it changed direction (sign), we calculate stopping force
-        if (Math.abs(current) < Math.abs(old) && !isBounce(current, old)) {
-            return Math.abs(old - current);  // Return the absolute difference (stopping force)
+        // If we slowed down OR if we bounced (direction flip), that is stopping force.
+        boolean slowedDown = Math.abs(current) < Math.abs(old);
+        boolean bounced = isBounce(current, old);
+
+        if (slowedDown || bounced) {
+            return Math.abs(old - current);
         } else {
-            return 0.0;  // No stopping force if speed increased or stayed the same in this direction
+            return 0.0;
         }
     }
 

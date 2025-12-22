@@ -52,6 +52,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
+        public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
 
@@ -134,6 +135,12 @@ public class FullStopConfig {
                     .translation(key("entityCollisionDamage"))
                     .comment("Default: false")
                     .define("entityCollisionDamage", false);
+
+            this.kineticBlockBreaking = builder
+                    .comment("When enabled, entities hitting blocks at high speeds can crack or break them.")
+                    .translation(key("kineticBlockBreaking"))
+                    .comment("Default: true")
+                    .define("kineticBlockBreaking", true);
 
             builder.pop();
         }

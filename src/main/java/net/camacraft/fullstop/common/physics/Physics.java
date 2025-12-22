@@ -8,6 +8,7 @@ import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
@@ -173,41 +174,65 @@ public class Physics {
 //        spawnParticle(pos, collision);
     }
 
+    // Inside Physics.java
+
     public void impactSound() {
+        // 1. RUN ON SERVER ONLY (Fixes the "Echo" / Double Audio)
+        if (entity.level().isClientSide) return;
+
+        // 2. CHECK FORCE THRESHOLD
+        if (fullstop.getStoppingForce() <= 6.0) return;
+        if (collision.fake()) return;
+
+        // Calculate Volume/Pitch
         float volume = ((float) (fullstop.getStoppingForce() * 0.05f));
 
-        if (collision.blockStates != null && !collision.blockStates.isEmpty()) {
-            volume /= (collision.blockStates.size() + 1); // +1 avoids over-shrinking
+        // Scale volume down slightly if hitting many things so it doesn't blow out speakers
+        int hitCount = (collision.blockStates != null ? collision.blockStates.size() : 0)
+                + (collision.collidingEntities != null ? collision.collidingEntities.size() : 0);
+
+        if (hitCount > 1) {
+            volume /= (hitCount * 0.6); // Gentle reduction to prevent ear-blasting
         }
 
-        if (collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
-            volume /= (collision.collidingEntities.size() + 1);
-        }
-
-        volume = Mth.clamp(volume, 0.0f, 2.0f);
+        volume = Mth.clamp(volume, 0.0f, 1.0f);
 
         float minPitch = 0.9f;
         float maxPitch = 1.7f;
         float pitch = (float) Mth.clamp(minPitch + (fullstop.getStoppingForce() / 100f) * (maxPitch - minPitch), minPitch, maxPitch);
 
-        if (collision.fake()) return;
+        // Track played sounds to avoid duplicates (Fixes "Multiple Ground Hit Sounds")
+        List<SoundEvent> playedSounds = new ArrayList<>();
 
-        if (fullstop.getStoppingForce() <= 6.0) return;
+        // 3. PLAY ENTITY SOUNDS
+        if (collision.collidingEntities != null) {
+            for (Entity collidedEntity : collision.collidingEntities) {
+                // Use vanilla SoundEvents directly
+                SoundEvent hitSound = SoundEvents.BOOK_PUT;
 
-        if (!(entity instanceof LivingEntity) && collision.collisionType == Collision.CollisionType.ENTITY) return;
-
-        for (Entity collidedEntity : collision.collidingEntities) {
-            SoundPlayer.playSound(collidedEntity, SoundEvents.BOOK_PUT, volume, pitch); // This sound works surprisingly well for entity collision!
+                if (!playedSounds.contains(hitSound)) {
+                    entity.level().playSound(null, collidedEntity.blockPosition(), hitSound, SoundSource.PLAYERS, volume, pitch);
+                    playedSounds.add(hitSound);
+                }
+            }
         }
 
-        for (BlockState blockState : collision.blockStates) {
-            SoundType soundType = blockState.getSoundType();
-            SoundEvent sound = soundType.getFallSound();
-            SoundPlayer.playSound(entity, sound, volume, pitch);
+        // 4. PLAY BLOCK SOUNDS
+        if (collision.blockStates != null) {
+            for (BlockState blockState : collision.blockStates) {
+                SoundType soundType = blockState.getSoundType();
+                SoundEvent sound = soundType.getFallSound();
 
-            if (entity instanceof Minecart) {
-                SoundPlayer.playSound(entity, SoundEvents.IRON_GOLEM_HURT, volume / 2, pitch * (float) Math.random());
-                SoundPlayer.playSound(entity, SoundEvents.ANVIL_FALL, volume / 2, pitch * (float) Math.random());
+                // Only play if we haven't heard this specific sound yet this tick
+                if (!playedSounds.contains(sound)) {
+                    entity.level().playSound(null, entity.blockPosition(), sound, SoundSource.PLAYERS, volume, pitch);
+                    playedSounds.add(sound);
+                }
+
+                if (entity instanceof Minecart) {
+                    entity.level().playSound(null, entity.blockPosition(), SoundEvents.IRON_GOLEM_HURT, SoundSource.PLAYERS, volume / 2, pitch * (float) Math.random());
+                    entity.level().playSound(null, entity.blockPosition(), SoundEvents.ANVIL_FALL, SoundSource.PLAYERS, volume / 2, pitch * (float) Math.random());
+                }
             }
         }
     }
@@ -251,8 +276,13 @@ public class Physics {
 //            LogToChat.logToChat(damage);
 //        }
 
+        if (entity instanceof Player player && (player.isCreative() || player.isSpectator())) {
+            return;
+        }
+
         if (fullstop.getIsDamageImmune()) return;
         if (entity.isInvulnerable()) return;
+
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
 
@@ -299,6 +329,7 @@ public class Physics {
         );
 
         ArrayList<BlockState> collidedBlockStates = new ArrayList<>();
+        ArrayList<BlockPos> collidedBlockPositions = new ArrayList<>();
         double highestY = -64;
         double lowestY = 320;
         Collision.CollisionType impactType = Collision.CollisionType.NONE;
@@ -328,11 +359,14 @@ public class Physics {
 
             if (blockHit.getType() == HitResult.Type.BLOCK) {
                 BlockPos hitPos = blockHit.getBlockPos();
-
                 BlockState hitState = level.getBlockState(hitPos);
 
                 if (!collidedBlockStates.contains(hitState)) {
                     collidedBlockStates.add(hitState);
+                }
+
+                if (!collidedBlockPositions.contains(hitPos)) {
+                    collidedBlockPositions.add(hitPos);
                 }
 
                 highestY = Math.max(highestY, hitPos.getY() + 1);
@@ -374,7 +408,7 @@ public class Physics {
         }
 
 
-        return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities);
+        return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities, collidedBlockPositions);
     }
 
 //    public Collision collidingKinetically() {
@@ -616,7 +650,7 @@ public class Physics {
         return list;
     }
 
-    private double getEntityMass(Entity entity) {
+    public static double getEntityMass(Entity entity) {
         AABB box = entity.getBoundingBox();
         double entityVolume = (box.maxX - box.minX) * (box.maxY - box.minY) * (box.maxZ - box.minZ);
 
@@ -927,14 +961,45 @@ public class Physics {
         return angle - 180;
     }
 
-    private double calcKineticDamageTotal() {
-        // TODO Finish moving things into the seperate entity damage calculations instead of here
+    // Inside Physics.java
 
+    // Inside Physics.java
+
+    // Inside Physics.java
+
+    // Inside Physics.java
+
+    // Inside Physics.java
+
+    private double calcKineticDamageTotal() {
+        // 1. SAFETY & LEASH CHECKS
         if (entity instanceof Mob mob) {
             if (mob.isLeashed() && fullstop.isMostlyDownward() && collision.fake()) return 0;
         }
 
-        if (!fullstop.isMostlyDownward() && collision.collisionType != Collision.CollisionType.SOLID && collision.collisionType != Collision.CollisionType.ENTITY) return 0;
+        // 2. BOUNCY BLOCK IMMUNITY (Dynamic Scan)
+        if (!entity.isCrouching()) {
+            // Check A: Did the standard collision detect it?
+            if (collision.sticky()) return 0;
+
+            // Check B: Dynamic Fallback
+            // Calculate how fast we were falling (in blocks per tick)
+            double verticalSpeed = Math.abs(fullstop.getPreviousNativeVelocity().y);
+
+            // Scan downwards based on that speed (min 2 blocks, max speed + 2 buffer)
+            int scanDistance = (int) Math.ceil(verticalSpeed) + 2;
+
+            if (scanForBouncyBlock(scanDistance)) {
+                return 0;
+            }
+        }
+
+        // 3. NORMAL DIRECTION CHECKS
+        if (!fullstop.isMostlyDownward() &&
+                collision.collisionType != Collision.CollisionType.SOLID &&
+                collision.collisionType != Collision.CollisionType.ENTITY) {
+            return 0;
+        }
 
         if (collision.collisionType == Collision.CollisionType.ENTITY) {
             if (!SERVER.entityCollisionDamage.get()) {
@@ -942,9 +1007,10 @@ public class Physics {
             }
         }
 
+        // 4. CALCULATE DAMAGE
         double stoppingForce = fullstop.getStoppingForce();
-
         double damage;
+
         if (!fullstop.isMostlyDownward()) {
             damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdHorizontal.get(), 0);
         } else {
@@ -954,6 +1020,35 @@ public class Physics {
         if (damage <= 0) return 0;
 
         return (float) (damage * 1.07);
+    }
+
+    // --- NEW DYNAMIC SCAN METHOD ---
+    private boolean scanForBouncyBlock(int distance) {
+        BlockPos startPos = entity.blockPosition();
+        Level level = entity.level();
+
+        // Loop from feet downwards
+        for (int i = 0; i <= distance; i++) {
+            BlockPos checkPos = startPos.below(i);
+
+            // Safety: Don't check outside world
+            if (!level.isInWorldBounds(checkPos)) break;
+
+            BlockState state = level.getBlockState(checkPos);
+
+            // Skip Air/Fluids to find the "First Solid Block"
+            if (state.isAir() || state.getFluidState().isSource()) continue;
+
+            // Check if the FIRST solid block we hit is bouncy
+            if (state.getBlock() instanceof net.minecraft.world.level.block.SlimeBlock ||
+                    state.getBlock() instanceof net.minecraft.world.level.block.HoneyBlock ||
+                    state.getBlock() instanceof net.minecraft.world.level.block.BedBlock) {
+                return true; // SAFE!
+            } else {
+                return false; // We hit Concrete/Dirt/Stone first. DEAD.
+            }
+        }
+        return false; // Found nothing (void)
     }
 
     private static int lerpColor(int color1, int color2, double t) {
@@ -1145,7 +1240,7 @@ public class Physics {
 
 //            double vehicleTotalMass = getAllStackEntities(entity).stream().mapToDouble(this::getEntityMass).average().orElse(0.0);
 //            double vehicleTotalMass = getEntityMass(getAllStackEntities(entity));
-            double vehicleTotalMass = getAllEntitiesInStack(entity).stream().mapToDouble(this::getEntityMass).sum();
+            double vehicleTotalMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
             double vehicleSelfMass = getEntityMass(entity);
 
             if (vehicleSelfMass < 0.001) vehicleSelfMass = 0.001;
@@ -1334,8 +1429,14 @@ public class Physics {
     public Physics(Entity entity) {
         fullstop = grabCapability(entity);
 
-        fullstop.tick(entity);
+        // Only tick if we haven't processed this specific tick yet
+        if (entity.tickCount != fullstop.getLastTick()) {
+            fullstop.tick(entity);
+            fullstop.setLastTick(entity.tickCount);
+        }
+
         this.entity = entity;
+
         collision = collidingKinetically();
 
         if (entity instanceof ServerPlayer) {
@@ -1351,6 +1452,11 @@ public class Physics {
 //        }
 
         damage = calcKineticDamageTotal();
+
+        if (!collision.impactedPositions.isEmpty() && entity instanceof LivingEntity living) {
+            // Pass the raw stopping force (fullstop.getStoppingForce()) or the calculated damage
+            KineticInteractions.handleBlockImpacts(living, fullstop.getPreviousNativeVelocity(), collision.impactedPositions);
+        }
     }
 
     public static boolean unphysable(Entity entity) {
