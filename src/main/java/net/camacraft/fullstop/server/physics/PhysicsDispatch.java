@@ -123,6 +123,7 @@ public class PhysicsDispatch {
         physics.applyForceEffects();
         physics.bounceEntity();
         physics.impactSound();
+        physics.impactAesthetic(); // Added this to server recently. Not sure what issues it might cause but it fixed particles not rendering when another entity hits a wall
         physics.impactDamageSound();
         physics.applyKineticDamage();
         physics.applyDamageEffects();

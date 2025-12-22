@@ -70,7 +70,7 @@ public class PhysicsDispatch {
         if (Physics.unphysable(entity)) return;
 
         Physics physics = new Physics(entity);
-        physics.handleEntityCollision();
+//        physics.handleEntityCollision();
         physics.bounceEntity();
 //        physics.impactSound();
         physics.impactAesthetic();

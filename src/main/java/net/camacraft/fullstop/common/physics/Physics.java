@@ -1,13 +1,12 @@
 package net.camacraft.fullstop.common.physics;
 
 import net.camacraft.fullstop.client.message.LogToChat;
-import net.camacraft.fullstop.client.render.RaycastParticleRenderer;
+//import net.camacraft.fullstop.client.render.RaycastLineRenderer;
 import net.camacraft.fullstop.client.render.CollisionParticleRenderer;
 import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
-import net.minecraft.client.resources.sounds.Sound;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.Style;
@@ -18,6 +17,7 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.damagesource.CombatRules;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -27,6 +27,7 @@ import net.minecraft.world.entity.animal.IronGolem;
 import net.minecraft.world.entity.animal.horse.Horse;
 import net.minecraft.world.entity.animal.horse.SkeletonHorse;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Ghast;
 import net.minecraft.world.entity.monster.Skeleton;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Arrow;
@@ -45,10 +46,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import org.jetbrains.annotations.NotNull;
 
@@ -214,13 +213,14 @@ public class Physics {
     }
 
     public void impactDamageSound() {
+        if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
         float volume = Math.min(0.1F * (float) damage, 1.0F);
         float pitch = 0.5F;
         SoundEvent sound = SoundEvents.PLAYER_BIG_FALL;
 
-        if (collision.collisionType == Collision.CollisionType.SOLID && !(entity instanceof Minecart)) {
+        if (collision.collisionType == Collision.CollisionType.SOLID) {
             SoundPlayer.playSound(entity, sound, volume, pitch);
         }
     }
@@ -247,11 +247,12 @@ public class Physics {
     public void applyDamageEffects() {
         if (damage <= 0) return;
 
-        if (entity instanceof ServerPlayer) {
-            LogToChat.logToChat(damage);
-        }
+//        if (entity instanceof ServerPlayer) { // TODO remove debug msg
+//            LogToChat.logToChat(damage);
+//        }
 
         if (fullstop.getIsDamageImmune()) return;
+        if (entity.isInvulnerable()) return;
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
 
@@ -308,15 +309,25 @@ public class Physics {
             ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity);
             BlockHitResult blockHit = level.clip(ctx);
 
+//            // only run client-side visual debug
+//            if (level.isClientSide) {
+//                boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
+//                RaycastParticleRenderer.spawnRay(level, start, end, hitBlock, 12); // steps = 12 for denser line
+//            }
+
+            if (level.isClientSide) {
+                boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
+                float r = hitBlock ? 1.0f : 0.0f;
+                float g = hitBlock ? 0.0f : 1.0f;
+                float b = 0.0f;
+
+                // Use ray index to create a stable ID (avoids jitter & trailing)
+//                RaycastLineRenderer.queueLine("ray_" + rayStarts.indexOf(start), //todo fix the debug raycast
+//                        start, end, r, g, b, 1.0f, 500);
+            }
+
             if (blockHit.getType() == HitResult.Type.BLOCK) {
                 BlockPos hitPos = blockHit.getBlockPos();
-
-                // only run client-side visual debug
-                if (level.isClientSide) {
-                    boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
-                    RaycastParticleRenderer.spawnRay(level, start, end, hitBlock, 12); // steps = 12 for denser line
-                }
-
 
                 BlockState hitState = level.getBlockState(hitPos);
 
@@ -593,13 +604,13 @@ public class Physics {
      * Returns a list of the given entity and ALL passengers
      * (including passengers of passengers, etc.).
      */
-    private List<Entity> getAllStackEntities(Entity start) {
+    private List<Entity> getAllEntitiesInStack(Entity start) {
         List<Entity> list = new ArrayList<>();
 
         // Depth-first recursion
         list.add(start);
         for (Entity passenger : start.getPassengers()) {
-            list.addAll(getAllStackEntities(passenger));
+            list.addAll(getAllEntitiesInStack(passenger));
         }
 
         return list;
@@ -609,14 +620,20 @@ public class Physics {
         AABB box = entity.getBoundingBox();
         double entityVolume = (box.maxX - box.minX) * (box.maxY - box.minY) * (box.maxZ - box.minZ);
 
-        if (entity instanceof LivingEntity living && living.isFallFlying()) {
-            return entityVolume / 20;
+        if (entity instanceof LivingEntity living && living.isFallFlying()) { // When flying with the elytra, the player's bounding box shrinks by 3 times
+            return entityVolume * 3;
         }
-        if (entity instanceof IronGolem) {
+        if (entity instanceof IronGolem) { // Made of Iron mobs should not take kinetic damage and should be deadly when crushed by or ran into by them
             return entityVolume * 8;
         }
-        if (entity instanceof Skeleton || entity instanceof SkeletonHorse) {
+        if (entity instanceof Skeleton || entity instanceof SkeletonHorse) { // Just bones, no flesh, slightly lighter.
             return entityVolume / 3;
+        }
+        if (entity instanceof ItemEntity) { // Items are currently weightless but maybe add weight to them in the future. (i.e. gold tagged items are heavier)
+            return entityVolume * 0;
+        }
+        if (entity instanceof Ghast) { // Basically ghosts right? Make them  light af.
+            return entityVolume / 8;
         }
 
         return entityVolume;
@@ -663,8 +680,6 @@ public class Physics {
         return entity.startRiding(vehicle, true);
     }
 
-    // Now the refactored handleEntityCollision method:
-
     public void handleEntityCollision() {
         if (!SERVER.entityCollisionDamage.get()) return;
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
@@ -672,8 +687,8 @@ public class Physics {
         Vec3 entityVelocity = fullstop.getPreviousNativeVelocity();
         double currentSpeed = fullstop.getCurrentNativeVelocity().length();
 
-//         Early exit if speed is below threshold
-        if (currentSpeed < 0.15) return; // TODO FIND THE RIGHT THRESHOLD
+         // Early exit if speed is below threshold
+        if (currentSpeed < 0.75) return; // TODO FIND THE RIGHT THRESHOLD
 
         Level level = entity.level();
         boolean isServer = !level.isClientSide();
@@ -709,6 +724,9 @@ public class Physics {
                 continue;
             }
 
+            entity.setDeltaMovement(Vec3.ZERO);
+            collidedEntity.setDeltaMovement(Vec3.ZERO);
+
             ridableList.add(collidedEntity);
         }
 
@@ -736,21 +754,39 @@ public class Physics {
             }
         }
 
-        tryStartRidingSafely(closestEntity);
-
         for (Entity collidedEntity : collision.collidingEntities) {
-            Vec3 away = entity.position().subtract(collidedEntity.position()).normalize();
-//            entity.setDeltaMovement(collidedEntity.getDeltaMovement());
+            Vec3 normal = entity.position().subtract(collidedEntity.position()).normalize();
 
-            if (!(collidedEntity instanceof IronGolem)) {
-                collidedEntity.setDeltaMovement(entity.getDeltaMovement());
-            }
+            double m1 = getEntityMass(entity);
+            double m2 = getEntityMass(collidedEntity);
 
-            double bounceStrength = entity.getDeltaMovement().length(); // TODO Fix entity bounce back when hitting another entity
-//            entity.setDeltaMovement(away.scale(bounceStrength));
-            entity.setDeltaMovement(Vec3.ZERO);
-            entity.hasImpulse = true;
+            double v1 = entity.getDeltaMovement().dot(normal);
+            double v2 = collidedEntity.getDeltaMovement().dot(normal);
+
+            // restitution: how "bouncy" (1.0 = perfectly elastic, 0.0 = no bounce)
+            double restitution = 0.5;
+
+            double newV1 = (v1 * (m1 - m2) + (1 + restitution) * m2 * v2) / (m1 + m2);
+            double newV2 = (v2 * (m2 - m1) + (1 + restitution) * m1 * v1) / (m1 + m2);
+
+            Vec3 v1Change = normal.scale(newV1 - v1);
+            Vec3 v2Change = normal.scale(newV2 - v2);
+
+//            entity.setDeltaMovement(entity.getDeltaMovement().add(v1Change));
+//            entity.hasImpulse = true;
+//
+//            // Only apply to the other entity if you *really* want it to bounce
+//            if (!(collidedEntity instanceof LivingEntity && !(collidedEntity instanceof Player))) {
+//                collidedEntity.setDeltaMovement(collidedEntity.getDeltaMovement().add(v2Change));
+//                collidedEntity.hasImpulse = true;
+//            }
+
+//            LogToChat.logToChat(entity.getDisplayName().getString(),
+//                    " collided with ",
+//                    collidedEntity.getDisplayName().getString());
         }
+
+        tryStartRidingSafely(closestEntity);
     }
 
 
@@ -906,8 +942,6 @@ public class Physics {
             }
         }
 
-        if (entity instanceof IronGolem) return 0;
-
         double stoppingForce = fullstop.getStoppingForce();
 
         double damage;
@@ -938,9 +972,22 @@ public class Physics {
         return (r << 16) | (g << 8) | b;
     }
 
+    private float applyArmorReduction(LivingEntity entity, float rawDamage) {
+        double armor = entity.getAttributeValue(Attributes.ARMOR);
+        double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
+
+        // Only apply armor reduction if entity is mostly downward
+        if (fullstop.isMostlyDownward()) {
+            return rawDamage;
+        }
+
+        return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
+    }
+
     public void applyKineticDamage() {
         double previousVelocity = fullstop.getPreviousScaledVelocity().length();
         if (damage < 1) return;
+        if (entity instanceof ItemEntity) return;
 
         // Decide on the color dynamically based on velocity
         TextColor color;
@@ -980,7 +1027,15 @@ public class Physics {
             }
 
             DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
-            entity.hurt(customSource, (float) damage); // full damage since no entity split
+
+            if  (entity  instanceof LivingEntity living) {
+                float finalSelfDamage = applyArmorReduction(living, (float) damage); // Armor in real life would not protect against kinetic damage as much as this does
+                //LogToChat.logToChat(entity.getDisplayName().getString(), "entity mass: ",getEntityMass(entity), customSource, "damage applied: ",finalSelfDamage);
+                entity.hurt(customSource, finalSelfDamage);
+            } else {
+               // LogToChat.logToChat(entity.getDisplayName().getString(), "entity mass: ",getEntityMass(entity), customSource, "damage applied: ",damage);
+                entity.hurt(customSource, (float) damage); // Full damage applied to non-living entities
+            }
         }
 
         // --- Case 2: Entity collision damage ---
@@ -1088,28 +1143,29 @@ public class Physics {
 
             List<Entity> collidedEntities = collision.collidingEntities;
 
-            double targetMass = collidedEntities.stream().mapToDouble(this::getEntityMass).average().orElse(0.0);
-            double attackerMass = getEntityMass(entity);
+//            double vehicleTotalMass = getAllStackEntities(entity).stream().mapToDouble(this::getEntityMass).average().orElse(0.0);
+//            double vehicleTotalMass = getEntityMass(getAllStackEntities(entity));
+            double vehicleTotalMass = getAllEntitiesInStack(entity).stream().mapToDouble(this::getEntityMass).sum();
+            double vehicleSelfMass = getEntityMass(entity);
 
-            if (attackerMass < 0.001) attackerMass = 0.001;
+            if (vehicleSelfMass < 0.001) vehicleSelfMass = 0.001;
 
-            float attackerDamageScale = (float) (targetMass / attackerMass);
+            float attackerDamageScale = (float) (vehicleTotalMass / vehicleSelfMass);
 
             float attackerScaledDamage = splitEntityDamage * attackerDamageScale;
 
             if (fullstop.isMostlyDownward()) {
-                double rideChainCount = getAllStackEntities(entity).size();
+                // APPLY DAMAGE TO ANY PASSENGERS
+                double rideChainCount = getAllEntitiesInStack(entity).size();
                 attackerScaledDamage = attackerScaledDamage / (float) rideChainCount; // TODO I WAS IN THE MIDDLE OF SPLITTING DAMAGE BETWEEN AN ENTIRE ENTITY STACK
-                for (Entity passenger : getAllStackEntities(entity)) {
+                for (Entity passenger : getAllEntitiesInStack(entity)) {
+                    //LogToChat.logToChat(passenger.getDisplayName().getString(), "vehicle entity total mass: ", vehicleTotalMass, selfSource, "damage applied: ",attackerScaledDamage);
                     passenger.hurt(selfSource, attackerScaledDamage);
-
-                    LogToChat.logToChat("self damage:", entity, " passenger damage:", passenger);
                 }
             } else {
                 // APPLY SELF DAMAGE
+                //LogToChat.logToChat(entity.getDisplayName().getString(), "self entity mass: ", getEntityMass(entity), selfSource, "damage applied: ",attackerScaledDamage);
                 entity.hurt(selfSource, attackerScaledDamage);
-
-//                LogToChat.logToChat("self damage:", entity);
             }
 
             //TODO CREATE FINAL splitEntityDamage FORMULA THAT INCLUDES jumpBoostLevel, fallProtLevel, etc
@@ -1119,7 +1175,7 @@ public class Physics {
                 for (LivingEntity target : validTargets) {
                     DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
 
-                    float targetDamageScale = (float) (attackerMass / getEntityMass(target));
+                    float targetDamageScale = (float) (vehicleSelfMass / getEntityMass(target));
                     float targetScaledDamage = splitEntityDamage * targetDamageScale;
 
                     if (fullstop.getIsDamageImmune()) {
@@ -1135,6 +1191,7 @@ public class Physics {
                     //TODO FINAL splitEntityDamage formula
 
                     // APPLY TARGET DAMAGE
+                    //LogToChat.logToChat(target.getDisplayName().getString(), "target entity mass: ",getEntityMass(target),attackerSource, "damage applied: ",targetScaledDamage);
                     target.hurt(attackerSource, targetScaledDamage);
                 }
             }
@@ -1281,13 +1338,13 @@ public class Physics {
         this.entity = entity;
         collision = collidingKinetically();
 
-//        if (entity instanceof ServerPlayer) {
-//            double rawWeight = getEntityWeight(entity);
+        if (entity instanceof ServerPlayer) {
+//            double rawWeight = getEntityMass(entity);
 //            double displayKg = rawWeight * 1350.0;
 //            double displayLbs = displayKg * 2.20462;
 //
 //            LogToChat.logToChat(Math.round(displayKg), "Kg", Math.round(displayLbs), "Lbs");
-//        }
+        }
 
 //        if (entity instanceof ServerPlayer) {
 //            LogToChat.logToChat(collision.collisionType);

@@ -1,9 +1,16 @@
 package net.camacraft.fullstop.common.effects;
 
+import net.camacraft.fullstop.common.capabilities.FullStopCapability;
+import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.Physics;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectCategory;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 public class SprainEffect extends MobEffect {
 
@@ -13,36 +20,41 @@ public class SprainEffect extends MobEffect {
 
     @Override
     public void applyEffectTick(LivingEntity entity, int amplifier) {
-        boolean isPlayer = entity instanceof Player;
         boolean canBypass = false;
 
-        if (isPlayer) {
-            Player player = (Player) entity;
-            // Creative flying players should be unaffected
-            canBypass = player.isFallFlying() || (player.getAbilities().flying && player.isCreative());
+        if (entity instanceof Player player) {
+            // Creative flying / Elytra flight bypass
+            canBypass = player.isFallFlying() ||
+                    (player.getAbilities().flying && player.isCreative());
+        }
+
+        if (entity.hasEffect(MobEffects.LEVITATION) || entity.isFallFlying()) {
+            canBypass = true;
         }
 
         if (!canBypass) {
-            // Slow down jumping
+            // --- Prevent jumping / bunny hopping ---
             if (entity.getDeltaMovement().y > 0) {
+                // Stop all upward velocity
                 entity.setDeltaMovement(
                         entity.getDeltaMovement().x,
-                        Math.min(0, entity.getDeltaMovement().y), // clamp Y at 0
+                        0,
                         entity.getDeltaMovement().z
                 );
             }
 
-            // Slow down horizontal movement
+            // --- Slow horizontal movement every tick ---
             double slowFactor = 0.4 - (amplifier * 0.1);
-            if (slowFactor < 0.1) slowFactor = 0.1; // avoid freezing or reversing
+            if (slowFactor < 0.1) slowFactor = 0.1;
 
             entity.setDeltaMovement(
                     entity.getDeltaMovement().x * slowFactor,
-                    entity.getDeltaMovement().y,
+                    entity.getDeltaMovement().y, // Y stays clamped
                     entity.getDeltaMovement().z * slowFactor
             );
         }
 
+        // Always suppress the "jumping" flag
         entity.setJumping(false);
     }
 

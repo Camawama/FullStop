@@ -1,8 +1,10 @@
 package net.camacraft.fullstop.client.render;
 
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Vector3f;
 
 /**
  * Simple, reliable debug ray "renderer" using particles.
@@ -26,11 +28,13 @@ public final class RaycastParticleRenderer {
 
         Vec3 dir = end.subtract(start);
 
-        // spawn intermediate "line" particles (END_ROD is bright and easy to see)
         for (int i = 0; i <= steps; i++) {
             double t = steps == 0 ? 0.0 : (double) i / steps;
             Vec3 p = start.add(dir.scale(t));
-            level.addParticle(ParticleTypes.END_ROD, p.x, p.y, p.z, 0.0, 0.0, 0.0);
+
+            // color and alpha — bright green for visibility
+            DustParticleOptions dust = new DustParticleOptions(new Vector3f(0.1f, 1.0f, 0.1f), 1.0f);
+            level.addParticle(dust, p.x, p.y, p.z, 0.0, 0.0, 0.0);
         }
 
         // Hit marker (flame) vs miss marker (cloud)

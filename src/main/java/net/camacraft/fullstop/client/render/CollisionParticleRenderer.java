@@ -25,10 +25,12 @@ public class CollisionParticleRenderer {
             throw new IllegalStateException("not a sticky type");
         }
 
-        Minecraft.getInstance().level.addParticle(
-                particleType,
-                pos.x, pos.y, pos.z,
-                0.1, 0.1, 0.1
-        );
+        if (!(Minecraft.getInstance().level == null)) {
+            Minecraft.getInstance().level.addParticle(
+                    particleType,
+                    pos.x, pos.y, pos.z,
+                    0.1, 0.1, 0.1
+            );
+        }
     }
 }

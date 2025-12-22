@@ -8,25 +8,29 @@ import net.minecraft.world.entity.player.Player;
 public class LogToChat {
 
     public static void logToChat(Object... messages) {
-        Minecraft minecraft = Minecraft.getInstance();
-        StringBuilder message = new StringBuilder();
-        for (Object object : messages) {
-            message.append(object);
-            message.append(", ");
-        }
-        Component chatMessage = Component.literal(message.toString());
-
-        minecraft.execute(() -> {
-            if (minecraft.isLocalServer()) {
-                if (minecraft.player != null) {
-                    minecraft.player.sendSystemMessage(chatMessage);
-                }
-            } else if (minecraft.level != null) {
-                for (Player player : minecraft.level.players()) {
-                    player.sendSystemMessage(chatMessage);
-                }
+        boolean logToChatToggle = true;
+        if (logToChatToggle) {
+            Minecraft minecraft = Minecraft.getInstance();
+            StringBuilder message = new StringBuilder();
+            for (Object object : messages) {
+                message.append(object);
+                message.append(" ");
+//            message.append(", ");
             }
-        });
+            Component chatMessage = Component.literal(message.toString());
+
+            minecraft.execute(() -> {
+                if (minecraft.isLocalServer()) {
+                    if (minecraft.player != null) {
+                        minecraft.player.sendSystemMessage(chatMessage);
+                    }
+                } else if (minecraft.level != null) {
+                    for (Player player : minecraft.level.players()) {
+                        player.sendSystemMessage(chatMessage);
+                    }
+                }
+            });
+        }
     }
 
     public static void sendTo(Entity entity, Object... messages) {

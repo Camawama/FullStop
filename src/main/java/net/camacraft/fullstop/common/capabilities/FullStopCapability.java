@@ -189,7 +189,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     private void tickRiding() {
         if (hasDismounted) {
-            dismountCooldown = 20;
+            dismountCooldown = 40;
             hasDismounted = false;
         }
 
