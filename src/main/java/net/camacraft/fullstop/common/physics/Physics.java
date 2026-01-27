@@ -288,9 +288,14 @@ public class Physics {
     }
 
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
+        Vec3 velocity = fullstop.getPreviousScaledVelocity();
+        if (velocity != null && velocity.lengthSqr() > 0.0001) {
+            return velocity.normalize();
+        }
+
         Vec3 acc = fullstop.getAcceleration();
         if (acc == null) return Vec3.ZERO;
-        return acc.normalize().reverse();
+        return acc.normalize();
     }
 
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
