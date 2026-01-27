@@ -16,6 +16,7 @@ import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -217,8 +218,8 @@ public class KineticInteractions {
         if (state.is(BlockTags.LOGS) || state.is(BlockTags.LOGS_THAT_BURN)) {
             FakePlayer fakePlayer = FakePlayerFactory.getMinecraft(level);
             fakePlayer.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_AXE));
-            BlockState strippedState = state.getToolModifiedState(level, pos, fakePlayer,
-                    fakePlayer.getItemInHand(InteractionHand.MAIN_HAND), ToolActions.AXE_STRIP);
+            UseOnContext context = new UseOnContext(fakePlayer, InteractionHand.MAIN_HAND, hitResult);
+            BlockState strippedState = state.getToolModifiedState(context, ToolActions.AXE_STRIP, false);
 
             if (strippedState != null && strippedState != state) {
                 level.setBlockAndUpdate(pos, strippedState);
