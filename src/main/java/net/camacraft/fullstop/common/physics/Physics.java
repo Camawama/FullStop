@@ -627,6 +627,7 @@ public class Physics {
     }
 
     public void bounceEntity() {
+        if (entity.level().isClientSide) return;
         if (brokeBlock) return;
 
         if (entity.isCrouching() || collision.fake() || (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 9)) return;
@@ -672,21 +673,32 @@ public class Physics {
             }
         }
 
-        double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
-        double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
-        Vec3 newV = (aCurVZ == aCurVX ?
-                new Vec3(
-                        preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
-                )
-                :
-                new Vec3(
-                        preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
-                )
-        );
+        Vec3 newV = null;
+        Vec3 impactNormal = getImpactNormal(preV);
+        if (impactNormal != null) {
+            Vec3 normalComponent = impactNormal.scale(preV.dot(impactNormal));
+            Vec3 tangential = preV.subtract(normalComponent);
+            newV = tangential.scale(paraScaleFactor).add(normalComponent.scale(perpScaleFactor));
+            newV = new Vec3(newV.x, curV.y, newV.z);
+        }
+
+        if (newV == null) {
+            double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
+            double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
+            newV = (aCurVZ == aCurVX ?
+                    new Vec3(
+                            preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
+                    )
+                    :
+                    new Vec3(
+                            preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
+                    )
+            );
+        }
 
         if (entity instanceof Minecart) return;
 
@@ -708,6 +720,27 @@ public class Physics {
         } / Math.PI * 180;
 
         fullstop.setTargetAngle(targetAngle);
+    }
+
+    private Vec3 getImpactNormal(Vec3 velocity) {
+        if (collision.impactedHits == null || collision.impactedHits.isEmpty()) {
+            return null;
+        }
+
+        Vec3 velocityDir = velocity.lengthSqr() > 0.0001 ? velocity.normalize() : velocity;
+        Vec3 bestNormal = null;
+        double bestDot = 1.0;
+
+        for (BlockHitResult hit : collision.impactedHits) {
+            Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getNormal()).normalize();
+            double dot = velocityDir.dot(normal);
+            if (dot < bestDot) {
+                bestDot = dot;
+                bestNormal = normal;
+            }
+        }
+
+        return bestNormal;
     }
 
     public static double angleWrap(double angle) {

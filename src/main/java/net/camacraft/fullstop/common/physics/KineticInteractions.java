@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -12,7 +13,9 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Arrow;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -20,8 +23,10 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
+import net.minecraftforge.common.ToolActions;
 
 import java.util.List;
+import java.util.Optional;
 
 public class KineticInteractions {
 
@@ -126,6 +131,12 @@ public class KineticInteractions {
                 }
             }
 
+            if (entity instanceof FallingBlockEntity fallingBlock) {
+                if (handleFallingBlockImpact(level, fallingBlock, state, pos, impactedHits.get(i))) {
+                    continue;
+                }
+            }
+
             // --- LOGIC 1: Destruction ---
 
             // Check mob griefing rule for breaking
@@ -196,6 +207,37 @@ public class KineticInteractions {
             }
         }
         return blockBroken;
+    }
+
+    private static boolean handleFallingBlockImpact(ServerLevel level,
+                                                    FallingBlockEntity fallingBlock,
+                                                    BlockState state,
+                                                    BlockPos pos,
+                                                    BlockHitResult hitResult) {
+        if (state.is(BlockTags.LOGS) || state.is(BlockTags.LOGS_THAT_BURN)) {
+            FakePlayer fakePlayer = FakePlayerFactory.getMinecraft(level);
+            fakePlayer.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_AXE));
+            BlockState strippedState = state.getToolModifiedState(level, pos, fakePlayer,
+                    fakePlayer.getItemInHand(InteractionHand.MAIN_HAND), ToolActions.AXE_STRIP);
+
+            if (strippedState != null && strippedState != state) {
+                level.setBlockAndUpdate(pos, strippedState);
+                return true;
+            }
+        }
+
+        if (state.is(BlockTags.STRIPPED_LOGS) || state.is(BlockTags.STRIPPED_WOOD)) {
+            level.destroyBlock(pos, true, fallingBlock);
+            return true;
+        }
+
+        Optional<BlockState> previous = WeatheringCopper.getPrevious(state);
+        if (previous.isPresent()) {
+            level.setBlockAndUpdate(pos, previous.get());
+            return true;
+        }
+
+        return false;
     }
 
     private static boolean isBlacklisted(BlockState state) {
