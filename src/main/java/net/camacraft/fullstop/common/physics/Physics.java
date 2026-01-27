@@ -169,6 +169,7 @@ public class Physics {
     public void impactSound() {
         // 1. RUN ON SERVER ONLY (Fixes the "Echo" / Double Audio)
         if (entity.level().isClientSide) return;
+        if (!fullstop.canPlaySound()) return;
 
         // 2. CHECK FORCE THRESHOLD
         if (fullstop.getStoppingForce() <= 6.0) return;
@@ -225,6 +226,8 @@ public class Physics {
                 }
             }
         }
+
+        fullstop.setSoundCooldown(4);
     }
 
     public void impactDamageSound() {
@@ -285,9 +288,14 @@ public class Physics {
     }
 
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
+        Vec3 velocity = fullstop.getPreviousScaledVelocity();
+        if (velocity != null && velocity.lengthSqr() > 0.0001) {
+            return velocity.normalize();
+        }
+
         Vec3 acc = fullstop.getAcceleration();
         if (acc == null) return Vec3.ZERO;
-        return acc.normalize().reverse();
+        return acc.normalize();
     }
 
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
@@ -424,6 +432,14 @@ public class Physics {
                             && !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
                             && !(e.isPassengerOfSameVehicle(entity))
             );
+
+            if (collidingEntities.size() > 1) {
+                boolean overlapping = collidingEntities.stream()
+                        .allMatch(e -> e.getBoundingBox().intersects(entity.getBoundingBox()));
+                if (overlapping) {
+                    collidingEntities = Collections.emptyList();
+                }
+            }
 
             if (!collidingEntities.isEmpty()) {
                 impactType = Collision.CollisionType.ENTITY;
@@ -611,6 +627,7 @@ public class Physics {
     }
 
     public void bounceEntity() {
+        if (entity.level().isClientSide) return;
         if (brokeBlock) return;
 
         if (entity.isCrouching() || collision.fake() || (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 9)) return;
@@ -818,7 +835,7 @@ public class Physics {
         return (r << 16) | (g << 8) | b;
     }
 
-    private float applyArmorReduction(LivingEntity entity, float rawDamage) {
+    private float applyArmorReduction(LivingEntity entity, float rawDamage, boolean mostlyDownward) {
         double armor = entity.getAttributeValue(Attributes.ARMOR);
         double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
 
@@ -826,7 +843,7 @@ public class Physics {
 
         rawDamage *= (float) toughnessReduction;
 
-        if (fullstop.isMostlyDownward()) {
+        if (mostlyDownward) {
             int featherFallingLevel = entity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             if (featherFallingLevel > 0) {
                 float reduction = 0.2f * featherFallingLevel;
@@ -849,6 +866,14 @@ public class Physics {
         double previousVelocity = fullstop.getPreviousScaledVelocity().length();
         if (damage < 1) return;
         if (entity instanceof ItemEntity) return;
+
+        BlockPos collisionPos = collision.impactedPositions.isEmpty() ? null : collision.impactedPositions.get(0);
+        int collisionEntityId = (collision.collidingEntities != null && !collision.collidingEntities.isEmpty())
+                ? collision.collidingEntities.get(0).getId()
+                : -1;
+        if (fullstop.isCollisionOnCooldown(entity.tickCount, collisionPos, collisionEntityId, 5)) {
+            return;
+        }
 
         TextColor color;
         double maxVelocity = 78.40;
@@ -882,6 +907,8 @@ public class Physics {
         if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
             applyEntityCollisionDamage(velocityToDisplay, color, sources);
         }
+
+        fullstop.recordCollision(entity.tickCount, collisionPos, collisionEntityId);
     }
 
     private void applyBlockCollisionDamage(String velocityToDisplay, TextColor color, DamageSources sources) {
@@ -905,7 +932,7 @@ public class Physics {
             float selfDamage = (float) damage * crushFactor;
 
             if (entity instanceof LivingEntity living) {
-                selfDamage = applyArmorReduction(living, selfDamage);
+                selfDamage = applyArmorReduction(living, selfDamage, fullstop.isMostlyDownward());
                 entity.hurt(customSource, selfDamage);
             } else {
                 entity.hurt(customSource, selfDamage);
@@ -919,7 +946,7 @@ public class Physics {
 
         } else {
             if (entity instanceof LivingEntity living) {
-                float finalSelfDamage = applyArmorReduction(living, (float) damage);
+                float finalSelfDamage = applyArmorReduction(living, (float) damage, fullstop.isMostlyDownward());
                 entity.hurt(customSource, finalSelfDamage);
             } else {
                 entity.hurt(customSource, (float) damage);
@@ -968,6 +995,7 @@ public class Physics {
 
         int colliders = validTargets.size();
         float splitEntityDamage = (float) damage / (colliders + 1);
+        splitEntityDamage = scaleDamageByRelativeVelocity(splitEntityDamage);
 
         Entity firstCollider = collision.collidingEntities.get(0);
         if (!entity.onGround() && !firstCollider.onGround()) {
@@ -997,7 +1025,7 @@ public class Physics {
             );
         }
 
-        if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+        if (!(entity instanceof LivingEntity living) || isDamageImmune(living) || fullstop.getIsDamageImmune()) {
             splitEntityDamage = 0;
         }
 
@@ -1019,7 +1047,9 @@ public class Physics {
             selfDamage *= (float) (stackMass / selfMass);
         }
 
-        entity.hurt(selfSource, selfDamage);
+        if (!(entity instanceof AbstractMinecart) && !(entity instanceof IronGolem)) {
+            entity.hurt(selfSource, selfDamage);
+        }
 
         if (fullstop.isMostlyDownward()) {
             float passengerDamage = splitEntityDamage * 0.5f;
@@ -1039,17 +1069,34 @@ public class Physics {
                 float targetDamageScale = (float) (stackMass / targetMass);
                 float targetScaledDamage = splitEntityDamage * targetDamageScale;
 
-                double targetToughness = target.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
-                double toughnessReduction = Math.max(0.5, 1.0 - (targetToughness / 40.0));
-                targetScaledDamage *= (float) toughnessReduction;
-
-                if (fullstop.getIsDamageImmune()) {
+                if (isDamageImmune(target)) {
                     targetScaledDamage = 0;
+                } else {
+                    targetScaledDamage = applyArmorReduction(target, targetScaledDamage, fullstop.isMostlyDownward());
                 }
 
                 target.hurt(attackerSource, targetScaledDamage);
             }
         }
+    }
+
+    private float scaleDamageByRelativeVelocity(float baseDamage) {
+        if (collision.collidingEntities == null || collision.collidingEntities.isEmpty()) {
+            return baseDamage;
+        }
+
+        double attackerSpeed = entityVelocity(entity).length();
+        if (attackerSpeed <= 0.001) {
+            return baseDamage;
+        }
+
+        double averageRelativeSpeed = collision.collidingEntities.stream()
+                .mapToDouble(other -> entityVelocity(entity).subtract(entityVelocity(other)).length())
+                .average()
+                .orElse(attackerSpeed);
+
+        double scale = Mth.clamp(averageRelativeSpeed / attackerSpeed, 0.0, 2.0);
+        return (float) (baseDamage * scale);
     }
 
     private static float clamp(float value, float min, float max) {

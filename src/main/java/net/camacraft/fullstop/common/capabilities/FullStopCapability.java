@@ -14,6 +14,7 @@ import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.item.enchantment.Enchantments;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.capabilities.Capability;
@@ -63,6 +64,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private Vec3 acceleration;
     private long lastTick = -1;
     private int soundCooldown = 0;
+    private long lastCollisionTick = -1000;
+    private BlockPos lastCollisionBlockPos = null;
+    private int lastCollisionEntityId = -1;
 
     public FullStopCapability(Entity entity) {
         this.entity = entity;
@@ -96,6 +100,24 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public boolean canPlaySound() {
         return soundCooldown <= 0;
+    }
+
+    public boolean isCollisionOnCooldown(long currentTick, BlockPos blockPos, int entityId, int cooldownTicks) {
+        if (currentTick - lastCollisionTick > cooldownTicks) {
+            return false;
+        }
+
+        if (blockPos != null && blockPos.equals(lastCollisionBlockPos)) {
+            return true;
+        }
+
+        return entityId != -1 && entityId == lastCollisionEntityId;
+    }
+
+    public void recordCollision(long currentTick, BlockPos blockPos, int entityId) {
+        lastCollisionTick = currentTick;
+        lastCollisionBlockPos = blockPos;
+        lastCollisionEntityId = entityId;
     }
 
     public long getLastTick() {
