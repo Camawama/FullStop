@@ -105,7 +105,7 @@ public class KineticInteractions {
                 if (state.getBlock() instanceof NoteBlock) {
                     state.attack(level, pos, fakePlayer);
                 } else {
-                    // Currently only doors that are closed can be opened when ran into. In the future, we want it to flip it's state when hitting the door from any side (as long as it makes sense to move the door when hit from that side)
+                    // Allow collision to toggle door-like blocks. For open doors, only allow closing when hit on a side face.
                     boolean isOpenedDoor = false;
                     if (state.hasProperty(BlockStateProperties.OPEN) && state.getValue(BlockStateProperties.OPEN)) {
                         if (state.getBlock() instanceof DoorBlock ||
@@ -115,8 +115,9 @@ public class KineticInteractions {
                         }
                     }
 
-                    if (!isOpenedDoor) {
-                        BlockHitResult hitResult = impactedHits.get(i);
+                    BlockHitResult hitResult = impactedHits.get(i);
+                    boolean canToggleOpenDoor = isOpenedDoor && hitResult.getDirection().getAxis().isHorizontal();
+                    if (!isOpenedDoor || canToggleOpenDoor) {
                         InteractionResult result = state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult);
                         if (result.consumesAction()) {
                             continue;
