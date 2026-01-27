@@ -1079,6 +1079,27 @@ public class Physics {
         return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
     }
 
+    private float applyArmorReductionToTarget(LivingEntity target, float rawDamage) {
+        double armor = target.getAttributeValue(Attributes.ARMOR);
+        double toughness = target.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
+
+        if (fullstop.isMostlyDownward()) {
+            return rawDamage;
+        }
+
+        return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
+    }
+
+    private float calculateRelativeDamageScale(Vec3 attackerVelocity, Vec3 targetVelocity) {
+        double attackerSpeed = attackerVelocity.length();
+        if (attackerSpeed <= 0) {
+            return 0f;
+        }
+
+        double relativeSpeed = attackerVelocity.subtract(targetVelocity).length();
+        return (float) Mth.clamp(relativeSpeed / attackerSpeed, 0.0, 2.0);
+    }
+
     public void applyKineticDamage() {
         double previousVelocity = fullstop.getPreviousScaledVelocity().length();
         if (damage < 1) return;
@@ -1177,6 +1198,23 @@ public class Physics {
 
             int colliders = validTargets.size();
             float splitEntityDamage = (float) damage / (colliders + 1);
+            Vec3 attackerVelocity = fullstop.getPreviousScaledVelocity();
+            float maxRelativeScale = 0f;
+
+            for (Entity collidedEntity : collision.collidingEntities) {
+                FullStopCapability targetCap = grabCapability(collidedEntity);
+                if (targetCap == null) {
+                    continue;
+                }
+                Vec3 targetVelocity = targetCap.getPreviousScaledVelocity();
+                maxRelativeScale = Math.max(maxRelativeScale, calculateRelativeDamageScale(attackerVelocity, targetVelocity));
+            }
+
+            if (maxRelativeScale <= 0f) {
+                maxRelativeScale = 1f;
+            }
+
+            splitEntityDamage *= maxRelativeScale;
 
             if (!entity.onGround() && !collision.collidingEntities.stream().findFirst().get().onGround()) {
                 if (velocitiesAreSimilar(entity.getDeltaMovement(), collision.collidingEntities.stream().findFirst().get().getDeltaMovement(), 0.1)) {
@@ -1206,7 +1244,7 @@ public class Physics {
                 );
             }
 
-            if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+            if (!(entity instanceof LivingEntity living) || isDamageImmune(living) || entity instanceof IronGolem) {
                 splitEntityDamage = 0;
             }
 
@@ -1271,7 +1309,10 @@ public class Physics {
                     DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
 
                     float targetDamageScale = (float) (vehicleSelfMass / getEntityMass(target));
-                    float targetScaledDamage = splitEntityDamage * targetDamageScale;
+                    FullStopCapability targetCap = grabCapability(target);
+                    Vec3 targetVelocity = targetCap == null ? Vec3.ZERO : targetCap.getPreviousScaledVelocity();
+                    float relativeScale = calculateRelativeDamageScale(attackerVelocity, targetVelocity);
+                    float targetScaledDamage = splitEntityDamage * targetDamageScale * relativeScale;
 
                     if (fullstop.getIsDamageImmune()) {
                         splitEntityDamage = 0;
@@ -1284,6 +1325,8 @@ public class Physics {
                     // TODO TARGET ENTITY FEATHER FALLING DAMAGE CALCULATION
 
                     //TODO FINAL splitEntityDamage formula
+
+                    targetScaledDamage = applyArmorReductionToTarget(target, targetScaledDamage);
 
                     // APPLY TARGET DAMAGE
                     //LogToChat.logToChat(target.getDisplayName().getString(), "target entity mass: ",getEntityMass(target),attackerSource, "damage applied: ",targetScaledDamage);
