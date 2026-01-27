@@ -231,6 +231,11 @@ public class Physics {
     }
 
     public void impactDamageSound() {
+        if (entity instanceof Player player) {
+            if (player.isCreative()) return;
+        }
+        if (entity.level().isClientSide) return;
+        if (!fullstop.canPlaySound()) return;
         if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
@@ -509,12 +514,12 @@ public class Physics {
     }
 
     private boolean tryStartRidingSafely(Entity vehicle) {
+        if (entity.isCrouching()) return false;
+
         if (vehicle == null) return false;
         if (entity.level().isClientSide()) return false;
         if (!entity.isAlive() || !vehicle.isAlive()) return false;
         if (entity == vehicle) return false;
-
-        if (entity.isCrouching()) return false;
 
         if (entity.getVehicle() != null) return false;
         if (vehicle.getVehicle() == entity) return false;
@@ -529,11 +534,11 @@ public class Physics {
     }
 
     private boolean canRideSafely(Entity rider, Entity vehicle) {
+        if (rider.isCrouching()) return false;
         if (vehicle == null || rider == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
         if (rider == vehicle) return false;
-        if (rider.isCrouching()) return false;
         if (rider.getVehicle() != null) return false;
         if (vehicle.getVehicle() == rider) return false;
         if (!vehicle.getPassengers().isEmpty()) return false;
