@@ -26,6 +26,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.common.ToolActions;
+import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.List;
 import java.util.Optional;
@@ -229,6 +230,7 @@ public class KineticInteractions {
         }
 
         if (isStrippedWood(state)) {
+        if (isStrippedLogOrWood(state)) {
             level.destroyBlock(pos, true, fallingBlock);
             return true;
         }
@@ -240,6 +242,12 @@ public class KineticInteractions {
         }
 
         return false;
+    }
+
+    private static boolean isStrippedLogOrWood(BlockState state) {
+        ResourceLocation key = ForgeRegistries.BLOCKS.getKey(state.getBlock());
+        return (state.is(BlockTags.LOGS) || state.is(BlockTags.LOGS_THAT_BURN)) &&
+               key != null && key.getPath().startsWith("stripped_");
     }
 
     private static boolean isBlacklisted(BlockState state) {

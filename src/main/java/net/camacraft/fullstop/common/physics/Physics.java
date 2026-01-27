@@ -238,6 +238,11 @@ public class Physics {
     }
 
     public void impactDamageSound() {
+        if (entity instanceof Player player) {
+            if (player.isCreative()) return;
+        }
+        if (entity.level().isClientSide) return;
+        if (!fullstop.canPlaySound()) return;
         if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
@@ -517,12 +522,12 @@ public class Physics {
     }
 
     private boolean tryStartRidingSafely(Entity vehicle) {
+        if (entity.isCrouching()) return false;
+
         if (vehicle == null) return false;
         if (entity.level().isClientSide()) return false;
         if (!entity.isAlive() || !vehicle.isAlive()) return false;
         if (entity == vehicle) return false;
-
-        if (entity.isCrouching()) return false;
 
         if (entity.getVehicle() != null) return false;
         if (vehicle.getVehicle() == entity) return false;
@@ -537,11 +542,11 @@ public class Physics {
     }
 
     private boolean canRideSafely(Entity rider, Entity vehicle) {
+        if (rider.isCrouching()) return false;
         if (vehicle == null || rider == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
         if (rider == vehicle) return false;
-        if (rider.isCrouching()) return false;
         if (rider.getVehicle() != null) return false;
         if (vehicle.getVehicle() == rider) return false;
         if (!vehicle.getPassengers().isEmpty()) return false;
@@ -740,21 +745,32 @@ public class Physics {
             }
         }
 
-        double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
-        double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
-        Vec3 newV = (aCurVZ == aCurVX ?
-                new Vec3(
-                        preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
-                )
-                :
-                new Vec3(
-                        preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
-                )
-        );
+        Vec3 newV = null;
+        Vec3 impactNormal = getImpactNormal(preV);
+        if (impactNormal != null) {
+            Vec3 normalComponent = impactNormal.scale(preV.dot(impactNormal));
+            Vec3 tangential = preV.subtract(normalComponent);
+            newV = tangential.scale(paraScaleFactor).add(normalComponent.scale(perpScaleFactor));
+            newV = new Vec3(newV.x, curV.y, newV.z);
+        }
+
+        if (newV == null) {
+            double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
+            double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
+            newV = (aCurVZ == aCurVX ?
+                    new Vec3(
+                            preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
+                    )
+                    :
+                    new Vec3(
+                            preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
+                    )
+            );
+        }
 
         if (entity instanceof Minecart) return;
 
@@ -1181,7 +1197,7 @@ public class Physics {
             selfDamage *= (float) (stackMass / selfMass);
         }
 
-        if (!(entity instanceof AbstractMinecart) && !(entity instanceof IronGolem) && !(entity instanceof FallingBlockEntity)) {
+        if (!(entity instanceof AbstractMinecart) && !(entity instanceof IronGolem)) {
             entity.hurt(selfSource, selfDamage);
         }
 
@@ -1219,6 +1235,25 @@ public class Physics {
                 target.hurt(fallingSource, targetScaledDamage);
             }
         }
+    }
+
+    private float scaleDamageByRelativeVelocity(float baseDamage) {
+        if (collision.collidingEntities == null || collision.collidingEntities.isEmpty()) {
+            return baseDamage;
+        }
+
+        double attackerSpeed = entityVelocity(entity).length();
+        if (attackerSpeed <= 0.001) {
+            return baseDamage;
+        }
+
+        double averageRelativeSpeed = collision.collidingEntities.stream()
+                .mapToDouble(other -> entityVelocity(entity).subtract(entityVelocity(other)).length())
+                .average()
+                .orElse(attackerSpeed);
+
+        double scale = Mth.clamp(averageRelativeSpeed / attackerSpeed, 0.0, 2.0);
+        return (float) (baseDamage * scale);
     }
 
     private float scaleDamageByRelativeVelocity(float baseDamage) {

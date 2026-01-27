@@ -108,7 +108,7 @@ dependencies {
     runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
     runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
     runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
-    runtimeOnly fg.deobf("curse.maven:solid-mobs-631710:4734653")
+    //runtimeOnly fg.deobf("curse.maven:solid-mobs-631710:4734653")
     runtimeOnly fg.deobf("curse.maven:customnpcs-unofficial-1052708:7188795")
 
 //    runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925")
