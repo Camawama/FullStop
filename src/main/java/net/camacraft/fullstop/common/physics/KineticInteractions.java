@@ -5,6 +5,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -12,7 +13,10 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Arrow;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -20,8 +24,10 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
+import net.minecraftforge.common.ToolActions;
 
 import java.util.List;
+import java.util.Optional;
 
 public class KineticInteractions {
 
@@ -105,7 +111,7 @@ public class KineticInteractions {
                 if (state.getBlock() instanceof NoteBlock) {
                     state.attack(level, pos, fakePlayer);
                 } else {
-                    // Currently only doors that are closed can be opened when ran into. In the future, we want it to flip it's state when hitting the door from any side (as long as it makes sense to move the door when hit from that side)
+                    // Allow collision to toggle door-like blocks. For open doors, only allow closing when hit on a side face.
                     boolean isOpenedDoor = false;
                     if (state.hasProperty(BlockStateProperties.OPEN) && state.getValue(BlockStateProperties.OPEN)) {
                         if (state.getBlock() instanceof DoorBlock ||
@@ -115,13 +121,20 @@ public class KineticInteractions {
                         }
                     }
 
-                    if (!isOpenedDoor) {
-                        BlockHitResult hitResult = impactedHits.get(i);
+                    BlockHitResult hitResult = impactedHits.get(i);
+                    boolean canToggleOpenDoor = isOpenedDoor && hitResult.getDirection().getAxis().isHorizontal();
+                    if (!isOpenedDoor || canToggleOpenDoor) {
                         InteractionResult result = state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult);
                         if (result.consumesAction()) {
                             continue;
                         }
                     }
+                }
+            }
+
+            if (entity instanceof FallingBlockEntity fallingBlock) {
+                if (handleFallingBlockImpact(level, fallingBlock, state, pos, impactedHits.get(i))) {
+                    continue;
                 }
             }
 
@@ -195,6 +208,37 @@ public class KineticInteractions {
             }
         }
         return blockBroken;
+    }
+
+    private static boolean handleFallingBlockImpact(ServerLevel level,
+                                                    FallingBlockEntity fallingBlock,
+                                                    BlockState state,
+                                                    BlockPos pos,
+                                                    BlockHitResult hitResult) {
+        if (state.is(BlockTags.LOGS) || state.is(BlockTags.LOGS_THAT_BURN)) {
+            FakePlayer fakePlayer = FakePlayerFactory.getMinecraft(level);
+            fakePlayer.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.IRON_AXE));
+            UseOnContext context = new UseOnContext(fakePlayer, InteractionHand.MAIN_HAND, hitResult);
+            BlockState strippedState = state.getToolModifiedState(context, ToolActions.AXE_STRIP, false);
+
+            if (strippedState != null && strippedState != state) {
+                level.setBlockAndUpdate(pos, strippedState);
+                return true;
+            }
+        }
+
+        if (state.is(BlockTags.STRIPPED_LOGS) || state.is(BlockTags.STRIPPED_WOOD)) {
+            level.destroyBlock(pos, true, fallingBlock);
+            return true;
+        }
+
+        Optional<BlockState> previous = WeatheringCopper.getPrevious(state);
+        if (previous.isPresent()) {
+            level.setBlockAndUpdate(pos, previous.get());
+            return true;
+        }
+
+        return false;
     }
 
     private static boolean isBlacklisted(BlockState state) {
