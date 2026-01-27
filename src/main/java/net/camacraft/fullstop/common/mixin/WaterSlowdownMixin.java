@@ -5,6 +5,8 @@ import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -23,10 +25,13 @@ public class WaterSlowdownMixin {
         if (entity.isDeadOrDying() || entity.isRemoved() || entity.isSpectator()) return;
 
         // Check if the entity is in water and cancel water drag if they have Dolphin's Grace or Depth Strider Boots
+        // Also cancel if using Riptide (AutoSpinAttack) or holding a Riptide trident
         if (entity.isInWater() &&
                 !entity.isAutoSpinAttack() &&
                 !FullStopCapability.hasDolphinsGrace(entity) &&
                 !FullStopCapability.hasDepthStrider(entity) &&
+                EnchantmentHelper.getRiptide(entity.getMainHandItem()) == 0 &&
+                EnchantmentHelper.getRiptide(entity.getOffhandItem()) == 0 &&
                 !entity.isSpectator()) {
             Vec3 v = entity.getDeltaMovement();
             Vec3 direction = v.normalize();

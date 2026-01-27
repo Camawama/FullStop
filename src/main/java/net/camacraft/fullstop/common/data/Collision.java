@@ -3,6 +3,7 @@ package net.camacraft.fullstop.common.data;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.BlockHitResult;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,6 +17,7 @@ public class Collision {
             0.0,
             new ArrayList<>(),
             Collections.emptyList(),
+            new ArrayList<>(),
             new ArrayList<>()
     );
 
@@ -27,12 +29,13 @@ public class Collision {
 
     // New field to store the specific block positions hit
     public final List<BlockPos> impactedPositions;
+    public final List<BlockHitResult> impactedHits;
 
-    double damage = 0;
+    double damage = 0; // originally planned on using damage from inside of Physics here
 
     public enum CollisionType {
         // do not reorder, ordinal is used for priority.
-        NONE, SLIME, HONEY, SOLID, ENTITY,
+        NONE, SOLID, ENTITY, SLIME, HONEY, BED,
     }
 
     // Updated constructor to accept 'impactedPositions'
@@ -41,20 +44,22 @@ public class Collision {
                      double lowestYLevel,
                      ArrayList<BlockState> blockStates,
                      List<Entity> collidingEntities,
-                     List<BlockPos> impactedPositions) {
+                     List<BlockPos> impactedPositions,
+                     List<BlockHitResult> impactedHits) {
         this.highestYLevel = highestYLevel;
         this.lowestYLevel = lowestYLevel;
         this.collisionType = collisionType;
         this.blockStates = blockStates;
         this.collidingEntities = collidingEntities;
         this.impactedPositions = impactedPositions;
+        this.impactedHits = impactedHits;
     }
 
     public boolean fake() {
         return collisionType == CollisionType.NONE;
     }
 
-    public boolean sticky() {
-        return collisionType == CollisionType.SLIME || collisionType == CollisionType.HONEY;
+    public boolean bouncy() {
+        return collisionType == CollisionType.SLIME || collisionType == CollisionType.HONEY || collisionType == CollisionType.BED;
     }
 }

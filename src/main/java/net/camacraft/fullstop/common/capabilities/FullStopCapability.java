@@ -3,6 +3,7 @@ package net.camacraft.fullstop.common.capabilities;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.Physics;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -19,18 +20,16 @@ import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.CapabilityManager;
 import net.minecraftforge.common.capabilities.CapabilityToken;
 import net.minecraftforge.common.capabilities.ICapabilityProvider;
+import net.minecraftforge.common.util.INBTSerializable;
 import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraftforge.common.util.INBTSerializable;
 
 import java.util.Objects;
 
 import static net.camacraft.fullstop.FullStop.MOD_ID;
-import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 
 public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
@@ -51,7 +50,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private double targetAngle = Double.NaN;
     private double stoppingForce = 0.0;
     private double runningAverageDelta = 0.0;
-    private Collision.CollisionType impact = Collision.CollisionType.NONE;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
     private double scalarHorizontalAcceleration = 0;
@@ -78,25 +76,15 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         ItemStack chestStack = entity.getItemBySlot(EquipmentSlot.CHEST);
 
         if (chestStack.getItem() instanceof ElytraItem) {
-            // Calculate remaining durability
             int remainingDurability = chestStack.getMaxDamage() - chestStack.getDamageValue();
-            return remainingDurability > 1; // Returns false if 1 or less
+            return remainingDurability > 1;
         }
 
-        return false; // Not wearing Elytra
+        return false;
     }
 
-//    public static boolean hasDepthStrider(LivingEntity entity) {
-//        if (entity instanceof Player player) {
-//            ItemStack boots = player.getInventory().getArmor(3); // Index 3 corresponds to boots
-//
-//            return !boots.isEmpty() && EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0; //OLD DEPTH STRIDER CHECK
-//        }
-//        return false;
-//    }
-
     public static boolean hasDepthStrider(LivingEntity entity) {
-        ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET); // works for any LivingEntity
+        ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET);
 
         return !boots.isEmpty() &&
                 EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
@@ -136,7 +124,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public double getTeleportCooldown() {
         return teleportCooldown;
-    } //eventually add a config option to modify how long the cooldown lasts
+    }
 
     public double getDismountCooldown() {
         return dismountCooldown;
@@ -165,20 +153,13 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public boolean isMostlyDownward() {
         Vec3 v = olderVelocity;
-        // Uses the Pythagorean theorem to find the sideways velocity and compares it to the downward velocity
         return (- v.y) > Math.sqrt(v.x * v.x + v.z * v.z);
     }
 
     public boolean isMostlyUpward() {
         Vec3 v = olderVelocity;
-        // Uses the Pythagorean theorem to find the sideways velocity and compares it to the upward velocity
         return v.y > Math.sqrt(v.x * v.x + v.z * v.z);
     }
-
-    /*private static double differenceOfVelocities(double v1, double v2) {
-        double ratio = (v1 + 5) / (v2 + 5);
-        return ratio < 1.0 ? ratio : 1 / ratio;
-    }*/
 
     private static boolean isBounce(double v1, double v2) {
         if (v1 == 0.0 || v2 == 0.0) {
@@ -195,7 +176,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         tickImmunity();
         tickRiding();
 
-        // Decrease sound cooldown
         if (soundCooldown > 0) {
             soundCooldown--;
         }
@@ -204,11 +184,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             runningAverageDelta = 0;
         runningAverageDelta = (runningAverageDelta * 19 + scalarHorizontalAcceleration) / 20;
     }
-
-//    private void tickBounced() {
-//        if (justBounced())
-//            bounced += 1;
-//    }
 
     private void tickRiding() {
         if (hasDismounted) {
@@ -233,31 +208,18 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             isDamageImmune = true;
         } else {
             isDamageImmune = false;
-//            if (entity.) {}
-
         }
-
-
-//        if (hasTeleported) {
-//            isDamageImmune = true;
-//        }
-//
-//        if (isDamageImmune) {
-//            isDamageImmune = false;
-//        }
     }
 
     private void tickSpeed() {
-        Vec3 acc_prev = oldScaledVelocity.subtract(olderVelocity);
-        Vec3 vel_expe = oldScaledVelocity.add(acc_prev);
-        Vec3 vel_real = currentPosition.subtract(previousPosition);
-        double ratio = Math.min(1, vel_real.length() / vel_expe.length());
-        Vec3 instantVelocity = currentScaledVelocity.add(acc_prev.scale(ratio));
+        // This is the definitive, server-authoritative velocity for the tick that just occurred.
+        Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
-        // Stopping force initialized to 0
-        double stoppingForceX = calculateStoppingForceComponent(instantVelocity.x, oldScaledVelocity.x);
-        double stoppingForceY = calculateStoppingForceComponent(instantVelocity.y, oldScaledVelocity.y);
-        double stoppingForceZ = calculateStoppingForceComponent(instantVelocity.z, oldScaledVelocity.z);
+        // The "stopping force" is the difference between the velocity we had at the start of the tick
+        // and the velocity we actually ended up with. This is the most direct way to measure deceleration.
+        double stoppingForceX = calculateStoppingForceComponent(actualVelocity.x, oldScaledVelocity.x);
+        double stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, oldScaledVelocity.y);
+        double stoppingForceZ = calculateStoppingForceComponent(actualVelocity.z, oldScaledVelocity.z);
 
         stoppingForce = Math.sqrt(
                 stoppingForceX * stoppingForceX +
@@ -265,9 +227,11 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                 stoppingForceZ * stoppingForceZ
         );
 
-        acceleration = new Vec3 (instantVelocity.x - olderVelocity.x, instantVelocity.y - olderVelocity.y, instantVelocity.z - olderVelocity.z);
+        // The acceleration is the change in velocity over the last tick.
+        // We use the "currentScaledVelocity" which has been sanity-checked against client input.
+        acceleration = currentScaledVelocity.subtract(oldScaledVelocity);
 
-        scalarHorizontalAcceleration = instantVelocity.subtract(oldScaledVelocity).multiply(1, 0, 1).length();
+        scalarHorizontalAcceleration = acceleration.multiply(1, 0, 1).length();
     }
 
     private void tickRotation(Entity entity) {
@@ -296,18 +260,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         return correction * 0.005 * delta;
     }
 
-//    // Helper method to calculate the stopping force for an individual component
-//    private double calculateStoppingForceComponent(double current, double old) {
-//        // If the current component real smaller in magnitude or it changed direction (sign), we calculate stopping force
-//        if (Math.abs(current) < Math.abs(old) && !isBounce(current, old)) {
-//            return Math.abs(old - current);  // Return the absolute difference (stopping force)
-//        } else {
-//            return 0.0;  // No stopping force if speed increased or stayed the same in this direction
-//        }
-//    }
-
     private double calculateStoppingForceComponent(double current, double old) {
-        // If we slowed down OR if we bounced (direction flip), that is stopping force.
         boolean slowedDown = Math.abs(current) < Math.abs(old);
         boolean bounced = isBounce(current, old);
 
@@ -326,15 +279,31 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         currentPosition = entity.position();
 
         if (clientScaledVelocity != null) {
-            currentScaledVelocity = clientScaledVelocity;
+            // This is the server-authoritative velocity based on actual position change.
+            Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
+
+            // SANITY CHECK: If the client claims to be moving fast but the server sees little to no movement,
+            // it's a phantom force (e.g., hugging a wall). In this case, we MUST trust the server's calculation.
+            double clientSpeedSqr = clientScaledVelocity.lengthSqr();
+            double actualSpeedSqr = actualVelocity.lengthSqr();
+
+            // Thresholds: client claims > ~4.5m/s, but server sees < 0.5m/s.
+            if (clientSpeedSqr > 5.0 && actualSpeedSqr < 0.25) {
+                currentScaledVelocity = actualVelocity;
+            } else {
+                // Otherwise, we trust the client's input, which is needed for responsive controls.
+                currentScaledVelocity = clientScaledVelocity;
+            }
+            clientScaledVelocity = null; // Consume the value
         } else {
+            // For non-player entities, we just use their deltaMovement.
             currentScaledVelocity = entity.getDeltaMovement().scale(20);
         }
 
         if (entity instanceof LivingEntity living) {
             double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
 
-            if (currentScaledVelocity.y >= gravity * -20 && currentScaledVelocity.y < 0) { // TODO REMOVE MULTIPLICATION AFTER UNSCALING THE ENTIRE MOD BY 20 😂
+            if (currentScaledVelocity.y >= gravity * -20 && currentScaledVelocity.y < 0) {
                 currentScaledVelocity = new Vec3(currentScaledVelocity.x, 0, currentScaledVelocity.z);
             }
         }
@@ -366,23 +335,17 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     @Override
     public CompoundTag serializeNBT() {
         CompoundTag tag = new CompoundTag();
-
-        // Save only the fields you want to persist
         tag.putBoolean("JoinedForFirstTime", joinedForFirstTime);
-
         return tag;
     }
 
     @Override
     public void deserializeNBT(CompoundTag nbt) {
-
-        // Load the fields you saved
         joinedForFirstTime = nbt.getBoolean("JoinedForFirstTime");
-
     }
 
     public static class Provider implements ICapabilityProvider, INBTSerializable<CompoundTag> {
-        public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
+        public static final Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
         private final Entity entity;
 
         private FullStopCapability capability = null;
@@ -407,7 +370,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             return LazyOptional.empty();
         }
 
-        // 🔹 Add serialization support
         @Override
         public CompoundTag serializeNBT() {
             return createCapability().serializeNBT();
@@ -419,44 +381,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         }
     }
 
-//    public static class Provider implements ICapabilityProvider {
-//        public static Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
-//        private final Entity entity;
-//
-//        public FullStopCapability capability = null;
-//        private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability); // OLD PROVIDER WITHOUT NBT SERIALIZATION
-//
-//        public Provider(Entity entity) {
-//            this.entity = entity;
-//        }
-//
-//        public FullStopCapability createCapability() {
-//            if (this.capability == null) {
-//                this.capability = new FullStopCapability(entity);
-//            }
-//            return this.capability;
-//        }
-//
-//
-//
-//        @Override
-//        public @NotNull <T> LazyOptional<T> getCapability(@NotNull Capability<T> cap, @Nullable Direction side) {
-//            if (cap == DELTAV_CAP) {
-//                return lazyHandler.cast();
-//            }
-//
-//            return LazyOptional.empty();
-//        }
-//    }
-
-
-
-
-//    public static FullStopCapability grabCapability(Entity entity) {
-//        return entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new); //OLD grabCapability
-//    }
-
     public static @Nullable FullStopCapability grabCapability(Entity entity) {
-        return entity.getCapability(DELTAV_CAP).orElse(null);
+        return entity.getCapability(Provider.DELTAV_CAP).orElse(null);
     }
 }

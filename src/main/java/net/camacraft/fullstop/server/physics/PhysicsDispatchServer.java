@@ -1,30 +1,18 @@
 package net.camacraft.fullstop.server.physics;
 
 import com.google.common.collect.Lists;
-import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.physics.Physics;
-import net.camacraft.fullstop.server.CancelEvents;
-import net.minecraft.client.multiplayer.chat.report.ReportEnvironment;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.Pose;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
-import net.minecraft.world.item.Items;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
-import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
-import net.minecraftforge.event.entity.living.LivingDeathEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -32,11 +20,10 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import java.util.List;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
-import static net.camacraft.fullstop.client.message.LogToChat.logToChat;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
 import static net.camacraft.fullstop.common.physics.Physics.calcNewDamage;
 
-public class PhysicsDispatch {
+public class PhysicsDispatchServer {
 
 //    @SubscribeEvent
 //    public static void onLevelTick(TickEvent.LevelTickEvent event) {
@@ -48,7 +35,7 @@ public class PhysicsDispatch {
 
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-        if (event.level instanceof ServerLevel level) {
+        if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel level) {
             List<Entity> entities = Lists.newArrayList(level.getAllEntities());
             for (Entity entity : entities) {
                 onEntityTick(entity);

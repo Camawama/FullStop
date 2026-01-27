@@ -28,15 +28,18 @@ public class PlayerDeltaPacket {
 
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         ctx.get().enqueueWork(() -> {
-            // Work that needs to be thread-safe (most work)
-            ServerPlayer sendingPlayer = ctx.get().getSender(); // the client that sent this packet
+            ServerPlayer sendingPlayer = ctx.get().getSender();
 
-            if (sendingPlayer.isPassenger()) {
-                sendingPlayer.getVehicle().getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
-            } else {
-                sendingPlayer.getCapability(DELTAV_CAP)
-                        .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
+            if (sendingPlayer != null) {
+                if (sendingPlayer.isPassenger()) {
+                    if (sendingPlayer.getVehicle() != null) {
+                        sendingPlayer.getVehicle().getCapability(DELTAV_CAP)
+                                .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
+                    }
+                } else {
+                    sendingPlayer.getCapability(DELTAV_CAP)
+                            .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
+                }
             }
         });
         ctx.get().setPacketHandled(true);

@@ -21,9 +21,12 @@ public class CollisionParticleRenderer {
             particleType = new BlockParticleOption(ParticleTypes.BLOCK, blockState);
         } else if (collision.collisionType == Collision.CollisionType.ENTITY) {
             particleType = ParticleTypes.CLOUD;
+        } else if (collision.collisionType == Collision.CollisionType.BED) {
+            particleType = new BlockParticleOption(ParticleTypes.BLOCK, blockState);
         } else {
-            throw new IllegalStateException("not a sticky type");
+            return;
         }
+
 
         if (!(Minecraft.getInstance().level == null)) {
             Minecraft.getInstance().level.addParticle(

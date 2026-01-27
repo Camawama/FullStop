@@ -1,9 +1,11 @@
 package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.message.LogToChat;
+import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.effects.ModEffects;
 import net.camacraft.fullstop.server.CancelEvents;
+import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -38,10 +40,10 @@ public class FullStop
         MinecraftForge.EVENT_BUS.register(FullStop.class);
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
-            MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.PhysicsDispatch.class);
+            MinecraftForge.EVENT_BUS.register(PhysicsDispatchClient.class);
         }
 
-        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.PhysicsDispatch.class);
+        MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
         MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);

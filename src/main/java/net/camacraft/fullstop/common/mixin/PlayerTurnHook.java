@@ -27,24 +27,27 @@ public class PlayerTurnHook {
     @Shadow
     private Minecraft minecraft;
 
-    @Inject(method = "turnPlayer", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "turnPlayer", at = @At("HEAD"))
     private void turningPlayer(CallbackInfo ci) {
         double time = Blaze3D.getTime();
         double delta = (time - lastMouseEventTime) * 1000 * 20;
         if (minecraft.player == null || Physics.unphysable(minecraft.player)) return;
 
         FullStopCapability fullstop = FullStopCapability.grabCapability(minecraft.player);
+        if (fullstop == null) return;
+
+        if (accumulatedDX != 0 || accumulatedDY != 0) {
+            fullstop.setTargetAngle(Double.NaN);
+        }
+
         double rotationCorrection = fullstop.rotationCorrection(delta);
 
         if (rotationCorrection != 0.0) {
-            double sensitivity = minecraft.options.sensitivity().get() * 0.6 + 0.2;
-            double sensitivity3 = sensitivity * sensitivity * sensitivity;
-
-            minecraft.player.turn(rotationCorrection, accumulatedDY * sensitivity3);
-            lastMouseEventTime = time;
-            accumulatedDX = 0.0;
-            accumulatedDY = 0.0;
-            ci.cancel();
+            // Apply the physics-based rotation correction.
+            // We do NOT cancel the event, allowing vanilla logic (and other mods) 
+            // to handle the actual mouse input (accumulatedDX/DY).
+            // This ensures we don't eat mouse inputs or break compatibility.
+            minecraft.player.turn(rotationCorrection, 0.0);
         }
     }
 }

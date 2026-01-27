@@ -16,7 +16,7 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
 
-public class PhysicsDispatch {
+public class PhysicsDispatchClient {
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
         if (event.player.isDeadOrDying() || event.player.isRemoved()) return;
@@ -28,27 +28,20 @@ public class PhysicsDispatch {
 
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
-            Vec3 vehicleDelta = vehicle.getDeltaMovement();
-            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(vehicleDelta);
-            PacketHandler.sendToServer(deltaPacket);
+            if (vehicle != null) {
+                Vec3 vehicleDelta = vehicle.getDeltaMovement();
+                PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(vehicleDelta);
+                PacketHandler.sendToServer(deltaPacket);
+            }
         } else {
             PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(playerDelta);
             PacketHandler.sendToServer(deltaPacket);
         }
     }
 
-//    @SubscribeEvent
-//    public static void onLevelTick(TickEvent.LevelTickEvent event) {
-//
-//        if (event.level instanceof ClientLevel level) {
-//            level.tickingEntities.forEach(PhysicsDispatch::onEntityTick);
-//        }
-//    }
-
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
-        if (event.level instanceof ClientLevel level) {
-            // Take a snapshot so modifications during physics won't crash
+        if (event.phase == TickEvent.Phase.END && event.level instanceof ClientLevel level) {
             for (Entity entity : level.entitiesForRendering()) {
                 onEntityTick(entity);
             }
@@ -70,22 +63,7 @@ public class PhysicsDispatch {
         if (Physics.unphysable(entity)) return;
 
         Physics physics = new Physics(entity);
-//        physics.handleEntityCollision();
         physics.bounceEntity();
-//        physics.impactSound();
         physics.impactAesthetic();
-
-//        if (!(entity instanceof Player player)) return;
-//        if (!player.isSwimming()) {
-//            if (player.getItemInHand(InteractionHand.MAIN_HAND).is(Items.DIAMOND_SWORD)) {
-//                player.setPose(Pose.SWIMMING); // This was used to test negating damage when prone (swimming)
-//            }
-//        }
-
     }
-
-//    @SubscribeEvent
-//    public static void onClientTick(TickEvent.ClientTickEvent event) {
-//
-//    }
 }

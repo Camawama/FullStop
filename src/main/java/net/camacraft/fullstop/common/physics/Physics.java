@@ -1,7 +1,5 @@
 package net.camacraft.fullstop.common.physics;
 
-import net.camacraft.fullstop.client.message.LogToChat;
-//import net.camacraft.fullstop.client.render.RaycastLineRenderer;
 import net.camacraft.fullstop.client.render.CollisionParticleRenderer;
 import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
@@ -16,6 +14,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.CombatRules;
@@ -40,8 +39,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -68,6 +66,7 @@ public class Physics {
     private final Entity entity;
     private final FullStopCapability fullstop;
     private final double damage;
+    private boolean brokeBlock = false;
 
     /**
      * Positive values indicate that the attacker real approaching the target. Negative indicates that the attacker real
@@ -161,20 +160,11 @@ public class Physics {
         if (fullstop.getStoppingForce() < 4.0) return;
 
         Vec3 pos = entity.position();
-        Vec3 highestPos = new Vec3(pos.x, highestY, pos.z);
-        Vec3 lowestPos = new Vec3(pos.x, lowestY, pos.z);
-        Vec3 midPos = highestPos.add(lowestPos).scale(0.5);
 
         for (BlockState blockState : collision.blockStates) {
             CollisionParticleRenderer.spawnParticle(pos, collision, blockState);
         }
-
-//        spawnParticle(highestPos, collision);
-//        spawnParticle(midPos, collision);
-//        spawnParticle(pos, collision);
     }
-
-    // Inside Physics.java
 
     public void impactSound() {
         // 1. RUN ON SERVER ONLY (Fixes the "Echo" / Double Audio)
@@ -192,7 +182,7 @@ public class Physics {
                 + (collision.collidingEntities != null ? collision.collidingEntities.size() : 0);
 
         if (hitCount > 1) {
-            volume /= (hitCount * 0.6); // Gentle reduction to prevent ear-blasting
+            volume /= (float) (hitCount * 0.6); // Gentle reduction to prevent ear-blasting
         }
 
         volume = Mth.clamp(volume, 0.0f, 1.0f);
@@ -272,10 +262,6 @@ public class Physics {
     public void applyDamageEffects() {
         if (damage <= 0) return;
 
-//        if (entity instanceof ServerPlayer) { // TODO remove debug msg
-//            LogToChat.logToChat(damage);
-//        }
-
         if (entity instanceof Player player && (player.isCreative() || player.isSpectator())) {
             return;
         }
@@ -298,101 +284,138 @@ public class Physics {
         }
     }
 
+    public static Vec3 getRayDirection(FullStopCapability fullstop) {
+        Vec3 acc = fullstop.getAcceleration();
+        if (acc == null) return Vec3.ZERO;
+        return acc.normalize().reverse();
+    }
+
+    public static double getRayLength(Entity entity, FullStopCapability fullstop) {
+        Vec3 previousVelocity = fullstop.getPreviousScaledVelocity().scale(0.05);
+        if (entity instanceof Arrow) {
+            return Math.min(previousVelocity.length(), 0.00);
+        } else {
+            return previousVelocity.length() + 0.01; // ADJUST THIS VALUE TO FIX COLLIDING THROUGH BLOCKS
+        }
+    }
+
+    public static List<Vec3> getRayStarts(Entity entity) {
+        AABB box = entity.getBoundingBox();
+        double minX = box.minX;
+        double minY = box.minY + 0.1;
+        double minZ = box.minZ;
+        double maxX = box.maxX;
+        double maxY = box.maxY;
+        double maxZ = box.maxZ;
+        double cenX = box.getCenter().x;
+        double cenY = box.getCenter().y;
+        double cenZ = box.getCenter().z;
+
+        return List.of(
+                // 8 Corners
+                new Vec3(minX, minY, minZ),
+                new Vec3(minX, minY, maxZ),
+                new Vec3(minX, maxY, minZ),
+                new Vec3(minX, maxY, maxZ),
+                new Vec3(maxX, minY, minZ),
+                new Vec3(maxX, minY, maxZ),
+                new Vec3(maxX, maxY, minZ),
+                new Vec3(maxX, maxY, maxZ),
+
+                // 6 Face Centers
+                new Vec3(minX, cenY, cenZ), // West
+                new Vec3(maxX, cenY, cenZ), // East
+                new Vec3(cenX, minY, cenZ), // Bottom
+                new Vec3(cenX, maxY, cenZ), // Top
+                new Vec3(cenX, cenY, minZ), // North
+                new Vec3(cenX, cenY, maxZ), // South
+
+                // 1 Center
+                box.getCenter()
+        );
+    }
+
     public Collision collidingKinetically() {
         Vec3 previousVelocity = fullstop.getPreviousScaledVelocity().scale(0.05);
-        if (previousVelocity.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
+        if (previousVelocity.lengthSqr() == 0) {
+            return Collision.NONE;
+        }
+
+        Vec3 direction = getRayDirection(fullstop);
+        if (direction.lengthSqr() == 0) {
             return Collision.NONE;
         }
 
         Level level = entity.level();
-        AABB box = entity.getBoundingBox();
-        Vec3 direction = fullstop.getAcceleration().normalize().reverse();
-
-        double rayLength;
-        if (entity instanceof Arrow) {
-            rayLength = Math.min(previousVelocity.length(), 0.00);
-        } else {
-            rayLength = Math.min(previousVelocity.length(), 0.50); // TODO CHANGE BACK TO 0.01 AFTER FIGURING OUT THE CENTER RAY BS. AT 0.01, UPWARD DAMAGE DOES NOT WORK
-        }
-
-        // 8 corners + center
-        List<Vec3> rayStarts = List.of(
-                new Vec3(box.minX, box.minY + 0.15, box.minZ),
-                new Vec3(box.minX, box.minY + 0.15, box.maxZ),
-                new Vec3(box.minX, box.maxY - 0.15, box.minZ),
-                new Vec3(box.minX, box.maxY - 0.15, box.maxZ),
-                new Vec3(box.maxX, box.minY + 0.15, box.minZ),
-                new Vec3(box.maxX, box.minY + 0.15, box.maxZ),
-                new Vec3(box.maxX, box.maxY - 0.15, box.minZ),
-                new Vec3(box.maxX, box.maxY - 0.15, box.maxZ),
-                box.getCenter()
-        );
+        double rayLength = getRayLength(entity, fullstop);
+        List<Vec3> rayStarts = getRayStarts(entity);
 
         ArrayList<BlockState> collidedBlockStates = new ArrayList<>();
         ArrayList<BlockPos> collidedBlockPositions = new ArrayList<>();
+        ArrayList<BlockHitResult> collidedBlockHits = new ArrayList<>();
         double highestY = -64;
         double lowestY = 320;
         Collision.CollisionType impactType = Collision.CollisionType.NONE;
 
-        // --- Block ray sweeps ---
+        ClipContext.Fluid fluidContext = entity.isInWater() ? ClipContext.Fluid.NONE : ClipContext.Fluid.SOURCE_ONLY;
+
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity);
+            
+            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, fluidContext, entity);
             BlockHitResult blockHit = level.clip(ctx);
-
-//            // only run client-side visual debug
-//            if (level.isClientSide) {
-//                boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
-//                RaycastParticleRenderer.spawnRay(level, start, end, hitBlock, 12); // steps = 12 for denser line
-//            }
-
-            if (level.isClientSide) {
-                boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
-                float r = hitBlock ? 1.0f : 0.0f;
-                float g = hitBlock ? 0.0f : 1.0f;
-                float b = 0.0f;
-
-                // Use ray index to create a stable ID (avoids jitter & trailing)
-//                RaycastLineRenderer.queueLine("ray_" + rayStarts.indexOf(start), //todo fix the debug raycast
-//                        start, end, r, g, b, 1.0f, 500);
-            }
 
             if (blockHit.getType() == HitResult.Type.BLOCK) {
                 BlockPos hitPos = blockHit.getBlockPos();
                 BlockState hitState = level.getBlockState(hitPos);
+                Direction hitFace = blockHit.getDirection();
+                Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
+                
+                boolean isOpposing = direction.dot(hitNormal) < -0.1;
 
-                if (!collidedBlockStates.contains(hitState)) {
+                // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
+                // This prevents "scraping" the side of a block while jumping from causing a collision.
+                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
+                    isOpposing = false;
+                }
+
+                // Fix for running on flat ground: Ignore floor collisions if not falling significantly
+                if (hitFace == Direction.UP && previousVelocity.y > -0.5) {
+                    isOpposing = false;
+                }
+
+                if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
                     collidedBlockStates.add(hitState);
-                }
-
-                if (!collidedBlockPositions.contains(hitPos)) {
                     collidedBlockPositions.add(hitPos);
-                }
+                    collidedBlockHits.add(blockHit);
+                    
+                    highestY = Math.max(highestY, hitPos.getY() + 1);
+                    lowestY = Math.min(lowestY, hitPos.getY());
 
-                highestY = Math.max(highestY, hitPos.getY() + 1);
-                lowestY = Math.min(lowestY, hitPos.getY());
-
-                Collision.CollisionType typeHere;
-                if (hitState.isStickyBlock()) {
-                    if (hitState.is(Blocks.SLIME_BLOCK)) {
-                        typeHere = Collision.CollisionType.SLIME;
+                    Collision.CollisionType typeHere;
+                    if (hitState.isStickyBlock()) {
+                        if (hitState.is(Blocks.SLIME_BLOCK)) {
+                            typeHere = Collision.CollisionType.SLIME;
+                        } else {
+                            typeHere = Collision.CollisionType.HONEY;
+                        }
+                    } else if (hitState.getBlock() instanceof BedBlock) {
+                        typeHere = Collision.CollisionType.BED;
                     } else {
-                        typeHere = Collision.CollisionType.HONEY;
+                        typeHere = Collision.CollisionType.SOLID;
                     }
-                } else {
-                    typeHere = Collision.CollisionType.SOLID;
-                }
 
-                if (impactType.ordinal() < typeHere.ordinal()) {
-                    impactType = typeHere;
+                    if (impactType.ordinal() < typeHere.ordinal()) {
+                        impactType = typeHere;
+                    }
                 }
             }
         }
 
-        // --- Entity collisions (local AABB only) ---
         List<Entity> collidingEntities = Collections.emptyList();
         if (SERVER.entityCollisionDamage.get()) {
-            AABB entityCheckBox = box.inflate(0.1); // only slightly larger than entity’s box
+            AABB box = entity.getBoundingBox();
+            AABB entityCheckBox = box.inflate(0.1);
             collidingEntities = level.getEntities(
                     entity,
                     entityCheckBox,
@@ -408,222 +431,10 @@ public class Physics {
         }
 
 
-        return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities, collidedBlockPositions);
+        return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities, collidedBlockPositions, collidedBlockHits);
     }
-
-//    public Collision collidingKinetically() {
-//        AABB boundingBox = entity.getBoundingBox();
-//
-//        // Get the normalized direction from previous velocity
-//        Vec3 previousVelocity = fullstop.getPreviousVelocity();
-//        Vec3 direction = previousVelocity.normalize();
-//
-//        // If not moving, return NONE
-//        if (direction.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
-//            return Collision.NONE;
-//        }
-//
-//        AABB expandedBox = expandAABB(direction, boundingBox);
-//
-//        @SuppressWarnings("resource")
-//        Level level = entity.level();
-//
-//        double[] highestY = {-64};
-//        double[] lowestY = {320};
-//        boolean[] blocks_here = {false};
-//        int[] collisionTypeOrd = {Collision.CollisionType.NONE.ordinal()};
-//
-//        // Variable to store the block type we collided with
-//        ArrayList<BlockState> collidedBlockStates = new ArrayList<>(6);
-//
-//        // --- Pass 1: mark honey/slime and force honey into collided list ---
-//        level.getBlockStates(expandedBox).forEach(blockState -> {
-//            if (blockState.isStickyBlock() && !blockState.isSlimeBlock()) {
-//                // Found honey -> mark type
-//                collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.HONEY.ordinal());
-//                collidedBlockStates.add(blockState); // ensure honey is logged
-//            }
-//            blocks_here[0] = true;
-//        });
-//
-//        if (blocks_here[0]) {
-//            // --- Pass 2: normal solid/slime collision collection ---
-//            level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
-//                AABB bounds = voxelShape.bounds();
-//
-//                if (bounds.maxY > highestY[0]) {
-//                    highestY[0] = bounds.maxY;
-//                }
-//                if (bounds.minY < lowestY[0]) {
-//                    lowestY[0] = bounds.minY;
-//                }
-//
-//                Vec3 center = voxelShape.bounds().getCenter();
-//                BlockPos hitBlockPos = blockPosFromVec3(center);
-//                BlockState blockState = level.getBlockState(hitBlockPos);
-//
-//                // Store collided block types (avoid duplicates)
-//                if (!collidedBlockStates.contains(blockState)) {
-//                    collidedBlockStates.add(blockState);
-//                }
-//
-//                Collision.CollisionType collisionHere;
-//                if (blockState.isStickyBlock()) {
-//                    collisionHere = Collision.CollisionType.SLIME;
-//                } else {
-//                    collisionHere = Collision.CollisionType.SOLID;
-//                }
-//
-//                if (collisionTypeOrd[0] < collisionHere.ordinal()) {
-//                    collisionTypeOrd[0] = collisionHere.ordinal();
-//                }
-//            });
-//        }
-//
-//        List<Entity> collidingEntities = Collections.emptyList();
-//
-//        if (SERVER.entityCollisionDamage.get()) {
-//            collidingEntities = level.getEntities(
-//                    entity,
-//                    expandedBox,
-//                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart) &&
-//                            e != entity &&
-//                            !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
-//            );
-//
-//            if (!collidingEntities.isEmpty()) {
-//                collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.ENTITY.ordinal());
-//            }
-//        }
-//
-//        Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-//
-////        // Debug log (optional)
-////        if (entity instanceof ServerPlayer) {
-////            LogToChat.logToChat(collidedBlockStates);
-////        }
-//
-//        // Return collision with block types or entities
-//        return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates, collidingEntities);
-//    }
-
-
-//    public Collision collidingKinetically() {
-//        AABB boundingBox = entity.getBoundingBox();
-//
-//        // Get the normalized direction from previous velocity
-//        Vec3 previousVelocity = fullstop.getPreviousVelocity();
-//        Vec3 direction = previousVelocity.normalize();
-//
-//        // If not moving, return NONE
-//        if (direction.lengthSqr() == 0 || fullstop.getStoppingForce() == 0) {
-//            return Collision.NONE;
-//        }
-//
-//        AABB expandedBox = expandAABB(direction, boundingBox);
-//
-//        @SuppressWarnings("resource")
-//        Level level = entity.level();
-//
-//        double[] highestY = {-64};
-//        double[] lowestY = {320};
-//        boolean[] blocks_here = {false};
-//        int[] collisionTypeOrd = {Collision.CollisionType.NONE.ordinal()};
-//
-//        // Variable to store the block type we collided with
-//        ArrayList<BlockState> collidedBlockStates = new ArrayList<>(6);
-//
-//        level.getBlockStates(expandedBox).forEach(blockState -> {
-//            if (blockState.isStickyBlock() && !blockState.isSlimeBlock()) {
-//                collisionTypeOrd[0] = Collision.CollisionType.HONEY.ordinal();
-//            }
-//            blocks_here[0] = true;
-//        });
-//
-//        if (blocks_here[0]) {
-//            level.getBlockCollisions(entity, expandedBox).forEach(voxelShape -> {
-//                AABB bounds = voxelShape.bounds();
-//
-//                if (bounds.maxY > highestY[0]) {
-//                    highestY[0] = bounds.maxY;
-//                }
-//                if (bounds.minY < lowestY[0]) {
-//                    lowestY[0] = bounds.minY;
-//                }
-//
-//                Vec3 center = voxelShape.bounds().getCenter();
-//                BlockPos hitBlockPos = blockPosFromVec3(center);
-//                BlockState blockState = level.getBlockState(hitBlockPos); // Get block state
-//
-//                // Store the collided block types
-//                collidedBlockStates.add(blockState);
-//
-//                Collision.CollisionType collisionHere;
-//                if (blockState.isStickyBlock()) {
-//                    collisionHere = Collision.CollisionType.SLIME;
-//                } else {
-//                    collisionHere = Collision.CollisionType.SOLID;
-//                }
-//
-//                if (collisionTypeOrd[0] < collisionHere.ordinal()) {
-//                    collisionTypeOrd[0] = collisionHere.ordinal();
-//                }
-//            });
-//        }
-//
-//        List<Entity> collidingEntities = Collections.emptyList();
-//
-//        if (SERVER.entityCollisionDamage.get()) { //SERVER.entityCollisionDamage will be split in the future
-//            collidingEntities = level.getEntities(
-//                    entity,
-//                    expandedBox,
-//                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart) &&
-//                            e != entity &&
-//                            !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
-//            );
-//
-//            if (!collidingEntities.isEmpty()) {
-//                collisionTypeOrd[0] = Math.max(collisionTypeOrd[0], Collision.CollisionType.ENTITY.ordinal());
-//            }
-//        }
-//
-//        Collision.CollisionType impactType = Collision.CollisionType.values()[collisionTypeOrd[0]];
-//
-////        if (entity instanceof ServerPlayer) {
-////            LogToChat.logToChat(collidedBlockStates);
-////        }
-//
-//        // Return collision with block types or entities
-//        return new Collision(impactType, highestY[0], lowestY[0], collidedBlockStates, collidingEntities);
-//    }
-
-//    private static BlockPos blockPosFromVec3(Vec3 pos) {
-//        Vec3i vec3i = new Vec3i(floor(pos.x), floor(pos.y), floor(pos.z));
-//        return new BlockPos(vec3i);
-//    }
-
-    private static int floor(double r) {
-        return (int) Math.floor(r);
-    }
-
-//    @NotNull
-//    private static AABB expandAABB(Vec3 direction, AABB b) {
-//        double dirX = Math.signum(direction.x);
-//        double dirZ = Math.signum(direction.z);
-//
-//        // Expand the bounding box infinitesimally in the direction we're checking for collisions
-//        return new AABB(
-//                dirX < 0 ? Math.nextDown(b.minX) : b.minX,
-//                b.minY,
-//                dirZ < 0 ? Math.nextDown(b.minZ) : b.minZ,
-//                dirX > 0 ? Math.nextUp(b.maxX) : b.maxX,
-//                b.maxY,
-//                dirZ > 0 ? Math.nextUp(b.maxZ) : b.maxZ
-//        );
-//    }
 
     private static boolean isInPassengerChain(Entity possibleAncestor, Entity possibleDescendant) {
-        // Returns true if possibleDescendant is a passenger (directly or indirectly) of possibleAncestor.
         Entity v = possibleDescendant;
         while (v != null) {
             Entity vehicle = v.getVehicle();
@@ -634,14 +445,9 @@ public class Physics {
         return false;
     }
 
-    /**
-     * Returns a list of the given entity and ALL passengers
-     * (including passengers of passengers, etc.).
-     */
-    private List<Entity> getAllEntitiesInStack(Entity start) {
+    public static List<Entity> getAllEntitiesInStack(Entity start) {
         List<Entity> list = new ArrayList<>();
 
-        // Depth-first recursion
         list.add(start);
         for (Entity passenger : start.getPassengers()) {
             list.addAll(getAllEntitiesInStack(passenger));
@@ -650,216 +456,171 @@ public class Physics {
         return list;
     }
 
+    public static List<Entity> getPassengersRecursive(Entity entity) {
+        List<Entity> stack = getAllEntitiesInStack(entity);
+        stack.remove(entity);
+        return stack;
+    }
+
+    public static int getStackSize(Entity entity) {
+        return getAllEntitiesInStack(entity).size();
+    }
+
     public static double getEntityMass(Entity entity) {
         AABB box = entity.getBoundingBox();
         double entityVolume = (box.maxX - box.minX) * (box.maxY - box.minY) * (box.maxZ - box.minZ);
 
-        if (entity instanceof LivingEntity living && living.isFallFlying()) { // When flying with the elytra, the player's bounding box shrinks by 3 times
+        if (entity instanceof LivingEntity living && living.isFallFlying()) {
             return entityVolume * 3;
         }
-        if (entity instanceof IronGolem) { // Made of Iron mobs should not take kinetic damage and should be deadly when crushed by or ran into by them
+        if (entity instanceof IronGolem) {
             return entityVolume * 8;
         }
-        if (entity instanceof Skeleton || entity instanceof SkeletonHorse) { // Just bones, no flesh, slightly lighter.
+        if (entity instanceof Skeleton || entity instanceof SkeletonHorse) {
             return entityVolume / 3;
         }
-        if (entity instanceof ItemEntity) { // Items are currently weightless but maybe add weight to them in the future. (i.e. gold tagged items are heavier)
+        if (entity instanceof ItemEntity) {
             return entityVolume * 0;
         }
-        if (entity instanceof Ghast) { // Basically ghosts right? Make them  light af.
+        if (entity instanceof Ghast) {
             return entityVolume / 8;
+        }
+        if (entity instanceof Arrow) {
+            return entityVolume * 1000000;
         }
 
         return entityVolume;
     }
 
-    // NOT NEEDED CURRENTLY, MAY BE USEFUL IN THE FUTURE
-//    private double getEntityWeight(Entity entity) {
-//        // 0.08 is the default gravity.
-//        double entityGravity = 0.08;
-//        double entityWeight;
-//
-//        if (entity instanceof LivingEntity living) {
-//            AttributeInstance attributeInstance = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
-//            entityGravity = attributeInstance.getValue();
-//        }
-//
-//        entityWeight = getEntityMass(entity) * entityGravity;
-//
-//        return entityWeight;
-//    }
-
     private boolean tryStartRidingSafely(Entity vehicle) {
         if (vehicle == null) return false;
-        if (entity.level().isClientSide()) return false; // server-only behavior
+        if (entity.level().isClientSide()) return false;
         if (!entity.isAlive() || !vehicle.isAlive()) return false;
         if (entity == vehicle) return false;
 
-        // Do not mount if crouching
         if (entity.isCrouching()) return false;
 
-        // Basic already-riding checks
-        if (entity.getVehicle() != null) return false;          // already riding a vehicle
-        if (vehicle.getVehicle() == entity) return false;          // vehicle is riding rider (immediate cycle)
+        if (entity.getVehicle() != null) return false;
+        if (vehicle.getVehicle() == entity) return false;
         if (!vehicle.getPassengers().isEmpty()) return false;
-        if (entity.isPassengerOfSameVehicle(vehicle)) return false; // same vehicle chain already
+        if (entity.isPassengerOfSameVehicle(vehicle)) return false;
 
-        // Ride cooldown check
         if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
 
-        // Prevent deeper cycles: ensure rider isn't somewhere in vehicle's chain and vice versa
         if (isInPassengerChain(entity, vehicle) || isInPassengerChain(vehicle, entity)) return false;
 
-        // Finally, attempt to mount
         return entity.startRiding(vehicle, true);
+    }
+
+    private boolean canRideSafely(Entity rider, Entity vehicle) {
+        if (vehicle == null || rider == null) return false;
+        if (rider.level().isClientSide()) return false;
+        if (!rider.isAlive() || !vehicle.isAlive()) return false;
+        if (rider == vehicle) return false;
+        if (rider.isCrouching()) return false;
+        if (rider.getVehicle() != null) return false;
+        if (vehicle.getVehicle() == rider) return false;
+        if (!vehicle.getPassengers().isEmpty()) return false;
+        if (rider.isPassengerOfSameVehicle(vehicle)) return false;
+
+        FullStopCapability riderCap = grabCapability(rider);
+        if (riderCap != null && riderCap.getDismountCooldown() > 0) return false;
+
+        if (isInPassengerChain(rider, vehicle) || isInPassengerChain(vehicle, rider)) return false;
+
+        return true;
     }
 
     public void handleEntityCollision() {
         if (!SERVER.entityCollisionDamage.get()) return;
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
+        if (collision.collidingEntities.isEmpty()) return;
 
-        Vec3 entityVelocity = fullstop.getPreviousNativeVelocity();
-        double currentSpeed = fullstop.getCurrentNativeVelocity().length();
+        Vec3 v1 = fullstop.getPreviousNativeVelocity();
+        double m1 = getEntityMass(entity);
+        boolean ridingActionTaken = false;
 
-         // Early exit if speed is below threshold
-        if (currentSpeed < 0.75) return; // TODO FIND THE RIGHT THRESHOLD
+        for (Entity other : collision.collidingEntities) {
+            if (other == entity) continue;
+            if (!other.isAlive()) continue;
+            if (ridingActionTaken) break;
 
-        Level level = entity.level();
-        boolean isServer = !level.isClientSide();
+            double m2 = getEntityMass(other);
 
-        double velocitySimilarityThreshold = 0.005;
-        double ridingAngleSteepness = 1.8;  // 1.8 may need to be adjusted
-
-        // Make sure entity is living (you said add for non-living later)
-        if (!(entity instanceof LivingEntity)) return;
-
-        ArrayList<Entity> ridableList = new ArrayList();
-
-        // Iterate the collided entities safely
-        for (Entity collidedEntity : collision.collidingEntities) {
-            if (collidedEntity == null) continue;
-            if (collidedEntity == entity) continue;
-            if (collidedEntity.isRemoved() || !collidedEntity.isAlive()) continue;
-
-            if (!(collidedEntity instanceof LivingEntity) && !(collidedEntity instanceof Minecart) && !(collidedEntity instanceof Boat)) {
-                continue;
+            Vec3 v2 = other.getDeltaMovement();
+            FullStopCapability otherCap = grabCapability(other);
+            if (otherCap != null) {
+                v2 = otherCap.getPreviousNativeVelocity();
             }
 
-            Vec3 collidedEntityVel = grabCapability(collidedEntity).getCurrentNativeVelocity();
-            Vec3 entityVelocityDifference = collidedEntityVel.subtract(entityVelocity); // MIGHT NEED TO BE SWAPPED
-            double relativeVertical = entityVelocityDifference.y;
-            double relativeHorizontal = Math.hypot(entityVelocityDifference.x, entityVelocityDifference.z);
+            Vec3 dist = entity.position().subtract(other.position());
+            if (dist.lengthSqr() < 1.0E-7) {
+                dist = v1.subtract(v2);
+                if (dist.lengthSqr() < 1.0E-7) {
+                    dist = new Vec3(0, 1, 0);
+                }
+            }
+            Vec3 normal = dist.normalize();
 
-                if (relativeHorizontal * ridingAngleSteepness > relativeVertical) {
-                continue;
+            Vec3 relativeVelocity = v1.subtract(v2);
+            double velAlongNormal = relativeVelocity.dot(normal);
+
+            if (velAlongNormal > 0) continue;
+
+            double yDiff = entity.getY() - other.getY();
+
+            if (yDiff > other.getBbHeight() * 0.5 && v1.y < -0.2) {
+                if (tryStartRidingSafely(other)) {
+                    ridingActionTaken = true;
+                    continue;
+                }
             }
 
-            if (relativeVertical < velocitySimilarityThreshold) {
-                continue;
+            if (yDiff < -entity.getBbHeight() * 0.5 && v1.y > 0.2) {
+                if (canRideSafely(other, entity)) {
+                    other.startRiding(entity, true);
+                    ridingActionTaken = true;
+                    continue;
+                }
             }
 
-            entity.setDeltaMovement(Vec3.ZERO);
-            collidedEntity.setDeltaMovement(Vec3.ZERO);
+            double restitution = 0.4;
 
-            ridableList.add(collidedEntity);
+            double j = -(1 + restitution) * velAlongNormal;
+            j /= (1 / m1 + 1 / m2);
+
+            Vec3 impulse = normal.scale(j);
+
+            Vec3 v1New = v1.add(impulse.scale(1 / m1));
+            Vec3 v2New = v2.subtract(impulse.scale(1 / m2));
+
+            entity.setDeltaMovement(v1New);
+            other.setDeltaMovement(v2New);
+            other.hasImpulse = true;
+
+            v1 = v1New;
         }
-
-        double closestEntityDistance = Double.POSITIVE_INFINITY;
-        double closestEntityVerticalDisplacement = Double.POSITIVE_INFINITY;
-        Entity closestEntity = null;
-
-        for (Entity ridableEntity : ridableList) {
-            if (ridableEntity == entity) continue;
-            Vec3 entityPos = entity.getPosition(0);
-            Vec3 ridableEntityPos = ridableEntity.getPosition(0);
-            double x = entityPos.x - ridableEntityPos.x;
-            double z = entityPos.z - ridableEntityPos.z;
-            double distance = Math.hypot(x, z);
-            double verticalDisplacement = entityPos.y - ridableEntityPos.y;
-
-            if (closestEntityDistance > distance || (closestEntityDistance == distance && closestEntityVerticalDisplacement > verticalDisplacement)) {
-
-                // Weight check
-                if (getEntityMass(entity) >= getEntityMass(ridableEntity)) continue;
-
-                closestEntity = ridableEntity;
-                closestEntityDistance = distance;
-                closestEntityVerticalDisplacement = verticalDisplacement;
-            }
-        }
-
-        for (Entity collidedEntity : collision.collidingEntities) {
-            Vec3 normal = entity.position().subtract(collidedEntity.position()).normalize();
-
-            double m1 = getEntityMass(entity);
-            double m2 = getEntityMass(collidedEntity);
-
-            double v1 = entity.getDeltaMovement().dot(normal);
-            double v2 = collidedEntity.getDeltaMovement().dot(normal);
-
-            // restitution: how "bouncy" (1.0 = perfectly elastic, 0.0 = no bounce)
-            double restitution = 0.5;
-
-            double newV1 = (v1 * (m1 - m2) + (1 + restitution) * m2 * v2) / (m1 + m2);
-            double newV2 = (v2 * (m2 - m1) + (1 + restitution) * m1 * v1) / (m1 + m2);
-
-            Vec3 v1Change = normal.scale(newV1 - v1);
-            Vec3 v2Change = normal.scale(newV2 - v2);
-
-//            entity.setDeltaMovement(entity.getDeltaMovement().add(v1Change));
-//            entity.hasImpulse = true;
-//
-//            // Only apply to the other entity if you *really* want it to bounce
-//            if (!(collidedEntity instanceof LivingEntity && !(collidedEntity instanceof Player))) {
-//                collidedEntity.setDeltaMovement(collidedEntity.getDeltaMovement().add(v2Change));
-//                collidedEntity.hasImpulse = true;
-//            }
-
-//            LogToChat.logToChat(entity.getDisplayName().getString(),
-//                    " collided with ",
-//                    collidedEntity.getDisplayName().getString());
-        }
-
-        tryStartRidingSafely(closestEntity);
     }
 
 
-    public class EntityUtils {
+    public static class EntityUtils {
 
-        /**
-         * Returns true if two velocity vectors are "too similar"
-         * i.e., the entity shouldn't mount the other if they're moving together.
-         *
-         * @param v1 velocity of main entity
-         * @param v2 velocity of collided entity
-         * @param threshold how close the velocities can be (length difference or angle)
-         */
         public static boolean velocitiesAreSimilar(Vec3 v1, Vec3 v2, double threshold) {
-            // Option 1: simple distance between velocity vectors
             return v1.distanceTo(v2) < threshold;
-
-            // Option 2 (more precise, checks direction similarity):
-            // double dot = v1.normalize().dot(v2.normalize());
-            // return dot > 0.95; // nearly same direction
         }
     }
 
     public void bounceEntity() {
-        if (entity.isCrouching() || collision.fake() || (!collision.sticky() && fullstop.getStoppingForce() < 9)) return;
+        if (brokeBlock) return;
+
+        if (entity.isCrouching() || collision.fake() || (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 9)) return;
 
         if (damage == 0 && !entity.level().isClientSide
                 && (entity.hasControllingPassenger() || entity instanceof Player)) {
             return;
         }
 
-//        // Handle upward bounces separately
-//        if (fullstop.isMostlyUpward()) {
-//            handleUpwardBounce();
-//            return;
-//        }
-
         if (fullstop.isMostlyDownward()) return;
-        // skip falling/slime-top collision, let vanilla handle those
 
         Vec3 preV = fullstop.getPreviousScaledVelocity();
         Vec3 curV = fullstop.getCurrentScaledVelocity();
@@ -873,12 +634,26 @@ public class Physics {
         } else if (horizontalImpactType == Collision.CollisionType.HONEY) {
             perpScaleFactor = -0.0;
             paraScaleFactor = 0.0;
+        } else if (horizontalImpactType == Collision.CollisionType.BED) {
+            perpScaleFactor = -0.66;
+            paraScaleFactor = 0.66;
         } else if (damage > 0) {
             perpScaleFactor = -0.75 / Math.sqrt(Math.max(damage, 1));
             paraScaleFactor = 1.0 / Math.sqrt(damage);
         } else {
             perpScaleFactor = -0.5;
             paraScaleFactor = 0.5;
+        }
+
+        if (collision.blockStates != null) {
+            for (BlockState state : collision.blockStates) {
+                Block block = state.getBlock();
+                if (block instanceof DoorBlock ||
+                    block instanceof TrapDoorBlock ||
+                    block instanceof FenceGateBlock) {
+                    return;
+                }
+            }
         }
 
         double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
@@ -906,51 +681,18 @@ public class Physics {
         if (entity instanceof Player && ((Player) entity).getAbilities().flying) return;
 
         double newAngle = Math.atan2(-newV.x, newV.z);
-        double currentAngle = Math.atan2(-curV.x, curV.z);
 
         double targetAngle = switch (horizontalImpactType) {
             case NONE -> 0.0;
             case SLIME -> newAngle;
             case HONEY -> Double.NaN;
+            case BED -> newAngle;
             case SOLID -> Double.NaN;
             case ENTITY -> Double.NaN;
         } / Math.PI * 180;
 
         fullstop.setTargetAngle(targetAngle);
     }
-
-    // Upward bounce handler (broken)
-    private void handleUpwardBounce() {
-        Collision.CollisionType impactType = collision.collisionType;
-        Vec3 curV = fullstop.getCurrentScaledVelocity();
-        Vec3 newV;
-
-        switch (impactType) {
-            case SLIME -> {
-                // Invert vertical velocity to push entity back down
-                // Scale by ~0.9 to simulate bounciness but slightly reduced
-                newV = new Vec3(curV.x, -curV.y * 0.9, curV.z);
-            }
-            case HONEY, SOLID -> {
-                // Cancel vertical velocity (stick/stop)
-                newV = new Vec3(curV.x, 0.0, curV.z);
-            }
-            case ENTITY -> {
-                // Weak rebound or cancel — tweak as desired
-                newV = new Vec3(curV.x, -curV.y * 0.25, curV.z);
-            }
-            default -> {
-                return; // nothing to do
-            }
-        }
-
-        if (entity instanceof Minecart) return;
-
-        entity.setDeltaMovement(newV);
-
-        // Optional: add camera rotation logic here too, if you want upward bounce to rotate POV
-    }
-
 
     public static double angleWrap(double angle) {
         angle += 180;
@@ -961,40 +703,15 @@ public class Physics {
         return angle - 180;
     }
 
-    // Inside Physics.java
-
-    // Inside Physics.java
-
-    // Inside Physics.java
-
-    // Inside Physics.java
-
-    // Inside Physics.java
-
     private double calcKineticDamageTotal() {
-        // 1. SAFETY & LEASH CHECKS
         if (entity instanceof Mob mob) {
             if (mob.isLeashed() && fullstop.isMostlyDownward() && collision.fake()) return 0;
         }
 
-        // 2. BOUNCY BLOCK IMMUNITY (Dynamic Scan)
-        if (!entity.isCrouching()) {
-            // Check A: Did the standard collision detect it?
-            if (collision.sticky()) return 0;
-
-            // Check B: Dynamic Fallback
-            // Calculate how fast we were falling (in blocks per tick)
-            double verticalSpeed = Math.abs(fullstop.getPreviousNativeVelocity().y);
-
-            // Scan downwards based on that speed (min 2 blocks, max speed + 2 buffer)
-            int scanDistance = (int) Math.ceil(verticalSpeed) + 2;
-
-            if (scanForBouncyBlock(scanDistance)) {
-                return 0;
-            }
+        if (!entity.isCrouching() && collision.bouncy()) {
+            return 0;
         }
 
-        // 3. NORMAL DIRECTION CHECKS
         if (!fullstop.isMostlyDownward() &&
                 collision.collisionType != Collision.CollisionType.SOLID &&
                 collision.collisionType != Collision.CollisionType.ENTITY) {
@@ -1007,7 +724,6 @@ public class Physics {
             }
         }
 
-        // 4. CALCULATE DAMAGE
         double stoppingForce = fullstop.getStoppingForce();
         double damage;
 
@@ -1018,37 +734,72 @@ public class Physics {
         }
 
         if (damage <= 0) return 0;
-
-        return (float) (damage * 1.07);
-    }
-
-    // --- NEW DYNAMIC SCAN METHOD ---
-    private boolean scanForBouncyBlock(int distance) {
-        BlockPos startPos = entity.blockPosition();
-        Level level = entity.level();
-
-        // Loop from feet downwards
-        for (int i = 0; i <= distance; i++) {
-            BlockPos checkPos = startPos.below(i);
-
-            // Safety: Don't check outside world
-            if (!level.isInWorldBounds(checkPos)) break;
-
-            BlockState state = level.getBlockState(checkPos);
-
-            // Skip Air/Fluids to find the "First Solid Block"
-            if (state.isAir() || state.getFluidState().isSource()) continue;
-
-            // Check if the FIRST solid block we hit is bouncy
-            if (state.getBlock() instanceof net.minecraft.world.level.block.SlimeBlock ||
-                    state.getBlock() instanceof net.minecraft.world.level.block.HoneyBlock ||
-                    state.getBlock() instanceof net.minecraft.world.level.block.BedBlock) {
-                return true; // SAFE!
-            } else {
-                return false; // We hit Concrete/Dirt/Stone first. DEAD.
+        
+        boolean hitWater = false;
+        if (collision.blockStates != null && !collision.blockStates.isEmpty()) {
+            for (BlockState state : collision.blockStates) {
+                if (state.is(Blocks.WATER)) {
+                    hitWater = true;
+                    break;
+                }
             }
         }
-        return false; // Found nothing (void)
+
+        if (hitWater && fullstop.isMostlyDownward()) {
+            if (entity.isSwimming()) {
+                damage *= 1.2;
+            } else {
+                damage *= 0.05;
+            }
+        }
+
+        if (collision.blockStates != null && !collision.blockStates.isEmpty()) {
+            for (BlockState state : collision.blockStates) {
+                if (state.is(Blocks.HAY_BLOCK)) {
+                    damage *= 0.3;
+                    break;
+                }
+                if (state.is(BlockTags.WOOL) || state.is(BlockTags.LEAVES) ||
+                        state.is(Blocks.BIG_DRIPLEAF) || state.is(Blocks.SMALL_DRIPLEAF) ||
+                        state.is(Blocks.MOSS_BLOCK) || state.is(Blocks.SPONGE) || state.is(Blocks.WET_SPONGE)) {
+                    damage *= 0.7;
+                    break;
+                }
+            }
+        }
+
+        double averageHardness = 1.0;
+        if (!collision.blockStates.isEmpty()) {
+            double totalHardness = 0;
+            int count = 0;
+            for (BlockState state : collision.blockStates) {
+                float hardness = state.getDestroySpeed(entity.level(), entity.blockPosition());
+                
+                if (state.is(Blocks.GLASS) || state.is(Blocks.GLASS_PANE) || 
+                    state.is(Blocks.ICE) || state.is(Blocks.PACKED_ICE) || state.is(Blocks.BLUE_ICE) ||
+                    state.getBlock() instanceof StainedGlassBlock || state.getBlock() instanceof StainedGlassPaneBlock) {
+                    hardness = 0.05f; 
+                }
+
+                if (hardness >= 0) {
+                    totalHardness += hardness;
+                    count++;
+                } else {
+                    totalHardness += 100.0;
+                    count++;
+                }
+            }
+            if (count > 0) {
+                averageHardness = totalHardness / count;
+            }
+        }
+
+        double hardnessMultiplier = 0.5 + (averageHardness / 4.0);
+        hardnessMultiplier = Mth.clamp(hardnessMultiplier, 0.2, 2.0);
+
+        damage *= hardnessMultiplier;
+
+        return (float) (damage * 1.07);
     }
 
     private static int lerpColor(int color1, int color2, double t) {
@@ -1071,8 +822,23 @@ public class Physics {
         double armor = entity.getAttributeValue(Attributes.ARMOR);
         double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
 
-        // Only apply armor reduction if entity is mostly downward
+        double toughnessReduction = Math.max(0.5, 1.0 - (toughness / 40.0));
+
+        rawDamage *= (float) toughnessReduction;
+
         if (fullstop.isMostlyDownward()) {
+            int featherFallingLevel = entity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+            if (featherFallingLevel > 0) {
+                float reduction = 0.2f * featherFallingLevel;
+                rawDamage *= Math.max(0.0f, 1.0f - reduction);
+
+                if (featherFallingLevel >= 4) {
+                    float maxSurvivableDamage = entity.getMaxHealth() - 1.0f;
+                    if (maxSurvivableDamage < 1.0f) maxSurvivableDamage = 1.0f;
+
+                    rawDamage = Math.min(rawDamage, maxSurvivableDamage);
+                }
+            }
             return rawDamage;
         }
 
@@ -1084,7 +850,6 @@ public class Physics {
         if (damage < 1) return;
         if (entity instanceof ItemEntity) return;
 
-        // Decide on the color dynamically based on velocity
         TextColor color;
         double maxVelocity = 78.40;
         double t = Math.min(previousVelocity / maxVelocity, 1.0);
@@ -1110,188 +875,181 @@ public class Physics {
         String velocityToDisplay = String.format("(going %.2f m/s)", previousVelocity);
         DamageSources sources = entity.damageSources();
 
-        // --- Case 1: Vertical / Wall damage applied to self ---
         if (collision.collisionType != Collision.CollisionType.ENTITY) {
-            DamageSource baseSource;
-            if (fullstop.isMostlyDownward()) {
-                baseSource = sources.fall();
-            } else if (fullstop.isMostlyUpward()) {
-                baseSource = sources.flyIntoWall(); // or a custom "head-hit" damage source if you have one
+            applyBlockCollisionDamage(velocityToDisplay, color, sources);
+        }
+
+        if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
+            applyEntityCollisionDamage(velocityToDisplay, color, sources);
+        }
+    }
+
+    private void applyBlockCollisionDamage(String velocityToDisplay, TextColor color, DamageSources sources) {
+        DamageSource baseSource;
+        if (fullstop.isMostlyDownward()) {
+            baseSource = sources.fall();
+        } else if (fullstop.isMostlyUpward()) {
+            baseSource = sources.flyIntoWall();
+        } else {
+            baseSource = sources.flyIntoWall();
+        }
+
+        DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+
+        if (fullstop.isMostlyDownward()) {
+            double totalMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
+            double selfMass = getEntityMass(entity);
+            if (selfMass < 0.001) selfMass = 0.001;
+
+            float crushFactor = (float) (totalMass / selfMass);
+            float selfDamage = (float) damage * crushFactor;
+
+            if (entity instanceof LivingEntity living) {
+                selfDamage = applyArmorReduction(living, selfDamage);
+                entity.hurt(customSource, selfDamage);
             } else {
-                baseSource = sources.flyIntoWall();
+                entity.hurt(customSource, selfDamage);
             }
 
-            DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+            float passengerDamage = (float) damage * 0.5f;
+            for (Entity passenger : getAllEntitiesInStack(entity)) {
+                if (passenger == entity) continue;
+                passenger.hurt(customSource, passengerDamage);
+            }
 
-            if  (entity  instanceof LivingEntity living) {
-                float finalSelfDamage = applyArmorReduction(living, (float) damage); // Armor in real life would not protect against kinetic damage as much as this does
-                //LogToChat.logToChat(entity.getDisplayName().getString(), "entity mass: ",getEntityMass(entity), customSource, "damage applied: ",finalSelfDamage);
+        } else {
+            if (entity instanceof LivingEntity living) {
+                float finalSelfDamage = applyArmorReduction(living, (float) damage);
                 entity.hurt(customSource, finalSelfDamage);
             } else {
-               // LogToChat.logToChat(entity.getDisplayName().getString(), "entity mass: ",getEntityMass(entity), customSource, "damage applied: ",damage);
-                entity.hurt(customSource, (float) damage); // Full damage applied to non-living entities
+                entity.hurt(customSource, (float) damage);
+            }
+
+            if (entity.isPassenger() && damage > 5) {
+                entity.stopRiding();
+            }
+        }
+    }
+
+    private void applyEntityCollisionDamage(String velocityToDisplay, TextColor color, DamageSources sources) {
+        List<LivingEntity> validTargets = collision.collidingEntities.stream()
+                .filter(e -> e instanceof LivingEntity)
+                .map(e -> (LivingEntity) e)
+                .filter(living -> !(living instanceof IronGolem))
+                .toList();
+
+        List<IronGolem> collidedGolems = collision.collidingEntities.stream()
+                .filter(e -> e instanceof IronGolem)
+                .map(e -> (IronGolem) e)
+                .toList();
+
+        for (IronGolem golem : collidedGolems) {
+            float baseVolume = 0.6f;
+            float basePitch = 1.0f;
+
+            float volume = baseVolume + (float)damage * 0.05f;
+            volume = clamp(volume, 0.6f, 1.8f);
+
+            float pitch = basePitch - (float)damage * 0.02f;
+            pitch = clamp(pitch, 0.7f, 1.2f);
+
+            SoundPlayer.playSound(golem, SoundEvents.IRON_GOLEM_HURT, volume, pitch);
+
+            if (entity instanceof LivingEntity livingTarget) {
+                golem.setTarget(livingTarget);
             }
         }
 
-        // --- Case 2: Entity collision damage ---
-        if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null) {
-            // Filter out Iron Golems for damage purposes
-            List<LivingEntity> validTargets = collision.collidingEntities.stream()
-                    .filter(e -> e instanceof LivingEntity)
-                    .map(e -> (LivingEntity) e)
-                    .filter(living -> !(living instanceof IronGolem))
-                    .toList();
+        LivingEntity collidedExample = collision.collidingEntities.stream()
+                .filter(e -> e instanceof LivingEntity)
+                .map(e -> (LivingEntity) e)
+                .findFirst()
+                .orElse(null);
 
-            // Collect golems for sound only
-            List<IronGolem> collidedGolems = collision.collidingEntities.stream()
-                    .filter(e -> e instanceof IronGolem)
-                    .map(e -> (IronGolem) e)
-                    .toList();
+        int colliders = validTargets.size();
+        float splitEntityDamage = (float) damage / (colliders + 1);
 
-            for (IronGolem golem : collidedGolems) {
-                // Example scaling factors
-                float baseVolume = 0.6f;
-                float basePitch = 1.0f;
-
-                // Scale volume linearly with damage, but clamp it
-                float volume = baseVolume + (float)damage * 0.05f; // each damage adds 0.05
-                volume = clamp(volume, 0.6f, 1.8f); // don’t let it get too quiet or too loud
-
-                // Pitch goes *down* as damage increases
-                float pitch = basePitch - (float)damage * 0.02f;
-                pitch = clamp(pitch, 0.7f, 1.2f); // reasonable range
-
-                SoundPlayer.playSound(golem, SoundEvents.IRON_GOLEM_HURT, volume, pitch);
-
-                if (entity instanceof LivingEntity livingTarget) {
-                    golem.setTarget(livingTarget);
-                }
-            }
-
-            // Pick ANY collided entity (even Iron Golem) just for death message
-            LivingEntity collidedExample = collision.collidingEntities.stream()
-                    .filter(e -> e instanceof LivingEntity)
-                    .map(e -> (LivingEntity) e)
-                    .findFirst()
-                    .orElse(null);
-
-            int colliders = validTargets.size();
-            float splitEntityDamage = (float) damage / (colliders + 1);
-
-            if (!entity.onGround() && !collision.collidingEntities.stream().findFirst().get().onGround()) {
-                if (velocitiesAreSimilar(entity.getDeltaMovement(), collision.collidingEntities.stream().findFirst().get().getDeltaMovement(), 0.1)) {
-                    splitEntityDamage = 0;
-                }
-            }
-
-            // --- Always apply damage to self ---
-            DamageSource selfSource;
-            if (collidedExample != null && entity instanceof LivingEntity living) {
-                selfSource = makeEntityCollisionSelfSource(
-                        sources.flyIntoWall(),
-                        living,
-                        collidedExample,
-                        velocityToDisplay,
-                        color,
-                        fullstop.isMostlyDownward(),
-                        fullstop.isMostlyUpward()
-                );
-            } else {
-                selfSource = makeSelfSource(
-                        sources.flyIntoWall(),
-                        velocityToDisplay,
-                        color,
-                        fullstop.isMostlyDownward(),
-                        fullstop.isMostlyUpward()
-                );
-            }
-
-            if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+        Entity firstCollider = collision.collidingEntities.get(0);
+        if (!entity.onGround() && !firstCollider.onGround()) {
+            if (velocitiesAreSimilar(entity.getDeltaMovement(), firstCollider.getDeltaMovement(), 0.1)) {
                 splitEntityDamage = 0;
-            }
-
-            double horseFallDampening = 1.0; // TODO POTENTIAL CONFIG OPTION
-            if (entity instanceof Horse && splitEntityDamage < horseFallDampening && fullstop.isMostlyDownward()) { // BAND-AID FIX FOR HORSE DAMAGE
-                splitEntityDamage = 0;
-            }
-
-            if (entity instanceof LivingEntity livingEntity) {
-                int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-
-                MobEffectInstance jumpBoostEffect = livingEntity.getEffect(MobEffects.JUMP);
-                int jumpBoostLevel;
-
-                if (jumpBoostEffect == null) {
-                    jumpBoostLevel = 1;
-                } else {
-                    jumpBoostLevel = jumpBoostEffect.getAmplifier() + 1;
-                }
-
-                if (!fullstop.isMostlyDownward() || fullstop.isMostlyUpward()) {
-                    jumpBoostLevel = 1;
-                }
-            }
-
-            if (splitEntityDamage <= 0) {
-                splitEntityDamage = 0;
-            }
-
-            List<Entity> collidedEntities = collision.collidingEntities;
-
-//            double vehicleTotalMass = getAllStackEntities(entity).stream().mapToDouble(this::getEntityMass).average().orElse(0.0);
-//            double vehicleTotalMass = getEntityMass(getAllStackEntities(entity));
-            double vehicleTotalMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
-            double vehicleSelfMass = getEntityMass(entity);
-
-            if (vehicleSelfMass < 0.001) vehicleSelfMass = 0.001;
-
-            float attackerDamageScale = (float) (vehicleTotalMass / vehicleSelfMass);
-
-            float attackerScaledDamage = splitEntityDamage * attackerDamageScale;
-
-            if (fullstop.isMostlyDownward()) {
-                // APPLY DAMAGE TO ANY PASSENGERS
-                double rideChainCount = getAllEntitiesInStack(entity).size();
-                attackerScaledDamage = attackerScaledDamage / (float) rideChainCount; // TODO I WAS IN THE MIDDLE OF SPLITTING DAMAGE BETWEEN AN ENTIRE ENTITY STACK
-                for (Entity passenger : getAllEntitiesInStack(entity)) {
-                    //LogToChat.logToChat(passenger.getDisplayName().getString(), "vehicle entity total mass: ", vehicleTotalMass, selfSource, "damage applied: ",attackerScaledDamage);
-                    passenger.hurt(selfSource, attackerScaledDamage);
-                }
-            } else {
-                // APPLY SELF DAMAGE
-                //LogToChat.logToChat(entity.getDisplayName().getString(), "self entity mass: ", getEntityMass(entity), selfSource, "damage applied: ",attackerScaledDamage);
-                entity.hurt(selfSource, attackerScaledDamage);
-            }
-
-            //TODO CREATE FINAL splitEntityDamage FORMULA THAT INCLUDES jumpBoostLevel, fallProtLevel, etc
-
-            // --- Apply damage to valid targets only (Iron Golems excluded) ---
-            if (entity instanceof LivingEntity living) {
-                for (LivingEntity target : validTargets) {
-                    DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
-
-                    float targetDamageScale = (float) (vehicleSelfMass / getEntityMass(target));
-                    float targetScaledDamage = splitEntityDamage * targetDamageScale;
-
-                    if (fullstop.getIsDamageImmune()) {
-                        splitEntityDamage = 0;
-                    }
-
-                    int fallProtLevel = target.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-
-
-
-                    // TODO TARGET ENTITY FEATHER FALLING DAMAGE CALCULATION
-
-                    //TODO FINAL splitEntityDamage formula
-
-                    // APPLY TARGET DAMAGE
-                    //LogToChat.logToChat(target.getDisplayName().getString(), "target entity mass: ",getEntityMass(target),attackerSource, "damage applied: ",targetScaledDamage);
-                    target.hurt(attackerSource, targetScaledDamage);
-                }
             }
         }
 
+        DamageSource selfSource;
+        if (collidedExample != null && entity instanceof LivingEntity living) {
+            selfSource = makeEntityCollisionSelfSource(
+                    sources.flyIntoWall(),
+                    living,
+                    collidedExample,
+                    velocityToDisplay,
+                    color,
+                    fullstop.isMostlyDownward(),
+                    fullstop.isMostlyUpward()
+            );
+        } else {
+            selfSource = makeSelfSource(
+                    sources.flyIntoWall(),
+                    velocityToDisplay,
+                    color,
+                    fullstop.isMostlyDownward(),
+                    fullstop.isMostlyUpward()
+            );
+        }
+
+        if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+            splitEntityDamage = 0;
+        }
+
+        double horseFallDampening = 1.0;
+        if (entity instanceof Horse && splitEntityDamage < horseFallDampening && fullstop.isMostlyDownward()) {
+            splitEntityDamage = 0;
+        }
+
+        if (splitEntityDamage <= 0) {
+            splitEntityDamage = 0;
+        }
+
+        double stackMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
+        double selfMass = getEntityMass(entity);
+        if (selfMass < 0.001) selfMass = 0.001;
+
+        float selfDamage = splitEntityDamage;
+        if (fullstop.isMostlyDownward()) {
+            selfDamage *= (float) (stackMass / selfMass);
+        }
+
+        entity.hurt(selfSource, selfDamage);
+
+        if (fullstop.isMostlyDownward()) {
+            float passengerDamage = splitEntityDamage * 0.5f;
+            for (Entity passenger : getAllEntitiesInStack(entity)) {
+                if (passenger == entity) continue;
+                passenger.hurt(selfSource, passengerDamage);
+            }
+        }
+
+        if (entity instanceof LivingEntity living) {
+            for (LivingEntity target : validTargets) {
+                DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
+
+                double targetMass = getEntityMass(target);
+                if (targetMass < 0.001) targetMass = 0.001;
+
+                float targetDamageScale = (float) (stackMass / targetMass);
+                float targetScaledDamage = splitEntityDamage * targetDamageScale;
+
+                double targetToughness = target.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
+                double toughnessReduction = Math.max(0.5, 1.0 - (targetToughness / 40.0));
+                targetScaledDamage *= (float) toughnessReduction;
+
+                if (fullstop.getIsDamageImmune()) {
+                    targetScaledDamage = 0;
+                }
+
+                target.hurt(attackerSource, targetScaledDamage);
+            }
+        }
     }
 
     private static float clamp(float value, float min, float max) {
@@ -1311,11 +1069,19 @@ public class Physics {
                 Component velocityComponent = Component.literal(" " + velocityToDisplay)
                         .withStyle(Style.EMPTY.withColor(color));
 
+                boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
+                boolean lookingDown = victim.getXRot() > 45;
+
                 if (isMostlyDownward) {
-                    // Vanilla fall message + velocity
                     Component base = super.getLocalizedDeathMessage(victim);
 
-                    boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
+                    if (hasElytra && lookingDown) {
+                        return Component.literal("")
+                                .append(victim.getDisplayName())
+                                .append(" hit their head")
+                                .append(velocityComponent);
+                    }
+
                     Component flyingComponent = hasElytra
                             ? Component.literal(" with Elytra")
                             : Component.empty();
@@ -1323,14 +1089,19 @@ public class Physics {
                     return base.copy().append(flyingComponent).append(velocityComponent);
 
                 } else if (isMostlyUpward) {
-                    // Upward death message
                     return Component.literal("")
                             .append(victim.getDisplayName())
                             .append(" hit their head")
                             .append(velocityComponent);
 
                 } else {
-                    // Horizontal kinetic phrasing
+                    if (hasElytra && lookingDown) {
+                         return Component.literal("")
+                                .append(victim.getDisplayName())
+                                .append(" hit their head")
+                                .append(velocityComponent);
+                    }
+
                     return Component.literal("")
                             .append(victim.getDisplayName())
                             .append(" experienced kinetic energy")
@@ -1347,7 +1118,6 @@ public class Physics {
                                                          String velocityToDisplay,
                                                          TextColor color,
                                                          boolean isMostlyDownward) {
-        // Create a vanilla attacker source (keeps the attacker reference for aggro)
         DamageSource base = (attacker instanceof Player p)
                 ? sources.playerAttack(p)
                 : sources.mobAttack(attacker);
@@ -1395,10 +1165,8 @@ public class Physics {
         return new DamageSource(baseSource.typeHolder()) {
             @Override
             public Component getLocalizedDeathMessage(LivingEntity v) {
-                // Leave the collided entity's name uncolored
                 Component collidedName = collided.getDisplayName();
 
-                // Only the velocity text is colored
                 Component velocityComponent = Component.literal(" " + velocityToDisplay)
                         .withStyle(Style.EMPTY.withColor(color));
 
@@ -1429,7 +1197,6 @@ public class Physics {
     public Physics(Entity entity) {
         fullstop = grabCapability(entity);
 
-        // Only tick if we haven't processed this specific tick yet
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
@@ -1453,9 +1220,8 @@ public class Physics {
 
         damage = calcKineticDamageTotal();
 
-        if (!collision.impactedPositions.isEmpty() && entity instanceof LivingEntity living) {
-            // Pass the raw stopping force (fullstop.getStoppingForce()) or the calculated damage
-            KineticInteractions.handleBlockImpacts(living, fullstop.getPreviousNativeVelocity(), collision.impactedPositions);
+        if (!collision.impactedPositions.isEmpty()) {
+            brokeBlock = KineticInteractions.handleBlockImpacts(entity, fullstop.getPreviousNativeVelocity(), collision.impactedPositions, collision.impactedHits);
         }
     }
 

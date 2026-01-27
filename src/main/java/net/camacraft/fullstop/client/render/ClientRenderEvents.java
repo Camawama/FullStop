@@ -1,6 +1,8 @@
 package net.camacraft.fullstop.client.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.entity.Entity;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -17,6 +19,21 @@ public final class ClientRenderEvents {
     public static void onRenderLevelStage(RenderLevelStageEvent event) {
         // Only render after particles, so it’s drawn clearly on top of the world
         if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
+            Minecraft mc = Minecraft.getInstance();
+            
+            // Only update and render if F3 debug menu is open
+            if (mc.options.renderDebug && mc.level != null) {
+                // Render for all other entities
+                for (Entity entity : mc.level.entitiesForRendering()) {
+                    RaycastLineRenderer.updateDebugRays(entity);
+                }
+                
+                // Explicitly render for the local player (who is often not in entitiesForRendering)
+                if (mc.player != null) {
+                    RaycastLineRenderer.updateDebugRays(mc.player);
+                }
+            }
+
             PoseStack poseStack = event.getPoseStack();
             RaycastLineRenderer.render(poseStack, event.getPartialTick());
         }
