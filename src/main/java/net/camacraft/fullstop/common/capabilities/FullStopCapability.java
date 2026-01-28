@@ -1,7 +1,7 @@
 package net.camacraft.fullstop.common.capabilities;
 
 import net.camacraft.fullstop.common.data.Collision;
-import net.camacraft.fullstop.common.physics.Physics;
+import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
@@ -273,7 +273,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             return 0;
         }
 
-        double correction = Physics.angleWrap(targetAngle - entity.getYRot());
+        double correction = MathUtils.angleWrap(targetAngle - entity.getYRot());
 
         if (Math.abs(correction) < 0.5) {
             targetAngle = Double.NaN;
