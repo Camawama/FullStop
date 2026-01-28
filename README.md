@@ -1,7 +1,6 @@
 [<img alt="Mod Loader: Forge" src="https://img.shields.io/badge/loader-forge-1976d2?style=flat-square"/>](https://files.minecraftforge.net/)
 [<img alt="Curse Forge" src="https://cf.way2muchnoise.eu/1118198.svg?badge_style=flat"/>](https://www.curseforge.com/minecraft/mc-mods/full-stop)
 
-
 [<img alt="Discord" src="https://img.shields.io/discord/824044029502292011?style=for-the-badge&logo=discord"/>](https://discord.gg/c9DshjA8jF)
 
 <img src="https://raw.githubusercontent.com/Camawama/FullStop/main/src/main/resources/fullstop.png" alt="Mod Logo" width="128" height="128">
@@ -10,46 +9,42 @@
 
 [Modrinth Page](https://modrinth.com/mod/full-stop!-)
 
-# 🛑 Full Stop! 
+# 🛑 Full Stop!
 
-NOTICE: This mod is in Beta. There will be many bugs! Please report all bugs on the issue tracker!
+Full Stop! is a Forge 1.20.1 overhaul that treats velocity like a first‑class mechanic. Momentum matters. Sudden stops hurt, fast hits hit harder, and the world fights back when you slam into it.
 
-## Overview
-Full Stop! introduces a new level of challenge to your Minecraft experience by simulating the dangers of velocity and impact. With every sprint, jump, and fall, you'll face realistic consequences that will keep you on your toes. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and was a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
+**Status:** Beta. Expect bugs, please report them in the issue tracker.
 
-## Features (strikethrough means it hasn't been implemented yet)
-- 💥 Dynamic Damage System: Experience realistic damage based on speed and collision force. Deal more damage when moving toward a target and less when moving away. Sudden impacts can leave you reeling. 
-- 🛠️ Durability Scaling: The damage you deal affects the durability of your items, meaning every hit counts. 
-- 🌪️ G-Force Effects: High-velocity maneuvers can inflict blindness and nausea as you push the limits of your movement. 
-- 🔄 Knockback Mechanics: Running into players or walls won't just hurt you; ~~you'll both be sent flying in the opposite direction!~~
-- ~~🌊 Environmental Challenges: Encounter pressure damage when submerged underwater and~~ experience slowness upon hard landings. 
-- ⚠️ Bounce Physics: Collide with walls at sharp angles to be knocked away realistically, adding a tactical element to movement. 
+## What it does (current behavior)
+- **Velocity‑scaled combat damage**: attacks scale up or down based on approach velocity, including projectile momentum and durability costs that match the final damage dealt. (See `Physics.calcNewDamage`.)
+- **Kinetic collision damage**: impacts with blocks or entities use stopping force, block hardness, armor/toughness, and special block materials (wool/leaves/hay/water) to shape damage. (See `Physics.calcKineticDamageTotal` + `applyBlockCollisionDamage`.)
+- **Bounce physics**: slime/honey/beds change restitution, and strong impacts rotate the camera toward the bounce direction. (See `Physics.bounceEntity`.)
+- **Block interactions on impact**: doors, trapdoors, fence gates, and note blocks can be toggled/triggered by collisions. (See `KineticInteractions.handleBlockImpacts`.)
+- **Kinetic block breaking**: high‑energy impacts can crack or break blocks, including fragile glass/ice handling and grass‑to‑path conversion. (See `KineticInteractions`.)
+- **Falling‑block “sandblasting”**: falling blocks can strip logs, break stripped logs, and de‑oxidize copper one stage at a time. (See `KineticInteractions.handleFallingBlockImpact`.)
+- **Sprain status effect**: hard, mostly‑downward impacts apply sprain (slows movement and suppresses jumping). (See `SprainEffect`.)
+- **G‑force effects**: sustained high forces can apply nausea and blackout‑style blindness. (See `Physics.applyForceEffects`.)
+- **Entity collision transfer**: entity‑to‑entity impacts transfer velocity and distribute damage by mass, with special handling for iron golems, slime, minecarts, and stacks. (See `Physics.handleEntityCollision` + `applyEntityCollisionDamage`.)
+- **Water skipping**: shallow‑angle impacts can skip across water with configurable dampening. (See `Physics.shouldWaterSkip`.)
 
-## Planned Features
-- Implement equal and opposite force transfer for entities
-- Prevent damage to leashed entities
-- Make it so that an entity hitting a block at extreme velocities may break the block
-- Implement pressure damage deep underwater
-- Diving with prone mods
-- Damage dampening by crouching in time
+## Config highlights
+Full Stop ships a server config with gameplay‑tunable values. Some key knobs:
+- **Velocity damage curve** (`velocityIncrement`, `exponentiationConstant`, min/max damage percent)
+- **Kinetic thresholds** (horizontal/vertical minimums)
+- **Collision toggles** (entity collision damage, kinetic block breaking)
+- **Kinetic protection & dampening** (new enchant multipliers and attribute scaling)
+- **Water skipping** (angle threshold + speed dampening)
 
-## Known Bugs (to be fixed)
-- Horses may take damage when jumping
-- Certain types of projectile attacks may scale their damage unintentionally
-- Honey particles and sounds are broken
-  (please report bugs!)
+See `FullStopConfig` for the full list.
 
-## Known Incompatabillities
-- CustomNPCs (NPCs will not look at players)
+## Compatibility notes
+- Written for **Forge 1.20.1**.
+- Designed to be configuration‑driven; many features can be dialed down or disabled if they clash with a pack.
 
- 
+## Roadmap / ideas in flight
+- More robust stacking/vehicle logic for extreme collisions.
+- Additional tuning for edge‑case interactions (elytra speed changes, boat physics on ice).
+- Optional APIs once the core behavior stabilizes.
 
-🚧 Warning:
-Speed is your enemy!
-
-## License & Use
-This project, FullStop, is licensed under the GNU General Public License v3.0 (GPLv3). This means:
-
-* You may copy, distribute, and modify this software as long as any derivative work is also licensed under the GPLv3.
-* Any software that incorporates code from this project must also be released under the GPLv3.
-* The source code must be made available with any distributed version of this software or any derivatives.
+## License
+This project is licensed under the GNU General Public License v3.0 (GPLv3). If you distribute a modified version, you must ship the source under the same license.

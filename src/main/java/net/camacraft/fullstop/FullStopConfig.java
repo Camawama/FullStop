@@ -55,6 +55,14 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
+        public final ForgeConfigSpec.DoubleValue kineticProtectionHorizontalMultiplier;
+        public final ForgeConfigSpec.DoubleValue kineticProtectionDownwardMultiplier;
+        public final ForgeConfigSpec.DoubleValue kineticProtectionUpwardMultiplier;
+        public final ForgeConfigSpec.DoubleValue reflectiveVelocityMultiplier;
+        public final ForgeConfigSpec.DoubleValue kineticDampeningPerPoint;
+        public final ForgeConfigSpec.DoubleValue leatherDampeningBonus;
+        public final ForgeConfigSpec.DoubleValue waterSkipAngleThreshold;
+        public final ForgeConfigSpec.DoubleValue waterSkipSpeedDampening;
 
         protected ConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -141,6 +149,57 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+
+            builder.pop();
+
+            builder.push("Enchantment & attribute settings");
+            this.kineticProtectionHorizontalMultiplier = builder
+                    .comment("Multiplier per Kinetic Protection level for horizontal impacts.")
+                    .translation(key("kineticProtectionHorizontalMultiplier"))
+                    .comment("Default: 0.06")
+                    .defineInRange("kineticProtectionHorizontalMultiplier", 0.06, 0, 1.0);
+
+            this.kineticProtectionDownwardMultiplier = builder
+                    .comment("Additional multiplier per level on boots for mostly-downward impacts.")
+                    .translation(key("kineticProtectionDownwardMultiplier"))
+                    .comment("Default: 0.12")
+                    .defineInRange("kineticProtectionDownwardMultiplier", 0.12, 0, 1.0);
+
+            this.kineticProtectionUpwardMultiplier = builder
+                    .comment("Additional multiplier per level on helmets for mostly-upward impacts.")
+                    .translation(key("kineticProtectionUpwardMultiplier"))
+                    .comment("Default: 0.12")
+                    .defineInRange("kineticProtectionUpwardMultiplier", 0.12, 0, 1.0);
+
+            this.reflectiveVelocityMultiplier = builder
+                    .comment("Percentage of velocity reflected back per Reflective level.")
+                    .translation(key("reflectiveVelocityMultiplier"))
+                    .comment("Default: 0.2")
+                    .defineInRange("reflectiveVelocityMultiplier", 0.2, 0, 1.0);
+
+            this.kineticDampeningPerPoint = builder
+                    .comment("Damage reduction per point of kinetic dampening attribute.")
+                    .translation(key("kineticDampeningPerPoint"))
+                    .comment("Default: 0.05")
+                    .defineInRange("kineticDampeningPerPoint", 0.05, 0, 1.0);
+
+            this.leatherDampeningBonus = builder
+                    .comment("Bonus kinetic dampening per leather armor piece.")
+                    .translation(key("leatherDampeningBonus"))
+                    .comment("Default: 0.15")
+                    .defineInRange("leatherDampeningBonus", 0.15, 0, 2.0);
+
+            this.waterSkipAngleThreshold = builder
+                    .comment("Maximum angle (degrees) from horizontal to allow water skipping.")
+                    .translation(key("waterSkipAngleThreshold"))
+                    .comment("Default: 20")
+                    .defineInRange("waterSkipAngleThreshold", 20.0, 0, 90.0);
+
+            this.waterSkipSpeedDampening = builder
+                    .comment("Speed multiplier applied when skipping on water.")
+                    .translation(key("waterSkipSpeedDampening"))
+                    .comment("Default: 0.6")
+                    .defineInRange("waterSkipSpeedDampening", 0.6, 0, 1.0);
 
             builder.pop();
         }
