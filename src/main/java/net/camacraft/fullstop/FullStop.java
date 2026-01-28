@@ -2,8 +2,10 @@ package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.message.LogToChat;
 import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
+import net.camacraft.fullstop.common.attributes.ModAttributes;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.effects.ModEffects;
+import net.camacraft.fullstop.common.enchantments.ModEnchantments;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -35,6 +37,8 @@ public class FullStop
         // ✅ Register deferred registers (blocks, items, effects, etc.) on the MOD event bus
         var modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         ModEffects.MOB_EFFECTS.register(modEventBus);
+        ModEnchantments.ENCHANTMENTS.register(modEventBus);
+        ModAttributes.ATTRIBUTES.register(modEventBus);
 
         // ✅ Register listeners/event handlers on the FORGE bus
         MinecraftForge.EVENT_BUS.register(FullStop.class);

@@ -1,0 +1,19 @@
+package net.camacraft.fullstop.common.attributes;
+
+import net.camacraft.fullstop.FullStop;
+import net.minecraft.world.entity.ai.attributes.Attribute;
+import net.minecraft.world.entity.ai.attributes.RangedAttribute;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.RegistryObject;
+
+public class ModAttributes {
+    public static final DeferredRegister<Attribute> ATTRIBUTES =
+            DeferredRegister.create(ForgeRegistries.ATTRIBUTES, FullStop.MOD_ID);
+
+    public static final RegistryObject<Attribute> KINETIC_DAMPENING = ATTRIBUTES.register(
+            "kinetic_dampening",
+            () -> new RangedAttribute("attribute.name.fullstop.kinetic_dampening", 0.0D, 0.0D, 10.0D)
+                    .setSyncable(true)
+    );
+}
