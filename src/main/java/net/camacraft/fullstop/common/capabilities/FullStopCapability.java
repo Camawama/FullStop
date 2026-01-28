@@ -309,8 +309,16 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             double clientSpeedSqr = clientScaledVelocity.lengthSqr();
             double actualSpeedSqr = actualVelocity.lengthSqr();
 
+            boolean groundedWallContact = entity.onGround() && entity.horizontalCollision;
+
             // Thresholds: client claims > ~4.5m/s, but server sees < 0.5m/s.
-            if (clientSpeedSqr > 5.0 && actualSpeedSqr < 0.25) {
+            boolean phantomForce = clientSpeedSqr > 5.0 && actualSpeedSqr < 0.25;
+
+            // When grounded and pressed into a wall, client velocity can be mostly "input" with little
+            // actual movement. Favor the server calculation if actual speed is much smaller.
+            boolean wallPinnedDrift = groundedWallContact && actualSpeedSqr < Math.max(0.02, clientSpeedSqr * 0.1);
+
+            if (phantomForce || wallPinnedDrift) {
                 currentScaledVelocity = actualVelocity;
             } else {
                 // Otherwise, we trust the client's input, which is needed for responsive controls.
