@@ -204,4 +204,11 @@ public final class RaycastLineRenderer {
             ));
         }
     }
+
+    public static void clear() {
+        synchronized (PENDING_LINES) {
+            PENDING_LINES.clear();
+        }
+        ACTIVE_LINES.clear();
+    }
 }
