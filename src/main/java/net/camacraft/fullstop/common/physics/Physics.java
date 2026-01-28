@@ -6,8 +6,7 @@ import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
 import net.camacraft.fullstop.common.physics.damage.KineticDamageSources;
-import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
-import net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler;
+import net.camacraft.fullstop.common.physics.interaction.KineticInteractions;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -41,11 +40,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.BedBlock;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.SoundType;
-import net.minecraft.world.level.block.StainedGlassBlock;
-import net.minecraft.world.level.block.StainedGlassPaneBlock;
+import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -54,7 +49,6 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.Attributes;
-import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -63,6 +57,8 @@ import java.util.List;
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
+import static net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler.canRideSafely;
+import static net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler.tryStartRidingSafely;
 import static net.camacraft.fullstop.common.physics.util.VelocityUtils.velocitiesAreSimilar;
 
 public class Physics {
@@ -236,6 +232,9 @@ public class Physics {
     }
 
     public void impactDamageSound() {
+        if (entity instanceof Player player) {
+            if (player.isCreative() || player.isSpectator()) return;
+        }
         if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
@@ -541,7 +540,7 @@ public class Physics {
             double yDiff = entity.getY() - other.getY();
 
             if (yDiff > other.getBbHeight() * 0.5 && v1.y < -0.2) {
-                if (tryStartRidingSafely(other)) {
+                if (tryStartRidingSafely(other, entity, fullstop)) {
                     ridingActionTaken = true;
                     continue;
                 }

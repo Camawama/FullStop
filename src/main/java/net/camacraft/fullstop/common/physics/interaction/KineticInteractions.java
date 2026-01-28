@@ -1,6 +1,7 @@
-package net.camacraft.fullstop.common.physics;
+package net.camacraft.fullstop.common.physics.interaction;
 
 import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.common.physics.Physics;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;

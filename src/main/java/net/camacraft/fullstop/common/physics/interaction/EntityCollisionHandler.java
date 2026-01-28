@@ -90,7 +90,7 @@ public final class EntityCollisionHandler {
         }
     }
 
-    private static boolean tryStartRidingSafely(Entity rider, Entity vehicle, FullStopCapability fullstop) {
+    public static boolean tryStartRidingSafely(Entity rider, Entity vehicle, FullStopCapability fullstop) {
         if (vehicle == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
@@ -110,7 +110,7 @@ public final class EntityCollisionHandler {
         return rider.startRiding(vehicle, true);
     }
 
-    private static boolean canRideSafely(Entity rider, Entity vehicle) {
+    public static boolean canRideSafely(Entity rider, Entity vehicle) {
         if (vehicle == null || rider == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
