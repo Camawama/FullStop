@@ -3,6 +3,7 @@ package net.camacraft.fullstop.common.physics.interaction;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.Physics;
+import net.camacraft.fullstop.common.physics.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.Vec3;
 
@@ -25,7 +26,7 @@ public final class EntityCollisionHandler {
         FullStopCapability fullstop = physics.getFullstop();
 
         Vec3 v1 = fullstop.getPreviousNativeVelocity();
-        double m1 = Physics.getEntityMass(entity);
+        double m1 = EntityStackUtils.getEntityMass(entity);
         boolean ridingActionTaken = false;
 
         for (Entity other : collision.collidingEntities) {
@@ -33,7 +34,7 @@ public final class EntityCollisionHandler {
             if (!other.isAlive()) continue;
             if (ridingActionTaken) break;
 
-            double m2 = Physics.getEntityMass(other);
+            double m2 = EntityStackUtils.getEntityMass(other);
 
             Vec3 v2 = other.getDeltaMovement();
             FullStopCapability otherCap = grabCapability(other);
