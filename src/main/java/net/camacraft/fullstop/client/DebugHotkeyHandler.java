@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.client;
 
+import com.mojang.blaze3d.platform.InputConstants;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.client.render.RaycastLineRenderer;
 import net.minecraft.client.Minecraft;
@@ -32,7 +33,7 @@ public final class DebugHotkeyHandler {
             return;
         }
 
-        if (!mc.options.keyDebug.isDown() || event.getKey() != GLFW.GLFW_KEY_V) {
+        if (!InputConstants.isKeyDown(mc.getWindow().getWindow(), GLFW.GLFW_KEY_F3) || event.getKey() != GLFW.GLFW_KEY_V) {
             return;
         }
 

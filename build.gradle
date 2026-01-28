@@ -117,7 +117,8 @@ dependencies {
 
 mixin {
     add sourceSets.main, 'mixins.fullstop.refmap.json'
-    config 'mixins.fullstop.json'
+    config 'mixins.fullstop.common.json'
+    config 'mixins.fullstop.client.json'
 }
 
 tasks.named('processResources', ProcessResources).configure {
