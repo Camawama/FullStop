@@ -5,10 +5,10 @@ import net.camacraft.fullstop.client.sound.SoundPlayer;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
+import net.camacraft.fullstop.common.physics.damage.KineticDamageSources;
+import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Style;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -58,7 +58,7 @@ import java.util.Objects;
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.grabCapability;
-import static net.camacraft.fullstop.common.physics.Physics.EntityUtils.velocitiesAreSimilar;
+import static net.camacraft.fullstop.common.physics.util.VelocityUtils.velocitiesAreSimilar;
 
 public class Physics {
     public static final double RESTING_Y_DELTA = 0.0784000015258789;
@@ -619,13 +619,6 @@ public class Physics {
     }
 
 
-    public static class EntityUtils {
-
-        public static boolean velocitiesAreSimilar(Vec3 v1, Vec3 v2, double threshold) {
-            return v1.distanceTo(v2) < threshold;
-        }
-    }
-
     public void bounceEntity() {
         if (brokeBlock) return;
 
@@ -708,15 +701,6 @@ public class Physics {
         } / Math.PI * 180;
 
         fullstop.setTargetAngle(targetAngle);
-    }
-
-    public static double angleWrap(double angle) {
-        angle += 180;
-        angle %= 360;
-        if (angle < 0) {
-            angle += 360;
-        }
-        return angle - 180;
     }
 
     private double calcKineticDamageTotal() {
@@ -818,22 +802,6 @@ public class Physics {
         return (float) (damage * 1.07);
     }
 
-    private static int lerpColor(int color1, int color2, double t) {
-        int r1 = (color1 >> 16) & 0xFF;
-        int g1 = (color1 >> 8) & 0xFF;
-        int b1 = color1 & 0xFF;
-
-        int r2 = (color2 >> 16) & 0xFF;
-        int g2 = (color2 >> 8) & 0xFF;
-        int b2 = color2 & 0xFF;
-
-        int r = (int)(r1 + (r2 - r1) * t);
-        int g = (int)(g1 + (g2 - g1) * t);
-        int b = (int)(b1 + (b2 - b1) * t);
-
-        return (r << 16) | (g << 8) | b;
-    }
-
     private float applyArmorReduction(LivingEntity entity, float rawDamage, boolean mostlyDownward) {
         double armor = entity.getAttributeValue(Attributes.ARMOR);
         double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
@@ -886,13 +854,13 @@ public class Physics {
         int rgb;
         if (t < 0.33) {
             double nt = t / 0.33;
-            rgb = lerpColor(green, yellow, nt);
+            rgb = MathUtils.lerpColor(green, yellow, nt);
         } else if (t < 0.66) {
             double nt = (t - 0.33) / 0.33;
-            rgb = lerpColor(yellow, red, nt);
+            rgb = MathUtils.lerpColor(yellow, red, nt);
         } else {
             double nt = (t - 0.66) / 0.34;
-            rgb = lerpColor(red, darkRed, nt);
+            rgb = MathUtils.lerpColor(red, darkRed, nt);
         }
         color = TextColor.fromRgb(rgb);
 
@@ -920,7 +888,7 @@ public class Physics {
             baseSource = sources.flyIntoWall();
         }
 
-        DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+        DamageSource customSource = KineticDamageSources.makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
 
         if (fullstop.isMostlyDownward()) {
             double totalMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
@@ -974,10 +942,10 @@ public class Physics {
             float basePitch = 1.0f;
 
             float volume = baseVolume + (float)damage * 0.05f;
-            volume = clamp(volume, 0.6f, 1.8f);
+            volume = MathUtils.clamp(volume, 0.6f, 1.8f);
 
             float pitch = basePitch - (float)damage * 0.02f;
-            pitch = clamp(pitch, 0.7f, 1.2f);
+            pitch = MathUtils.clamp(pitch, 0.7f, 1.2f);
 
             SoundPlayer.playSound(golem, SoundEvents.IRON_GOLEM_HURT, volume, pitch);
 
@@ -1005,7 +973,7 @@ public class Physics {
 
         DamageSource selfSource;
         if (collidedExample != null && entity instanceof LivingEntity living) {
-            selfSource = makeEntityCollisionSelfSource(
+            selfSource = KineticDamageSources.makeEntityCollisionSelfSource(
                     sources.flyIntoWall(),
                     living,
                     collidedExample,
@@ -1015,7 +983,7 @@ public class Physics {
                     fullstop.isMostlyUpward()
             );
         } else {
-            selfSource = makeSelfSource(
+            selfSource = KineticDamageSources.makeSelfSource(
                     sources.flyIntoWall(),
                     velocityToDisplay,
                     color,
@@ -1060,7 +1028,7 @@ public class Physics {
 
         if (entity instanceof LivingEntity living) {
             for (LivingEntity target : validTargets) {
-                DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
+                DamageSource attackerSource = KineticDamageSources.makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
 
                 double targetMass = getEntityMass(target);
                 if (targetMass < 0.001) targetMass = 0.001;
@@ -1096,148 +1064,6 @@ public class Physics {
 
         double scale = Mth.clamp(averageRelativeSpeed / attackerSpeed, 0.0, 2.0);
         return (float) (baseDamage * scale);
-    }
-
-    private static float clamp(float value, float min, float max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    @NotNull
-    private static DamageSource makeSelfSource(DamageSource baseSource,
-                                               String velocityToDisplay,
-                                               TextColor color,
-                                               boolean isMostlyDownward,
-                                               boolean isMostlyUpward) {
-        return new DamageSource(baseSource.typeHolder()) {
-            @Override
-            public Component getLocalizedDeathMessage(LivingEntity victim) {
-
-                Component velocityComponent = Component.literal(" " + velocityToDisplay)
-                        .withStyle(Style.EMPTY.withColor(color));
-
-                boolean hasElytra = FullStopCapability.hasElytraEquipped(victim);
-                boolean lookingDown = victim.getXRot() > 45;
-
-                if (isMostlyDownward) {
-                    Component base = super.getLocalizedDeathMessage(victim);
-
-                    if (hasElytra && lookingDown) {
-                        return Component.literal("")
-                                .append(victim.getDisplayName())
-                                .append(" hit their head")
-                                .append(velocityComponent);
-                    }
-
-                    Component flyingComponent = hasElytra
-                            ? Component.literal(" with Elytra")
-                            : Component.empty();
-
-                    return base.copy().append(flyingComponent).append(velocityComponent);
-
-                } else if (isMostlyUpward) {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" hit their head")
-                            .append(velocityComponent);
-
-                } else {
-                    if (hasElytra && lookingDown) {
-                         return Component.literal("")
-                                .append(victim.getDisplayName())
-                                .append(" hit their head")
-                                .append(velocityComponent);
-                    }
-
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" experienced kinetic energy")
-                            .append(velocityComponent);
-                }
-            }
-        };
-    }
-
-
-    @NotNull
-    private static DamageSource makeEntityAttackerSource(DamageSources sources,
-                                                         LivingEntity attacker,
-                                                         String velocityToDisplay,
-                                                         TextColor color,
-                                                         boolean isMostlyDownward) {
-        DamageSource base = (attacker instanceof Player p)
-                ? sources.playerAttack(p)
-                : sources.mobAttack(attacker);
-
-        return new DamageSource(base.typeHolder()) {
-            @Override
-            public Component getLocalizedDeathMessage(LivingEntity victim) {
-                Component attackerName = attacker.getDisplayName()
-                        .copy()
-                        .withStyle(s -> s.withColor(color));
-
-                Component velocityComponent = Component.literal(" " + velocityToDisplay)
-                        .withStyle(Style.EMPTY.withColor(color));
-
-                if (isMostlyDownward) {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" was crushed by ")
-                            .append(attackerName)
-                            .append(velocityComponent);
-                } else {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" was hit by ")
-                            .append(attackerName)
-                            .append(velocityComponent);
-                }
-            }
-
-            @Override
-            public Entity getEntity() {
-                return base.getEntity();
-            }
-        };
-    }
-
-    @NotNull
-    private static DamageSource makeEntityCollisionSelfSource(DamageSource baseSource,
-                                                              LivingEntity victim,
-                                                              LivingEntity collided,
-                                                              String velocityToDisplay,
-                                                              TextColor color,
-                                                              boolean isMostlyDownward,
-                                                              boolean isMostlyUpward) {
-        return new DamageSource(baseSource.typeHolder()) {
-            @Override
-            public Component getLocalizedDeathMessage(LivingEntity v) {
-                Component collidedName = collided.getDisplayName();
-
-                Component velocityComponent = Component.literal(" " + velocityToDisplay)
-                        .withStyle(Style.EMPTY.withColor(color));
-
-                if (isMostlyDownward) {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" fell onto ")
-                            .append(collidedName)
-                            .append(" too hard")
-                            .append(velocityComponent);
-                } else if (isMostlyUpward) {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" hit their head on ")
-                            .append(collidedName)
-                            .append(velocityComponent);
-                } else {
-                    return Component.literal("")
-                            .append(victim.getDisplayName())
-                            .append(" slammed into ")
-                            .append(collidedName)
-                            .append(velocityComponent);
-                }
-            }
-        };
     }
 
     public Physics(Entity entity) {
