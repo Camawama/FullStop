@@ -6,6 +6,8 @@ import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.effects.ModEffects;
 import net.camacraft.fullstop.common.physics.damage.KineticDamageSources;
+import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
+import net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -39,7 +41,11 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.*;
+import net.minecraft.world.level.block.BedBlock;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.block.StainedGlassBlock;
+import net.minecraft.world.level.block.StainedGlassPaneBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -53,7 +59,6 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capabilities.FullStopCapability.Provider.DELTAV_CAP;
@@ -450,17 +455,6 @@ public class Physics {
         return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities, collidedBlockPositions, collidedBlockHits);
     }
 
-    private static boolean isInPassengerChain(Entity possibleAncestor, Entity possibleDescendant) {
-        Entity v = possibleDescendant;
-        while (v != null) {
-            Entity vehicle = v.getVehicle();
-            if (vehicle == null) return false;
-            if (vehicle == possibleAncestor) return true;
-            v = vehicle;
-        }
-        return false;
-    }
-
     public static List<Entity> getAllEntitiesInStack(Entity start) {
         List<Entity> list = new ArrayList<>();
 
@@ -506,45 +500,6 @@ public class Physics {
         }
 
         return entityVolume;
-    }
-
-    private boolean tryStartRidingSafely(Entity vehicle) {
-        if (vehicle == null) return false;
-        if (entity.level().isClientSide()) return false;
-        if (!entity.isAlive() || !vehicle.isAlive()) return false;
-        if (entity == vehicle) return false;
-
-        if (entity.isCrouching()) return false;
-
-        if (entity.getVehicle() != null) return false;
-        if (vehicle.getVehicle() == entity) return false;
-        if (!vehicle.getPassengers().isEmpty()) return false;
-        if (entity.isPassengerOfSameVehicle(vehicle)) return false;
-
-        if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
-
-        if (isInPassengerChain(entity, vehicle) || isInPassengerChain(vehicle, entity)) return false;
-
-        return entity.startRiding(vehicle, true);
-    }
-
-    private boolean canRideSafely(Entity rider, Entity vehicle) {
-        if (vehicle == null || rider == null) return false;
-        if (rider.level().isClientSide()) return false;
-        if (!rider.isAlive() || !vehicle.isAlive()) return false;
-        if (rider == vehicle) return false;
-        if (rider.isCrouching()) return false;
-        if (rider.getVehicle() != null) return false;
-        if (vehicle.getVehicle() == rider) return false;
-        if (!vehicle.getPassengers().isEmpty()) return false;
-        if (rider.isPassengerOfSameVehicle(vehicle)) return false;
-
-        FullStopCapability riderCap = grabCapability(rider);
-        if (riderCap != null && riderCap.getDismountCooldown() > 0) return false;
-
-        if (isInPassengerChain(rider, vehicle) || isInPassengerChain(vehicle, rider)) return false;
-
-        return true;
     }
 
     public void handleEntityCollision() {
@@ -1095,6 +1050,26 @@ public class Physics {
         if (!collision.impactedPositions.isEmpty()) {
             brokeBlock = KineticInteractions.handleBlockImpacts(entity, fullstop.getPreviousNativeVelocity(), collision.impactedPositions, collision.impactedHits);
         }
+    }
+
+    public Entity getEntity() {
+        return entity;
+    }
+
+    public FullStopCapability getFullstop() {
+        return fullstop;
+    }
+
+    public Collision getCollision() {
+        return collision;
+    }
+
+    public double getDamage() {
+        return damage;
+    }
+
+    public boolean hasBrokenBlock() {
+        return brokeBlock;
     }
 
     public static boolean unphysable(Entity entity) {
