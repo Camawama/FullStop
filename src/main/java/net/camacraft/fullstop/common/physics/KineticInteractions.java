@@ -2,6 +2,7 @@ package net.camacraft.fullstop.common.physics;
 
 import net.camacraft.fullstop.FullStopConfig;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -256,14 +257,5 @@ public class KineticInteractions {
                block instanceof ComparatorBlock ||
                block instanceof RedStoneWireBlock ||
                block instanceof DaylightDetectorBlock;
-    }
-
-    private static boolean isStrippedWood(BlockState state) {
-        if (!(state.is(BlockTags.LOGS) || state.is(BlockTags.LOGS_THAT_BURN))) {
-            return false;
-        }
-
-        String path = BuiltInRegistries.BLOCK.getKey(state.getBlock()).getPath();
-        return path.startsWith("stripped_");
     }
 }
