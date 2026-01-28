@@ -21,8 +21,8 @@ public final class ClientRenderEvents {
         if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
             Minecraft mc = Minecraft.getInstance();
             
-            // Only update and render if F3 debug menu is open
-            if (mc.options.renderDebug && mc.level != null) {
+            // Only update and render if the velocity debug toggle is enabled
+            if (net.camacraft.fullstop.client.DebugHotkeyHandler.isVelocityDebugEnabled() && mc.level != null) {
                 // Render for all other entities
                 for (Entity entity : mc.level.entitiesForRendering()) {
                     RaycastLineRenderer.updateDebugRays(entity);
@@ -32,10 +32,12 @@ public final class ClientRenderEvents {
                 if (mc.player != null) {
                     RaycastLineRenderer.updateDebugRays(mc.player);
                 }
+                
+                PoseStack poseStack = event.getPoseStack();
+                RaycastLineRenderer.render(poseStack, event.getPartialTick());
+            } else {
+                RaycastLineRenderer.clear();
             }
-
-            PoseStack poseStack = event.getPoseStack();
-            RaycastLineRenderer.render(poseStack, event.getPartialTick());
         }
     }
 }
