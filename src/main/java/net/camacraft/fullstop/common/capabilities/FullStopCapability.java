@@ -258,11 +258,18 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     private void tickRotation(Entity entity) {
         if (entity instanceof Player || entity.isControlledByLocalInstance()) return;
-        double rot = entity.getYRot();
-        float newYRot = (float) (rotationCorrection(1) + rot);
+        if (Double.isNaN(targetAngle)) {
+            return;
+        }
+
+        double correction = rotationCorrection(1);
+        if (correction == 0.0) {
+            return;
+        }
+
+        float newYRot = (float) (entity.getYRot() + correction);
 
         entity.setYRot(newYRot);
-        entity.setYHeadRot(newYRot);
         entity.setYBodyRot(newYRot);
 
         entity.yRotO = newYRot;

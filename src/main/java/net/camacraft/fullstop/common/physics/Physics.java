@@ -510,9 +510,29 @@ public class Physics {
         return entityVolume;
     }
 
-    private boolean tryStartRiding(Entity rider, Entity vehicle) {
-        if (rider == null || vehicle == null) return false;
+    private boolean tryStartRidingSafely(Entity vehicle) {
+        if (entity.isCrouching()) return false;
+
+        if (vehicle == null) return false;
+        if (entity.level().isClientSide()) return false;
+        if (!entity.isAlive() || !vehicle.isAlive()) return false;
+        if (entity == vehicle) return false;
+
+        if (entity.getVehicle() != null) return false;
+        if (vehicle.getVehicle() == entity) return false;
+        if (!vehicle.getPassengers().isEmpty()) return false;
+        if (entity.isPassengerOfSameVehicle(vehicle)) return false;
+
+        if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
+
+        if (isInPassengerChain(entity, vehicle) || isInPassengerChain(vehicle, entity)) return false;
+
+        return entity.startRiding(vehicle, true);
+    }
+
+    private boolean canRideSafely(Entity rider, Entity vehicle) {
         if (rider.isCrouching()) return false;
+        if (vehicle == null || rider == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
         if (rider == vehicle) return false;
