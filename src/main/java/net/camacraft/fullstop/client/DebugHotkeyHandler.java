@@ -3,6 +3,7 @@ package net.camacraft.fullstop.client;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.client.render.RaycastLineRenderer;
+import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraftforge.api.distmarker.Dist;
@@ -40,7 +41,11 @@ public final class DebugHotkeyHandler {
         velocityDebugEnabled = !velocityDebugEnabled;
         RaycastLineRenderer.clear();
 
-        Component message = Component.literal("Velocity debug lines: " + (velocityDebugEnabled ? "ON" : "OFF"));
+        Component message = Component.empty()
+                .append(Component.literal("[Debug]: ").withStyle(ChatFormatting.RED, ChatFormatting.BOLD))
+                .append(Component.literal("Velocity debug lines: " + (velocityDebugEnabled ? "ON" : "OFF"))
+                        .withStyle(ChatFormatting.WHITE));
+
         mc.player.displayClientMessage(message, false);
     }
 }

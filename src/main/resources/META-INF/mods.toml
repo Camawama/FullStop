@@ -1,29 +1,37 @@
 modLoader="javafml"
-loaderVersion="[47,)"
-license="GPLv3"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
 issueTrackerURL="https://github.com/Camawama/FullStop/issues"
 
 [[mods]]
 modId="fullstop"
-version='1.20.1-1.3.0-dev'
-displayName="Full Stop!"
+version="${mod_version}"
+displayName="${mod_name}"
 displayURL="https://github.com/Camawama/FullStop"
 logoFile="fullstop.png"
 credits="Special thanks go to kawaiicakes for creating the original mod, Velocity Based Damage Deluxe, as well as to all the talented artists who contribute."
-authors="cama, joe_devel"
+authors="${mod_authors}"
 description='''
-Speed thrills, but it hurts. Expect the unexpected!
+${mod_description}
 '''
 
 [[dependencies.fullstop]]
-    modId="forge"
-    mandatory=true
-    versionRange="[47,)"
-    ordering="NONE"
-    side="BOTH"
+modId="forge"
+mandatory=true
+versionRange="${forge_version_range}"
+ordering="NONE"
+side="BOTH"
+
 [[dependencies.fullstop]]
-    modId="minecraft"
-    mandatory=true
-    versionRange="[1.20,1.20.1]"
-    ordering="NONE"
-    side="BOTH"
+modId="minecraft"
+mandatory=true
+versionRange="${minecraft_version_range}"
+ordering="NONE"
+side="BOTH"
+
+[[dependencies.fullstop]]
+modId="valkyrienskies"
+mandatory=false
+versionRange="[2.4.9,)"
+ordering="NONE"
+side="BOTH"

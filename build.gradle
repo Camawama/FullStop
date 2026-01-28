@@ -4,7 +4,7 @@ plugins {
     id 'maven-publish'
     id 'net.minecraftforge.gradle' version '[6.0,6.2)'
     id 'org.parchmentmc.librarian.forgegradle' version '1.+'
-    id 'org.spongepowered.mixin' version '0.7.+'
+    id 'org.spongepowered.mixin' version '0.7.38'
 }
 
 version = mod_version
@@ -17,6 +17,7 @@ base {
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
 println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
+
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
     copyIdeResources = true
@@ -59,60 +60,61 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
     mavenCentral()
-    maven { url = 'https://maven.minecraftforge.net' }
     maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
 
-    // Valkyrien Skies & Kotlin
+    // Valkyrien Skies & KotlinForForge
     maven { url = 'https://maven.valkyrienskies.org' }
     maven { url = 'https://thedarkcolour.github.io/KotlinForForge/' }
+
+    // Mixin Squared
     maven { url = "https://maven.bawnorton.com/releases" }
 
-    // CurseMaven for other mods
+    // CurseMaven + Modrinth Maven for runtime test mods
     maven { url = "https://cursemaven.com" }
     maven { url = "https://api.modrinth.com/maven" }
 
-    flatDir {
-        dir 'libs'
-    }
+    flatDir { dir 'libs' }
 }
 
 dependencies {
     minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
 
+    // Mixin annotation processor
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
 
-    // Mixin Extras & Squared (Recommended for VS compatibility)
+    // Mixin Extras & Squared (good for VS compatibility)
     compileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.3"))
     implementation fg.deobf("com.github.bawnorton.mixinsquared:mixinsquared-forge:0.3.3")
+
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
     implementation fg.deobf("io.github.llamalad7:mixinextras-forge:0.4.1")
 
-    // Valkyrien Skies & Kotlin
-    implementation fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
-    implementation fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.6")
+    // -------------------------
+    // Optional Valkyrien Skies integration
+    // -------------------------
+    // Compile against VS classes if you reference them in code, but don't ship as a hard dependency.
+    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
 
-    // VS Core API
-    implementation "org.valkyrienskies.core:api:+"
-    implementation "org.valkyrienskies.core:impl:+"
-    implementation "org.valkyrienskies.core:util:+"
-    implementation("org.joml:joml:1.10.5")
+    // Dev runtime: include VS in your run configs so you can test locally.
+    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
 
-    // Other Mods (via CurseMaven)
-    // To use these, you need to find the Project ID and File ID from CurseForge.
-    // Format: runtimeOnly fg.deobf("curse.maven:<descriptor>-<projectid>:<fileid>")
-    // You can find Project ID on the About Project section of the CurseForge page.
-    // You can find File ID in the URL of the specific file download or by clicking on the file.
+    // Only keep KotlinForForge if YOU need it (your mod is Kotlin) or some runtime dev setup needs it.
+    // If you don't use Kotlin at all, you can remove this.
+    runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
 
+    // -------------------------
+    // Other Mods (compat testing only)
+    // -------------------------
     runtimeOnly fg.deobf("curse.maven:gravityvs-1410068:7363495")
     runtimeOnly fg.deobf("curse.maven:grappling-hook-mod-reforged-1166811:7087090")
     runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
     runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
     runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
-    runtimeOnly fg.deobf("curse.maven:solid-mobs-631710:4734653")
+    //runtimeOnly fg.deobf("curse.maven:solid-mobs-631710:4734653")
     runtimeOnly fg.deobf("curse.maven:customnpcs-unofficial-1052708:7188795")
 
-//    runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925")
-//    runtimeOnly fg.deobf("curse.maven:cloth-config-348521:5729105")
+    // runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925")
+    // runtimeOnly fg.deobf("curse.maven:cloth-config-348521:5729105")
 }
 
 mixin {

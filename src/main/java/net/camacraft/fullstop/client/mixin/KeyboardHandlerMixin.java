@@ -6,8 +6,11 @@ import net.minecraft.client.KeyboardHandler;
 import net.minecraft.client.gui.components.ChatComponent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.contents.TranslatableContents;
+import org.lwjgl.glfw.GLFW;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /**
  * Adds an extra line to the F3+Q debug help list.
@@ -20,6 +23,18 @@ import org.spongepowered.asm.mixin.injection.At;
 public class KeyboardHandlerMixin {
 
     private static final String RESOURCEPACKS_HELP_KEY = "debug.reload_resourcepacks.help";
+
+    /**
+     * Treat F3+V as a handled debug combo so vanilla doesn't also toggle the debug screen.
+     * NOTE: This method only runs when vanilla is already in the "F3 is held" path,
+     * because handleDebugKeys is only used for F3-combos.
+     */
+    @Inject(method = "handleDebugKeys", at = @At("HEAD"), cancellable = true)
+    private void fullstop$consumeF3V(int key, CallbackInfoReturnable<Boolean> cir) {
+        if (key == GLFW.GLFW_KEY_V) {
+            cir.setReturnValue(true); // mark as "handled"
+        }
+    }
 
     @WrapOperation(
             method = "handleDebugKeys", // if this doesn't apply in your mappings, rename to the method that contains the F3+Q block
