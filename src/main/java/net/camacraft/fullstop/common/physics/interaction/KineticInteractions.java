@@ -1,7 +1,7 @@
 package net.camacraft.fullstop.common.physics.interaction;
 
 import net.camacraft.fullstop.FullStopConfig;
-import net.camacraft.fullstop.common.physics.Physics;
+import net.camacraft.fullstop.common.physics.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -61,7 +61,7 @@ public class KineticInteractions {
 
         // 1. Calculate Mass
 
-        double totalMass = Physics.getEntityMass(entity);
+        double totalMass = EntityStackUtils.getEntityMass(entity);
 
         if (entity instanceof LivingEntity living) {
             double armorValue = living.getAttributeValue(Attributes.ARMOR);

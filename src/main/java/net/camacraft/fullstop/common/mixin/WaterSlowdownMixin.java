@@ -1,7 +1,7 @@
 package net.camacraft.fullstop.common.mixin;
 
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
-import net.camacraft.fullstop.common.physics.Physics;
+import net.camacraft.fullstop.common.physics.util.EntityStackUtils;
 import net.camacraft.fullstop.common.sound.SoundPlayer;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.world.entity.LivingEntity;
@@ -51,7 +51,7 @@ public class WaterSlowdownMixin {
         double maxSpeed = 0.45;
         double speedT = MathUtils.clamp(horizontalSpeed / maxSpeed, 0.0, 1.0);
 
-        double mass = Physics.getEntityMass(entity);
+        double mass = EntityStackUtils.getEntityMass(entity);
         double massRef = 0.7;
         double massT = MathUtils.clamp(
                 Math.log1p(Math.max(0.0, mass / massRef)) / Math.log1p(6.0),
