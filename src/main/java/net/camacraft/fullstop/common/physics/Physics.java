@@ -169,6 +169,7 @@ public class Physics {
     public void impactSound() {
         // 1. RUN ON SERVER ONLY (Fixes the "Echo" / Double Audio)
         if (entity.level().isClientSide) return;
+        if (!fullstop.canPlaySound()) return;
 
         // 2. CHECK FORCE THRESHOLD
         if (fullstop.getStoppingForce() <= 6.0) return;
@@ -225,9 +226,16 @@ public class Physics {
                 }
             }
         }
+
+        fullstop.setSoundCooldown(4);
     }
 
     public void impactDamageSound() {
+        if (entity instanceof Player player) {
+            if (player.isCreative()) return;
+        }
+        if (entity.level().isClientSide) return;
+        if (!fullstop.canPlaySound()) return;
         if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
@@ -272,7 +280,7 @@ public class Physics {
         if (entity instanceof LivingEntity livingEntity) {
             int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
 
-            if (fullstop.isMostlyDownward()) {
+            if (isMostlyDownwardImpact()) {
                 livingEntity.addEffect(new MobEffectInstance(ModEffects.SPRAIN.get(),
                         (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), 0, false, false));
             } else {
@@ -285,9 +293,11 @@ public class Physics {
     }
 
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
-        Vec3 acc = fullstop.getAcceleration();
-        if (acc == null) return Vec3.ZERO;
-        return acc.normalize().reverse();
+        Vec3 velocity = fullstop.getPreviousScaledVelocity();
+        if (velocity != null && velocity.lengthSqr() > 0.0001) {
+            return velocity.normalize();
+        }
+        return Vec3.ZERO;
     }
 
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
@@ -425,6 +435,14 @@ public class Physics {
                             && !(e.isPassengerOfSameVehicle(entity))
             );
 
+            if (collidingEntities.size() > 1) {
+                boolean overlapping = collidingEntities.stream()
+                        .allMatch(e -> e.getBoundingBox().intersects(entity.getBoundingBox()));
+                if (overlapping) {
+                    collidingEntities = Collections.emptyList();
+                }
+            }
+
             if (!collidingEntities.isEmpty()) {
                 impactType = Collision.CollisionType.ENTITY;
             }
@@ -492,32 +510,12 @@ public class Physics {
         return entityVolume;
     }
 
-    private boolean tryStartRidingSafely(Entity vehicle) {
-        if (vehicle == null) return false;
-        if (entity.level().isClientSide()) return false;
-        if (!entity.isAlive() || !vehicle.isAlive()) return false;
-        if (entity == vehicle) return false;
-
-        if (entity.isCrouching()) return false;
-
-        if (entity.getVehicle() != null) return false;
-        if (vehicle.getVehicle() == entity) return false;
-        if (!vehicle.getPassengers().isEmpty()) return false;
-        if (entity.isPassengerOfSameVehicle(vehicle)) return false;
-
-        if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
-
-        if (isInPassengerChain(entity, vehicle) || isInPassengerChain(vehicle, entity)) return false;
-
-        return entity.startRiding(vehicle, true);
-    }
-
-    private boolean canRideSafely(Entity rider, Entity vehicle) {
-        if (vehicle == null || rider == null) return false;
+    private boolean tryStartRiding(Entity rider, Entity vehicle) {
+        if (rider == null || vehicle == null) return false;
+        if (rider.isCrouching()) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
         if (rider == vehicle) return false;
-        if (rider.isCrouching()) return false;
         if (rider.getVehicle() != null) return false;
         if (vehicle.getVehicle() == rider) return false;
         if (!vehicle.getPassengers().isEmpty()) return false;
@@ -528,7 +526,7 @@ public class Physics {
 
         if (isInPassengerChain(rider, vehicle) || isInPassengerChain(vehicle, rider)) return false;
 
-        return true;
+        return rider.startRiding(vehicle, true);
     }
 
     public void handleEntityCollision() {
@@ -570,15 +568,14 @@ public class Physics {
             double yDiff = entity.getY() - other.getY();
 
             if (yDiff > other.getBbHeight() * 0.5 && v1.y < -0.2) {
-                if (tryStartRidingSafely(other)) {
+                if (tryStartRiding(entity, other)) {
                     ridingActionTaken = true;
                     continue;
                 }
             }
 
             if (yDiff < -entity.getBbHeight() * 0.5 && v1.y > 0.2) {
-                if (canRideSafely(other, entity)) {
-                    other.startRiding(entity, true);
+                if (tryStartRiding(other, entity)) {
                     ridingActionTaken = true;
                     continue;
                 }
@@ -611,11 +608,12 @@ public class Physics {
     }
 
     public void bounceEntity() {
+        if (entity.level().isClientSide) return;
         if (brokeBlock) return;
 
         if (entity.isCrouching() || collision.fake() || (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 9)) return;
 
-        if (damage == 0 && !entity.level().isClientSide
+        if (damage == 0 && !collision.bouncy() && !entity.level().isClientSide
                 && (entity.hasControllingPassenger() || entity instanceof Player)) {
             return;
         }
@@ -656,21 +654,32 @@ public class Physics {
             }
         }
 
-        double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
-        double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
-        Vec3 newV = (aCurVZ == aCurVX ?
-                new Vec3(
-                        preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
-                )
-                :
-                new Vec3(
-                        preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
-                        curV.y,
-                        preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
-                )
-        );
+        Vec3 newV = null;
+        Vec3 impactNormal = getImpactNormal(preV);
+        if (impactNormal != null) {
+            Vec3 normalComponent = impactNormal.scale(preV.dot(impactNormal));
+            Vec3 tangential = preV.subtract(normalComponent);
+            newV = tangential.scale(paraScaleFactor).add(normalComponent.scale(perpScaleFactor));
+            newV = new Vec3(newV.x, curV.y, newV.z);
+        }
+
+        if (newV == null) {
+            double aCurVX = Math.abs(curV.x), aCurVZ = Math.abs(curV.z);
+            double aPreVX = Math.abs(preV.x), aPreVZ = Math.abs(preV.z);
+            newV = (aCurVZ == aCurVX ?
+                    new Vec3(
+                            preV.x * (aPreVX > aPreVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aPreVZ > aPreVX ? perpScaleFactor : paraScaleFactor)
+                    )
+                    :
+                    new Vec3(
+                            preV.x * (aCurVX < aCurVZ ? perpScaleFactor : paraScaleFactor),
+                            curV.y,
+                            preV.z * (aCurVZ < aCurVX ? perpScaleFactor : paraScaleFactor)
+                    )
+            );
+        }
 
         if (entity instanceof Minecart) return;
 
@@ -694,6 +703,27 @@ public class Physics {
         fullstop.setTargetAngle(targetAngle);
     }
 
+    private Vec3 getImpactNormal(Vec3 velocity) {
+        if (collision.impactedHits == null || collision.impactedHits.isEmpty()) {
+            return null;
+        }
+
+        Vec3 velocityDir = velocity.lengthSqr() > 0.0001 ? velocity.normalize() : velocity;
+        Vec3 bestNormal = null;
+        double bestDot = 1.0;
+
+        for (BlockHitResult hit : collision.impactedHits) {
+            Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getNormal()).normalize();
+            double dot = velocityDir.dot(normal);
+            if (dot < bestDot) {
+                bestDot = dot;
+                bestNormal = normal;
+            }
+        }
+
+        return bestNormal;
+    }
+
     public static double angleWrap(double angle) {
         angle += 180;
         angle %= 360;
@@ -712,7 +742,7 @@ public class Physics {
             return 0;
         }
 
-        if (!fullstop.isMostlyDownward() &&
+        if (!isMostlyDownwardImpact() &&
                 collision.collisionType != Collision.CollisionType.SOLID &&
                 collision.collisionType != Collision.CollisionType.ENTITY) {
             return 0;
@@ -727,7 +757,7 @@ public class Physics {
         double stoppingForce = fullstop.getStoppingForce();
         double damage;
 
-        if (!fullstop.isMostlyDownward()) {
+        if (!isMostlyDownwardImpact()) {
             damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdHorizontal.get(), 0);
         } else {
             damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdVertical.get(), 0);
@@ -745,7 +775,7 @@ public class Physics {
             }
         }
 
-        if (hitWater && fullstop.isMostlyDownward()) {
+        if (hitWater && isMostlyDownwardImpact()) {
             if (entity.isSwimming()) {
                 damage *= 1.2;
             } else {
@@ -818,7 +848,7 @@ public class Physics {
         return (r << 16) | (g << 8) | b;
     }
 
-    private float applyArmorReduction(LivingEntity entity, float rawDamage) {
+    private float applyArmorReduction(LivingEntity entity, float rawDamage, boolean mostlyDownward) {
         double armor = entity.getAttributeValue(Attributes.ARMOR);
         double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
 
@@ -826,7 +856,7 @@ public class Physics {
 
         rawDamage *= (float) toughnessReduction;
 
-        if (fullstop.isMostlyDownward()) {
+        if (mostlyDownward) {
             int featherFallingLevel = entity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             if (featherFallingLevel > 0) {
                 float reduction = 0.2f * featherFallingLevel;
@@ -849,6 +879,14 @@ public class Physics {
         double previousVelocity = fullstop.getPreviousScaledVelocity().length();
         if (damage < 1) return;
         if (entity instanceof ItemEntity) return;
+
+        BlockPos collisionPos = collision.impactedPositions.isEmpty() ? null : collision.impactedPositions.get(0);
+        int collisionEntityId = (collision.collidingEntities != null && !collision.collidingEntities.isEmpty())
+                ? collision.collidingEntities.get(0).getId()
+                : -1;
+        if (fullstop.isCollisionOnCooldown(entity.tickCount, collisionPos, collisionEntityId, 5)) {
+            return;
+        }
 
         TextColor color;
         double maxVelocity = 78.40;
@@ -882,11 +920,13 @@ public class Physics {
         if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
             applyEntityCollisionDamage(velocityToDisplay, color, sources);
         }
+
+        fullstop.recordCollision(entity.tickCount, collisionPos, collisionEntityId);
     }
 
     private void applyBlockCollisionDamage(String velocityToDisplay, TextColor color, DamageSources sources) {
         DamageSource baseSource;
-        if (fullstop.isMostlyDownward()) {
+        if (isMostlyDownwardImpact()) {
             baseSource = sources.fall();
         } else if (fullstop.isMostlyUpward()) {
             baseSource = sources.flyIntoWall();
@@ -894,9 +934,9 @@ public class Physics {
             baseSource = sources.flyIntoWall();
         }
 
-        DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+        DamageSource customSource = makeSelfSource(baseSource, velocityToDisplay, color, isMostlyDownwardImpact(), fullstop.isMostlyUpward());
 
-        if (fullstop.isMostlyDownward()) {
+        if (isMostlyDownwardImpact()) {
             double totalMass = getAllEntitiesInStack(entity).stream().mapToDouble(Physics::getEntityMass).sum();
             double selfMass = getEntityMass(entity);
             if (selfMass < 0.001) selfMass = 0.001;
@@ -905,7 +945,7 @@ public class Physics {
             float selfDamage = (float) damage * crushFactor;
 
             if (entity instanceof LivingEntity living) {
-                selfDamage = applyArmorReduction(living, selfDamage);
+                selfDamage = applyArmorReduction(living, selfDamage, isMostlyDownwardImpact());
                 entity.hurt(customSource, selfDamage);
             } else {
                 entity.hurt(customSource, selfDamage);
@@ -919,7 +959,7 @@ public class Physics {
 
         } else {
             if (entity instanceof LivingEntity living) {
-                float finalSelfDamage = applyArmorReduction(living, (float) damage);
+                float finalSelfDamage = applyArmorReduction(living, (float) damage, isMostlyDownwardImpact());
                 entity.hurt(customSource, finalSelfDamage);
             } else {
                 entity.hurt(customSource, (float) damage);
@@ -968,6 +1008,7 @@ public class Physics {
 
         int colliders = validTargets.size();
         float splitEntityDamage = (float) damage / (colliders + 1);
+        splitEntityDamage = scaleDamageByRelativeVelocity(splitEntityDamage);
 
         Entity firstCollider = collision.collidingEntities.get(0);
         if (!entity.onGround() && !firstCollider.onGround()) {
@@ -984,7 +1025,7 @@ public class Physics {
                     collidedExample,
                     velocityToDisplay,
                     color,
-                    fullstop.isMostlyDownward(),
+                    isMostlyDownwardImpact(),
                     fullstop.isMostlyUpward()
             );
         } else {
@@ -992,17 +1033,17 @@ public class Physics {
                     sources.flyIntoWall(),
                     velocityToDisplay,
                     color,
-                    fullstop.isMostlyDownward(),
+                    isMostlyDownwardImpact(),
                     fullstop.isMostlyUpward()
             );
         }
 
-        if (!(entity instanceof LivingEntity living) || isDamageImmune(living)) {
+        if (!(entity instanceof LivingEntity living) || isDamageImmune(living) || fullstop.getIsDamageImmune()) {
             splitEntityDamage = 0;
         }
 
         double horseFallDampening = 1.0;
-        if (entity instanceof Horse && splitEntityDamage < horseFallDampening && fullstop.isMostlyDownward()) {
+        if (entity instanceof Horse && splitEntityDamage < horseFallDampening && isMostlyDownwardImpact()) {
             splitEntityDamage = 0;
         }
 
@@ -1015,13 +1056,15 @@ public class Physics {
         if (selfMass < 0.001) selfMass = 0.001;
 
         float selfDamage = splitEntityDamage;
-        if (fullstop.isMostlyDownward()) {
+        if (isMostlyDownwardImpact()) {
             selfDamage *= (float) (stackMass / selfMass);
         }
 
-        entity.hurt(selfSource, selfDamage);
+        if (!(entity instanceof AbstractMinecart) && !(entity instanceof IronGolem)) {
+            entity.hurt(selfSource, selfDamage);
+        }
 
-        if (fullstop.isMostlyDownward()) {
+        if (isMostlyDownwardImpact()) {
             float passengerDamage = splitEntityDamage * 0.5f;
             for (Entity passenger : getAllEntitiesInStack(entity)) {
                 if (passenger == entity) continue;
@@ -1031,7 +1074,7 @@ public class Physics {
 
         if (entity instanceof LivingEntity living) {
             for (LivingEntity target : validTargets) {
-                DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
+                DamageSource attackerSource = makeEntityAttackerSource(sources, living, velocityToDisplay, color, isMostlyDownwardImpact());
 
                 double targetMass = getEntityMass(target);
                 if (targetMass < 0.001) targetMass = 0.001;
@@ -1039,17 +1082,34 @@ public class Physics {
                 float targetDamageScale = (float) (stackMass / targetMass);
                 float targetScaledDamage = splitEntityDamage * targetDamageScale;
 
-                double targetToughness = target.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
-                double toughnessReduction = Math.max(0.5, 1.0 - (targetToughness / 40.0));
-                targetScaledDamage *= (float) toughnessReduction;
-
-                if (fullstop.getIsDamageImmune()) {
+                if (isDamageImmune(target)) {
                     targetScaledDamage = 0;
+                } else {
+                    targetScaledDamage = applyArmorReduction(target, targetScaledDamage, isMostlyDownwardImpact());
                 }
 
                 target.hurt(attackerSource, targetScaledDamage);
             }
         }
+    }
+
+    private float scaleDamageByRelativeVelocity(float baseDamage) {
+        if (collision.collidingEntities == null || collision.collidingEntities.isEmpty()) {
+            return baseDamage;
+        }
+
+        double attackerSpeed = entityVelocity(entity).length();
+        if (attackerSpeed <= 0.001) {
+            return baseDamage;
+        }
+
+        double averageRelativeSpeed = collision.collidingEntities.stream()
+                .mapToDouble(other -> entityVelocity(entity).subtract(entityVelocity(other)).length())
+                .average()
+                .orElse(attackerSpeed);
+
+        double scale = Mth.clamp(averageRelativeSpeed / attackerSpeed, 0.0, 2.0);
+        return (float) (baseDamage * scale);
     }
 
     private static float clamp(float value, float min, float max) {
@@ -1192,6 +1252,24 @@ public class Physics {
                 }
             }
         };
+    }
+
+    private boolean isMostlyDownwardImpact() {
+        if (fullstop.isMostlyDownward()) {
+            return true;
+        }
+
+        if (collision.impactedHits == null) {
+            return false;
+        }
+
+        for (BlockHitResult hit : collision.impactedHits) {
+            if (hit.getDirection() == Direction.UP) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public Physics(Entity entity) {
