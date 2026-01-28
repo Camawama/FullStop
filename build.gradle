@@ -110,10 +110,14 @@ dependencies {
     runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
     runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
     runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
-    //runtimeOnly fg.deobf("curse.maven:solid-mobs-631710:4734653")
-    runtimeOnly fg.deobf("curse.maven:customnpcs-unofficial-1052708:7188795")
+    //runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925")
+    runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
+    //runtimeOnly fg.deobf("curse.maven:customnpcs-unofficial-1052708:7188795")
+    runtimeOnly fg.deobf("curse.maven:ixeris-1285307:7473161")
+    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
+    runtimeOnly fg.deobf("curse.maven:particular-reforged-1219053:6916904")
+    runtimeOnly fg.deobf("curse.maven:immersive-optimization-1163206:6969713")
 
-    // runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925")
     // runtimeOnly fg.deobf("curse.maven:cloth-config-348521:5729105")
 }
 
