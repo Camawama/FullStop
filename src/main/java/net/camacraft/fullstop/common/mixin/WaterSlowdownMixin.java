@@ -3,6 +3,7 @@ package net.camacraft.fullstop.common.mixin;
 import net.camacraft.fullstop.common.capabilities.FullStopCapability;
 import net.camacraft.fullstop.common.physics.Physics;
 import net.camacraft.fullstop.common.sound.SoundPlayer;
+import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
@@ -48,32 +49,24 @@ public class WaterSlowdownMixin {
         }
 
         double maxSpeed = 0.45;
-        double speedT = clamp(horizontalSpeed / maxSpeed, 0.0, 1.0);
+        double speedT = MathUtils.clamp(horizontalSpeed / maxSpeed, 0.0, 1.0);
 
         double mass = Physics.getEntityMass(entity);
         double massRef = 0.7;
-        double massT = clamp(
+        double massT = MathUtils.clamp(
                 Math.log1p(Math.max(0.0, mass / massRef)) / Math.log1p(6.0),
                 0.0,
                 1.0
         );
 
-        double impact = clamp(speedT * (0.75 + 0.50 * massT), 0.0, 1.0);
+        double impact = MathUtils.clamp(speedT * (0.75 + 0.50 * massT), 0.0, 1.0);
 
-        float volume = (float) clamp(0.05 + impact * 0.95 + massT * 0.15, 0.05, 1.4);
-        float pitch  = (float) clamp(1.30 - impact * 0.55 - massT * 0.25, 0.55, 1.35);
+        float volume = (float) MathUtils.clamp(0.05 + impact * 0.95 + massT * 0.15, 0.05, 1.4);
+        float pitch  = (float) MathUtils.clamp(1.30 - impact * 0.55 - massT * 0.25, 0.55, 1.35);
 
         SoundPlayer.playWaterSlosh(entity, volume, pitch);
 
         int nextCd = (int) Math.round(12 - impact * 10);
-        entity.getPersistentData().putInt(SLOSH_CD_TAG, clampInt(nextCd, 2, 14));
-    }
-
-    private static double clamp(double v, double min, double max) {
-        return Math.max(min, Math.min(max, v));
-    }
-
-    private static int clampInt(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
+        entity.getPersistentData().putInt(SLOSH_CD_TAG, MathUtils.clamp(nextCd, 2, 14));
     }
 }
