@@ -1,0 +1,17 @@
+# Gradle / Loom caches
+.gradle/
+**/.gradle/
+build/
+**/build/
+
+# IDE
+.idea/
+*.iml
+out/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
