@@ -483,6 +483,14 @@ public class Physics {
         }
 
         double stoppingForce = fullstop.getStoppingForce();
+        if (collision.collisionType == Collision.CollisionType.ENTITY
+                && collision.collidingEntities != null
+                && !collision.collidingEntities.isEmpty()) {
+            stoppingForce = collision.collidingEntities.stream()
+                    .mapToDouble(other -> entityVelocity(entity).subtract(entityVelocity(other)).length())
+                    .average()
+                    .orElse(stoppingForce);
+        }
         double damage;
 
         if (!fullstop.isMostlyDownward()) {
@@ -811,7 +819,12 @@ public class Physics {
         }
 
         double attackerSpeed = entityVelocity(entity).length();
-        if (attackerSpeed <= 0.001) {
+        double averageTargetSpeed = collision.collidingEntities.stream()
+                .mapToDouble(other -> entityVelocity(other).length())
+                .average()
+                .orElse(0.0);
+        double maxSpeed = Math.max(attackerSpeed, averageTargetSpeed);
+        if (maxSpeed <= 0.001) {
             return baseDamage;
         }
 
@@ -820,7 +833,7 @@ public class Physics {
                 .average()
                 .orElse(attackerSpeed);
 
-        double scale = Mth.clamp(averageRelativeSpeed / attackerSpeed, 0.0, 2.0);
+        double scale = Mth.clamp(averageRelativeSpeed / maxSpeed, 0.0, 2.0);
         return (float) (baseDamage * scale);
     }
 
