@@ -311,7 +311,14 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
             // Thresholds: client claims > ~4.5m/s, but server sees < 0.5m/s.
             if (clientSpeedSqr > 5.0 && actualSpeedSqr < 0.25) {
-                currentScaledVelocity = actualVelocity;
+                double maxAllowedSpeed = Math.max(oldScaledVelocity.length(), actualVelocity.length());
+                if (maxAllowedSpeed <= 0.001) {
+                    currentScaledVelocity = actualVelocity;
+                } else {
+                    double clientSpeed = Math.sqrt(clientSpeedSqr);
+                    double scale = Math.min(1.0, maxAllowedSpeed / clientSpeed);
+                    currentScaledVelocity = clientScaledVelocity.scale(scale);
+                }
             } else {
                 // Otherwise, we trust the client's input, which is needed for responsive controls.
                 currentScaledVelocity = clientScaledVelocity;
