@@ -1,0 +1,174 @@
+plugins {
+    id 'eclipse'
+    id 'idea'
+    id 'maven-publish'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    id 'org.spongepowered.mixin' version '0.7.38'
+}
+
+version = mod_version
+group = mod_group_id
+
+base {
+    archivesName = mod_id
+}
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+
+println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
+
+minecraft {
+    mappings channel: mapping_channel, version: mapping_version
+    copyIdeResources = true
+    accessTransformer = file('src/main/resources/META-INF/accesstransformer.cfg')
+
+    runs {
+        configureEach {
+            workingDirectory project.file('run')
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+
+        client {
+            property 'forge.enabledGameTestNamespaces', mod_id
+        }
+
+        server {
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--nogui'
+        }
+
+        gameTestServer {
+            property 'forge.enabledGameTestNamespaces', mod_id
+        }
+
+        data {
+            workingDirectory project.file('run-data')
+            args '--mod', mod_id, '--all', '--output', file('src/generated/resources/'), '--existing', file('src/main/resources/')
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.spongepowered.org/repository/maven-public/' }
+
+    // Valkyrien Skies & KotlinForForge
+    maven { url = 'https://maven.valkyrienskies.org' }
+    maven { url = 'https://thedarkcolour.github.io/KotlinForForge/' }
+
+    // Mixin Squared
+    maven { url = "https://maven.bawnorton.com/releases" }
+
+    // CurseMaven + Modrinth Maven for runtime test mods
+    maven { url = "https://cursemaven.com" }
+    maven { url = "https://api.modrinth.com/maven" }
+
+    flatDir { dir 'libs' }
+}
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    // Mixin annotation processor
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+
+    // Mixin Extras & Squared (good for VS compatibility)
+    compileOnly(annotationProcessor("com.github.bawnorton.mixinsquared:mixinsquared-common:0.3.3"))
+    implementation fg.deobf("com.github.bawnorton.mixinsquared:mixinsquared-forge:0.3.3")
+
+    compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
+    implementation fg.deobf("io.github.llamalad7:mixinextras-forge:0.4.1")
+
+    // -------------------------
+    // Optional Valkyrien Skies integration
+    // -------------------------
+    // Compile against VS classes if you reference them in code, but don't ship as a hard dependency.
+    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
+
+    // Dev runtime: include VS in your run configs so you can test locally.
+    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
+
+    // Only keep KotlinForForge if YOU need it (your mod is Kotlin) or some runtime dev setup needs it.
+    // If you don't use Kotlin at all, you can remove this.
+    runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
+
+    // -------------------------
+    // Other Mods (compat testing only)
+    // -------------------------
+    runtimeOnly fg.deobf("curse.maven:gravityvs-1410068:7363495")
+    runtimeOnly fg.deobf("curse.maven:grappling-hook-mod-reforged-1166811:7087090")
+    runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
+    runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
+    runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
+    //runtimeOnly fg.deobf("curse.maven:combat-roll-678036:5625925") crashes
+    runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
+    //runtimeOnly fg.deobf("curse.maven:customnpcs-unofficial-1052708:7188795") bloat
+    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
+    runtimeOnly fg.deobf("curse.maven:particular-reforged-1219053:6916904")
+    runtimeOnly fg.deobf("curse.maven:immersive-optimization-1163206:6969713")
+    runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
+    runtimeOnly fg.deobf("curse.maven:damagenumbers-1022853:5475417")
+}
+
+mixin {
+    add sourceSets.main, 'mixins.fullstop.refmap.json'
+    config 'mixins.fullstop.common.json'
+    config 'mixins.fullstop.client.json'
+}
+
+tasks.named('processResources', ProcessResources).configure {
+    var replaceProperties = [
+            minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
+            forge_version: forge_version, forge_version_range: forge_version_range,
+            loader_version_range: loader_version_range,
+            mod_id: mod_id, mod_name: mod_name, mod_license: mod_license, mod_version: mod_version,
+            mod_authors: mod_authors, mod_description: mod_description,
+    ]
+    inputs.properties replaceProperties
+
+    filesMatching(['META-INF/mods.toml', 'pack.mcmeta']) {
+        expand replaceProperties + [project: project]
+    }
+}
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+                'Specification-Title'     : mod_id,
+                'Specification-Vendor'    : mod_authors,
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : project.name,
+                'Implementation-Version'  : project.jar.archiveVersion,
+                'Implementation-Vendor'   : mod_authors,
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+        ])
+    }
+    finalizedBy 'reobfJar'
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            artifact jar
+        }
+    }
+    repositories {
+        maven {
+            url "file://${project.projectDir}/mcmodsrepo"
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

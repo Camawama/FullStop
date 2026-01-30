@@ -1,0 +1,81 @@
+package net.camacraft.fullstop;
+
+import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
+import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.handler.PacketHandler;
+import net.camacraft.fullstop.common.physics.math.VelocityMath;
+import net.camacraft.fullstop.common.physics.rules.EntityWeight;
+import net.camacraft.fullstop.server.CancelEvents;
+import net.camacraft.fullstop.server.handler.events.KineticDamageEventHandler;
+import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
+import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.phys.Vec3;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.ModLoadingContext;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.config.ModConfig;
+import net.minecraftforge.fml.event.config.ModConfigEvent;
+import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.fml.loading.FMLEnvironment;
+
+import static net.camacraft.fullstop.FullStopConfig.SERVER;
+import static net.camacraft.fullstop.FullStopConfig.SERVER_SPEC;
+
+@Mod(FullStop.MODID)
+public class FullStop
+{
+    public static final String MODID = "fullstop";
+
+    public FullStop() {
+        var modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
+        ModEffects.MOB_EFFECTS.register(modEventBus);
+        modEventBus.addListener(this::commonSetup);
+        modEventBus.addListener(this::onConfigLoad);
+        modEventBus.addListener(this::onConfigReload);
+
+        MinecraftForge.EVENT_BUS.register(FullStop.class);
+
+        if (FMLEnvironment.dist == Dist.CLIENT) {
+            MinecraftForge.EVENT_BUS.register(PhysicsDispatchClient.class);
+        }
+
+        MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
+        MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
+        MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
+        MinecraftForge.EVENT_BUS.register(KineticDamageEventHandler.class);
+        MinecraftForge.EVENT_BUS.register(CancelEvents.class);
+        // MinecraftForge.EVENT_BUS.register(LogToChat.class); // TODO: Re-implement LogToChat
+
+        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
+    }
+
+    private void commonSetup(final FMLCommonSetupEvent event) {
+        PacketHandler.register();
+    }
+
+    public void onConfigLoad(ModConfigEvent.Loading event) {
+        EntityWeight.loadConfigWeights();
+    }
+
+    public void onConfigReload(ModConfigEvent.Reloading event) {
+        EntityWeight.loadConfigWeights();
+    }
+
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        if (!(SERVER.projectilesHaveMomentum.get())) return;
+        if (!(event.getEntity() instanceof Projectile projectile) || projectile.level().isClientSide) return;
+        if (projectile.getOwner() == null) return;
+
+        Vec3 ownerVelocity = VelocityMath.entityVelocity(projectile.getOwner()).scale((double) 1 / 20);
+        if (ownerVelocity.equals(Vec3.ZERO)) return;
+
+        projectile.setDeltaMovement(projectile.getDeltaMovement().add(ownerVelocity));
+    }
+}

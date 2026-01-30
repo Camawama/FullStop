@@ -1,0 +1,34 @@
+package net.camacraft.fullstop.common.physics.rules;
+
+import net.minecraft.world.entity.Entity;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class EntityPhysicsRules {
+
+    public static List<Entity> getAllEntitiesInStack(Entity start) {
+        List<Entity> list = new ArrayList<>();
+
+        list.add(start);
+        for (Entity passenger : start.getPassengers()) {
+            list.addAll(getAllEntitiesInStack(passenger));
+        }
+
+        return list;
+    }
+
+    public static List<Entity> getPassengersRecursive(Entity entity) {
+        List<Entity> stack = getAllEntitiesInStack(entity);
+        stack.remove(entity);
+        return stack;
+    }
+
+    public static int getStackSize(Entity entity) {
+        return getAllEntitiesInStack(entity).size();
+    }
+
+    public static double getEntityMass(Entity entity) {
+        return EntityWeight.getEntityMass(entity);
+    }
+}

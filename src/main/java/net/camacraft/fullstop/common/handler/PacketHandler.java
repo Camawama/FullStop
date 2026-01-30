@@ -1,0 +1,34 @@
+package net.camacraft.fullstop.common.handler;
+
+import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraftforge.network.NetworkDirection;
+import net.minecraftforge.network.NetworkRegistry;
+import net.minecraftforge.network.simple.SimpleChannel;
+
+public class PacketHandler {
+    private static final String PROTOCOL_VERSION = "1";
+    private static int messageID = 0;
+
+    private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
+                    new ResourceLocation(FullStop.MODID, "main"))
+            .serverAcceptedVersions(PROTOCOL_VERSION::equals)
+            .clientAcceptedVersions(PROTOCOL_VERSION::equals)
+            .networkProtocolVersion(() -> PROTOCOL_VERSION)
+            .simpleChannel();
+
+    public static void register() {
+        INSTANCE.messageBuilder(PlayerDeltaPacket.class, messageID++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(PlayerDeltaPacket::encode)
+                .decoder(PlayerDeltaPacket::new)
+                .consumerMainThread(PlayerDeltaPacket::handle)
+                .add();
+    }
+
+    public static void sendToServer(PlayerDeltaPacket msg) {
+        INSTANCE.sendToServer(msg);
+    }
+
+    // currently I only have a Client to Server handler. Might add a Server to Client if needed
+}
