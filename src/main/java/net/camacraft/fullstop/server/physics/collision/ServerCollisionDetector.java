@@ -7,6 +7,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.Slime;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.ClipContext;
@@ -19,6 +20,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,6 +80,11 @@ public class ServerCollisionDetector {
                 }
 
                 if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
+                    VoxelShape shape = hitState.getCollisionShape(level, hitPos);
+                    if (!shape.isEmpty() && shape.bounds().move(hitPos.getX(), hitPos.getY(), hitPos.getZ()).intersects(entity.getBoundingBox().inflate(0.01))) {
+                        continue;
+                    }
+
                     collidedBlockStates.add(hitState);
                     collidedBlockPositions.add(hitPos);
                     collidedBlockHits.add(blockHit);
@@ -90,12 +97,20 @@ public class ServerCollisionDetector {
                         if (hitState.is(Blocks.SLIME_BLOCK)) {
                             typeHere = Collision.CollisionType.SLIME;
                         } else {
-                            typeHere = Collision.CollisionType.HONEY;
+                            if (entity instanceof Slime) {
+                                typeHere = Collision.CollisionType.SLIME;
+                            } else {
+                                typeHere = Collision.CollisionType.HONEY;
+                            }
                         }
                     } else if (hitState.getBlock() instanceof BedBlock) {
                         typeHere = Collision.CollisionType.BED;
                     } else {
-                        typeHere = Collision.CollisionType.SOLID;
+                        if (entity instanceof Slime) {
+                            typeHere = Collision.CollisionType.SLIME;
+                        } else {
+                            typeHere = Collision.CollisionType.SOLID;
+                        }
                     }
 
                     if (impactType.ordinal() < typeHere.ordinal()) {

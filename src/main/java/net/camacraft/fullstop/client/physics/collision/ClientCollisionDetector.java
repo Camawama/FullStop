@@ -19,6 +19,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -78,6 +79,11 @@ public class ClientCollisionDetector {
                 }
 
                 if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
+                    VoxelShape shape = hitState.getCollisionShape(level, hitPos);
+                    if (!shape.isEmpty() && shape.bounds().move(hitPos.getX(), hitPos.getY(), hitPos.getZ()).intersects(entity.getBoundingBox().inflate(0.01))) {
+                        continue;
+                    }
+
                     collidedBlockStates.add(hitState);
                     collidedBlockPositions.add(hitPos);
                     collidedBlockHits.add(blockHit);

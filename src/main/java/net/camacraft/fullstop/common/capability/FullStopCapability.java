@@ -343,6 +343,11 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         return v.y > Math.sqrt(v.x * v.x + v.z * v.z);
     }
 
+    public boolean isMostlyHorizontal() {
+        Vec3 v = prevPrevVelocityMps;
+        return Math.sqrt(v.x * v.x + v.z * v.z) > Math.abs(v.y);
+    }
+
     public static boolean hasDolphinsGrace(LivingEntity entity) {
         return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
     }
@@ -365,7 +370,12 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                 EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
     }
 
-    // todo add check for sprain effect
+    public void resetVelocity() {
+        this.velocityMps = Vec3.ZERO;
+        this.prevVelocityMps = Vec3.ZERO;
+        this.prevPrevVelocityMps = Vec3.ZERO;
+        this.clientVelocityMps = null;
+    }
 
     // --- NBT Serialization ---
     @Override

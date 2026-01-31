@@ -4,6 +4,7 @@ import net.camacraft.fullstop.client.physics.collision.ClientCollisionDetector;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
+import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
 import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
@@ -67,6 +68,9 @@ public class PhysicsDispatchClient {
 
         FullStopCapability fullstop = grabCapability(entity);
         if (fullstop == null) return;
+
+//        LogToChat.logToChat(Math.round(fullstop.getAcceleration().x), Math.round(fullstop.getAcceleration().y), Math.round(fullstop.getAcceleration().z));
+//        LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
 
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);

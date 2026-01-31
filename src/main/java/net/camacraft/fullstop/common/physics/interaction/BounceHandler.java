@@ -68,11 +68,19 @@ public final class BounceHandler {
 
         Vec3 averageNormal = Vec3.ZERO;
         int count = 0;
-        if (collision.impactedHits != null) {
-            for (BlockHitResult hit : collision.impactedHits) {
-                averageNormal = averageNormal.add(Vec3.atLowerCornerOf(hit.getDirection().getNormal()));
-                count++;
-            }
+
+        // OLD CODE
+//        if (collision.impactedHits != null) {
+//            for (BlockHitResult hit : collision.impactedHits) {
+//                averageNormal = averageNormal.add(Vec3.atLowerCornerOf(hit.getDirection().getNormal()));
+//                count++;
+//            }
+//        }
+
+        if (collision.impactedHits != null && !collision.impactedHits.isEmpty()) {
+            BlockHitResult hit = collision.impactedHits.get(0);
+            averageNormal = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+            count = 1;
         }
 
         if (count == 0) return;

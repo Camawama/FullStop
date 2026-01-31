@@ -20,7 +20,7 @@ public final class ClientRenderEvents {
         // Only render after particles, so it’s drawn clearly on top of the world
         if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_PARTICLES) {
             Minecraft mc = Minecraft.getInstance();
-            
+
             // Only update and render if the velocity debug toggle is enabled
             if (net.camacraft.fullstop.client.hotkey.DebugHotkeyHandler.isVelocityDebugEnabled() && mc.level != null) {
                 // Render for all other entities

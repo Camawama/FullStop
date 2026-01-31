@@ -96,6 +96,12 @@ public class PhysicsDispatchServer {
             fullstop.setLastTick(entity.tickCount);
         }
 
+        // If the entity is damage immune (e.g. just teleported), skip physics calculations
+        if (fullstop.getIsDamageImmune()) {
+            fullstop.resetVelocity();
+            return;
+        }
+
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
         EntityCollisionHandler.handle(entity, fullstop, collision);
@@ -125,7 +131,7 @@ public class PhysicsDispatchServer {
 
     private static void impactAesthetic(Entity entity, FullStopCapability fullstop, Collision collision) {
         if (collision.fake()) return;
-        if (fullstop.getStoppingForce() < 4.0) return;
+//        if (fullstop.getStoppingForce() < 4.0) return;
 
         Vec3 pos = entity.position();
 
@@ -139,7 +145,7 @@ public class PhysicsDispatchServer {
     private static void impactSound(Entity entity, FullStopCapability fullstop, Collision collision) {
         if (!fullstop.canPlaySound()) return;
 
-        if (fullstop.getStoppingForce() <= 6.0) return;
+//        if (fullstop.getStoppingForce() <= 2.0) return;
         if (collision.fake()) return;
 
         float volume = ((float) (fullstop.getStoppingForce() * 0.05f));

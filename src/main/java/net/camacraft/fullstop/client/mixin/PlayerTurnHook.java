@@ -31,10 +31,17 @@ public class PlayerTurnHook {
     private void turningPlayer(CallbackInfo ci) {
         double time = Blaze3D.getTime();
         double delta = (time - lastMouseEventTime) * 1000 * 20;
+        
         if (minecraft.player == null || DamageImmunityRules.unphysable(minecraft.player)) return;
 
         FullStopCapability fullstop = FullStopCapability.grabCapability(minecraft.player);
+        
         if (fullstop == null) return;
+
+        if (fullstop.isMostlyDownward() || fullstop.isMostlyUpward()) {
+            fullstop.setTargetAngle(Double.NaN);
+            return;
+        }
 
         if (accumulatedDX != 0 || accumulatedDY != 0) {
             fullstop.setTargetAngle(Double.NaN);

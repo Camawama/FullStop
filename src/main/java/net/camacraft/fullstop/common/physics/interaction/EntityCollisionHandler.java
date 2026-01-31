@@ -5,6 +5,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.rules.EntityPhysicsRules;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.phys.Vec3;
 
@@ -111,6 +112,14 @@ public final class EntityCollisionHandler {
         double riderMass = EntityPhysicsRules.getEntityMass(rider);
         double vehicleMass = EntityPhysicsRules.getEntityMass(vehicle);
         if (riderMass > vehicleMass) return false;
+
+        if (rider.getType() == vehicle.getType()) {
+            if (riderMass >= vehicleMass) {
+                if (!(rider instanceof LivingEntity living && living.isBaby())) {
+                    return false;
+                }
+            }
+        }
 
         FullStopCapability riderCap = grabCapability(rider);
         if (riderCap != null && riderCap.getDismountCooldown() > 0) return false;
