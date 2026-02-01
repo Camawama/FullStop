@@ -72,6 +72,13 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     }
 
     public void tick(Entity entity) {
+        if (lastTick != -1 && entity.tickCount > lastTick + 1) {
+            resetVelocity();
+            currentPosition = entity.position();
+            previousPosition = currentPosition;
+            entity.setDeltaMovement(Vec3.ZERO);
+        }
+
         tickVelocity(entity);
         tickSpeed();
         tickRotation(entity);
@@ -90,19 +97,31 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private void tickVelocity(Entity entity) {
         if (firstTick) {
             currentPosition = entity.position();
-            previousPosition = currentPosition;
+            previousPosition = currentPosition.subtract(entity.getDeltaMovement());
             firstTick = false;
+        } else {
+            previousPosition = currentPosition;
+        }
+
+        if (hasTeleported) {
+            currentPosition = entity.position();
+            previousPosition = currentPosition;
+            velocityMps = Vec3.ZERO;
+            prevVelocityMps = Vec3.ZERO;
+            prevPrevVelocityMps = Vec3.ZERO;
+            return;
         }
 
         prevPrevVelocityMps = prevVelocityMps;
         prevVelocityMps = velocityMps;
 
-        previousPosition = currentPosition;
         currentPosition = entity.position();
+
+        Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
         if (clientVelocityMps != null) {
             // This is the server-authoritative velocity based on actual position change.
-            Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
+            // Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
             // SANITY CHECK: If the client claims to be moving fast but the server sees little to no movement,
             // it's a phantom force (e.g., hugging a wall). In this case, we MUST trust the server's calculation.
@@ -125,8 +144,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             }
             clientVelocityMps = null; // Consume the value
         } else {
-            // For non-player entities, we just use their deltaMovement.
-            velocityMps = entity.getDeltaMovement().scale(20);
+            // For non-player entities, we use the actual velocity derived from position change.
+            velocityMps = actualVelocity;
         }
 
         if (entity instanceof LivingEntity living) {

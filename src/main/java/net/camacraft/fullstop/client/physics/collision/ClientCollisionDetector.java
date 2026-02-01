@@ -5,6 +5,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.RaycastUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
@@ -25,13 +26,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import static net.camacraft.fullstop.FullStopConfig.SERVER;
-
 public class ClientCollisionDetector {
 
     public static Collision detect(Entity entity, FullStopCapability fullstop) {
-        Vec3 previousVelocity = fullstop.getPreviousScaledVelocity().scale(0.05);
-        if (previousVelocity.lengthSqr() == 0) {
+        Vec3 velocity = fullstop.getPreviousScaledVelocity().scale(0.05);
+        if (velocity.lengthSqr() == 0) {
             return Collision.NONE;
         }
 
@@ -65,17 +64,27 @@ public class ClientCollisionDetector {
                 Direction hitFace = blockHit.getDirection();
                 Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
                 
-                boolean isOpposing = direction.dot(hitNormal) < -0.1;
+                boolean isWater = hitState.getCollisionShape(level, hitPos).isEmpty() && !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
+                boolean isOpposing;
 
-                // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
-                // This prevents "scraping" the side of a block while jumping from causing a collision.
-                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
-                    isOpposing = false;
-                }
+                if (isWater) {
+                    if (hitFace != Direction.UP || !fullstop.isMostlyHorizontal()) {
+                        continue;
+                    }
+                    isOpposing = true;
+                } else {
+                    isOpposing = direction.dot(hitNormal) < -0.1;
 
-                // Fix for running on flat ground: Ignore floor collisions if not falling significantly
-                if (hitFace == Direction.UP && previousVelocity.y > -0.5) {
-                    isOpposing = false;
+                    // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
+                    // This prevents "scraping" the side of a block while jumping from causing a collision.
+                    if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
+                        isOpposing = false;
+                    }
+
+                    // Fix for running on flat ground: Ignore floor collisions if not falling significantly
+                    if (hitFace == Direction.UP && velocity.y > -0.5) {
+                        isOpposing = false;
+                    }
                 }
 
                 if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
@@ -112,9 +121,30 @@ public class ClientCollisionDetector {
         }
 
         List<Entity> collidingEntities = Collections.emptyList();
-        // Client side entity collision detection might be less critical or handled differently
-        // For now, we can skip it or implement a simplified version if needed.
-        // Keeping it consistent with server logic structure but maybe simplified.
+        // Client side entity detection for debug/prediction
+        AABB box = entity.getBoundingBox();
+        Vec3 movement = fullstop.getPreviousNativeVelocity();
+        AABB entityCheckBox = box.expandTowards(movement.scale(-1)).inflate(0.1);
+        collidingEntities = level.getEntities(
+                entity,
+                entityCheckBox,
+                e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart)
+                        && e != entity
+                        && !(entity instanceof ItemEntity && ((ItemEntity) entity).getOwner() == e)
+                        && !(e.isPassengerOfSameVehicle(entity))
+        );
+
+        if (collidingEntities.size() > 1) {
+            boolean overlapping = collidingEntities.stream()
+                    .allMatch(e -> e.getBoundingBox().intersects(entity.getBoundingBox()));
+            if (overlapping) {
+                collidingEntities = Collections.emptyList();
+            }
+        }
+
+        if (!collidingEntities.isEmpty()) {
+            impactType = Collision.CollisionType.ENTITY;
+        }
         
         return new Collision(impactType, highestY, lowestY, collidedBlockStates, collidingEntities, collidedBlockPositions, collidedBlockHits);
     }

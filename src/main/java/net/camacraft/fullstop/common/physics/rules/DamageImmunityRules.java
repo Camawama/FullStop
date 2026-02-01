@@ -2,6 +2,7 @@ package net.camacraft.fullstop.common.physics.rules;
 
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ambient.Bat;
 import net.minecraft.world.entity.animal.Bee;
 import net.minecraft.world.entity.animal.Cat;
@@ -47,10 +48,7 @@ public class DamageImmunityRules {
     public static boolean unphysable(Entity entity) {
         if (entity == null) return true;
 
-        //TODO make it so mobs with NO AI are not ticked for physics in fullstop
-//        if (entity instanceof LivingEntity living) {
-//            if (living.noPhysics) return true;
-//        }
+        if (entity instanceof Mob mob && mob.isNoAi()) return true;
 
         if (entity.noPhysics) return true;
         if (entity instanceof LivingEntity livingEntity)

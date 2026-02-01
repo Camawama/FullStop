@@ -8,9 +8,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Objects;
+import java.util.Optional;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability;
@@ -24,55 +26,129 @@ public final class EntityCollisionHandler {
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
         if (collision.collidingEntities.isEmpty()) return;
 
-        Vec3 v1 = fullstop.getPreviousNativeVelocity();
+        if (entity.hasImpulse) return;
+
+        Vec3 v1 = fullstop.getCurrentNativeVelocity();
         double m1 = EntityPhysicsRules.getEntityMass(entity);
-        boolean ridingActionTaken = false;
+        
+        Entity bestOther = null;
+        Vec3 bestNormal = null;
+        Vec3 bestV2 = null;
+        double bestDistSq = Double.MAX_VALUE;
 
         for (Entity other : collision.collidingEntities) {
             if (other == entity) continue;
             if (!other.isAlive()) continue;
-            if (ridingActionTaken) break;
-
-            double m2 = EntityPhysicsRules.getEntityMass(other);
 
             Vec3 v2 = other.getDeltaMovement();
             FullStopCapability otherCap = grabCapability(other);
             if (otherCap != null) {
-                v2 = otherCap.getPreviousNativeVelocity();
-            }
-
-            Vec3 dist = entity.position().subtract(other.position());
-            if (dist.lengthSqr() < 1.0E-7) {
-                dist = v1.subtract(v2);
-                if (dist.lengthSqr() < 1.0E-7) {
-                    dist = new Vec3(0, 1, 0);
+                if (other.tickCount != otherCap.getLastTick()) {
+                    otherCap.tick(other);
+                    otherCap.setLastTick(other.tickCount);
                 }
+                v2 = otherCap.getCurrentNativeVelocity();
             }
-            Vec3 normal = dist.normalize();
 
             Vec3 relativeVelocity = v1.subtract(v2);
+            
+            Vec3 distVec = entity.position().subtract(other.position());
+            if (distVec.lengthSqr() < 1.0E-7) {
+                distVec = relativeVelocity;
+                if (distVec.lengthSqr() < 1.0E-7) distVec = new Vec3(0, 1, 0);
+            }
+            Vec3 normal = distVec.normalize();
             double velAlongNormal = relativeVelocity.dot(normal);
+            
+            double currentDistSq = Double.MAX_VALUE;
+            boolean valid = false;
 
-            if (velAlongNormal > 0) continue;
+            if (velAlongNormal > 0) {
+                // Separating or passed through
+                AABB otherBox = other.getBoundingBox().inflate(entity.getBbWidth() / 2, entity.getBbHeight() / 2, entity.getBbWidth() / 2);
+                Vec3 start = entity.position().subtract(relativeVelocity);
+                
+                if (otherBox.contains(start)) {
+                    continue;
+                }
+
+                boolean intersecting = entity.getBoundingBox().intersects(other.getBoundingBox());
+                Vec3 hitPos = null;
+
+                if (intersecting) {
+                    Vec3 end = entity.position();
+                    Optional<Vec3> hit = otherBox.clip(start, end);
+                    if (hit.isPresent()) {
+                        hitPos = hit.get();
+                    } else {
+                        hitPos = entity.position();
+                    }
+                    valid = true;
+                } else {
+                    Vec3 end = entity.position();
+                    Optional<Vec3> hit = otherBox.clip(start, end);
+                    if (hit.isPresent()) {
+                        hitPos = hit.get();
+                        valid = true;
+                    }
+                }
+
+                if (valid) {
+                    normal = relativeVelocity.normalize().scale(-1);
+                    currentDistSq = start.distanceToSqr(hitPos);
+                }
+            } else {
+                // Approaching
+                if (entity.getBoundingBox().intersects(other.getBoundingBox())) {
+                    currentDistSq = 0.0;
+                    valid = true;
+                } else {
+                    // Check swept
+                    AABB otherBox = other.getBoundingBox().inflate(entity.getBbWidth() / 2, entity.getBbHeight() / 2, entity.getBbWidth() / 2);
+                    Vec3 start = entity.position().subtract(relativeVelocity);
+                    Vec3 end = entity.position();
+                    
+                    Optional<Vec3> hit = otherBox.clip(start, end);
+                    if (hit.isPresent()) {
+                        currentDistSq = start.distanceToSqr(hit.get());
+                        valid = true;
+                    }
+                }
+            }
+
+            if (valid && currentDistSq < bestDistSq) {
+                bestDistSq = currentDistSq;
+                bestOther = other;
+                bestNormal = normal;
+                bestV2 = v2;
+            }
+        }
+
+        if (bestOther != null) {
+            Entity other = bestOther;
+            Vec3 normal = bestNormal;
+            Vec3 v2 = bestV2;
+            
+            Vec3 relativeVelocity = v1.subtract(v2);
+            double velAlongNormal = relativeVelocity.dot(normal);
 
             double yDiff = entity.getY() - other.getY();
 
             if (yDiff > other.getBbHeight() * 0.5 && v1.y < -0.2) {
                 if (tryStartRidingSafely(entity, other, fullstop)) {
-                    ridingActionTaken = true;
-                    continue;
+                    return;
                 }
             }
 
             if (yDiff < -entity.getBbHeight() * 0.5 && v1.y > 0.2) {
                 if (canRideSafely(other, entity)) {
                     other.startRiding(entity, true);
-                    ridingActionTaken = true;
-                    continue;
+                    return;
                 }
             }
 
             double restitution = 0.4;
+            double m2 = EntityPhysicsRules.getEntityMass(other);
 
             double j = -(1 + restitution) * velAlongNormal;
             j /= (1 / m1 + 1 / m2);
@@ -85,8 +161,7 @@ public final class EntityCollisionHandler {
             entity.setDeltaMovement(v1New);
             other.setDeltaMovement(v2New);
             other.hasImpulse = true;
-
-            v1 = v1New;
+            entity.hasImpulse = true;
         }
     }
 

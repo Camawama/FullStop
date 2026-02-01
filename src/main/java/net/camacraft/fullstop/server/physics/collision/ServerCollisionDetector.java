@@ -5,6 +5,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.RaycastUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Slime;
@@ -66,17 +67,27 @@ public class ServerCollisionDetector {
                 Direction hitFace = blockHit.getDirection();
                 Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
                 
-                boolean isOpposing = direction.dot(hitNormal) < -0.1;
+                boolean isWater = hitState.getCollisionShape(level, hitPos).isEmpty() && !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
+                boolean isOpposing;
 
-                // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
-                // This prevents "scraping" the side of a block while jumping from causing a collision.
-                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
-                    isOpposing = false;
-                }
+                if (isWater) {
+                    if (hitFace != Direction.UP || !fullstop.isMostlyHorizontal()) {
+                        continue;
+                    }
+                    isOpposing = true;
+                } else {
+                    isOpposing = direction.dot(hitNormal) < -0.1;
 
-                // Fix for running on flat ground: Ignore floor collisions if not falling significantly
-                if (hitFace == Direction.UP && previousVelocity.y > -0.5) {
-                    isOpposing = false;
+                    // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
+                    // This prevents "scraping" the side of a block while jumping from causing a collision.
+                    if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
+                        isOpposing = false;
+                    }
+
+                    // Fix for running on flat ground: Ignore floor collisions if not falling significantly
+                    if (hitFace == Direction.UP && previousVelocity.y > -0.5) {
+                        isOpposing = false;
+                    }
                 }
 
                 if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
@@ -123,7 +134,9 @@ public class ServerCollisionDetector {
         List<Entity> collidingEntities = Collections.emptyList();
         if (SERVER.entityCollisionDamage.get()) {
             AABB box = entity.getBoundingBox();
-            AABB entityCheckBox = box.inflate(0.1);
+            Vec3 movement = fullstop.getPreviousNativeVelocity();
+            // Expand backwards to catch entities we passed through
+            AABB entityCheckBox = box.expandTowards(movement.scale(-1)).inflate(0.1);
             collidingEntities = level.getEntities(
                     entity,
                     entityCheckBox,

@@ -18,6 +18,7 @@ import net.minecraft.world.entity.projectile.Arrow;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -40,6 +41,9 @@ public class KineticBlockInteractions {
     private static final double MIN_VELOCITY_REQUIRED = 0.4; // Min velocity in m/tick to trigger breaking
     private static final double MIN_INTERACTION_VELOCITY = 0.15; // Min velocity in m/tick to trigger interactions
     private static final double ENERGY_DAMPING_FACTOR = 0.8; // % of energy remaining after a break
+
+    // Event ID 3004 corresponds to LevelEvent.PARTICLES_AND_SOUND_WAX_OFF in newer mappings
+    private static final int LEVEL_EVENT_WAX_OFF = 3004;
 
     /**
      * Handles kinetic impacts with blocks, potentially breaking them or creating paths.
@@ -169,11 +173,13 @@ public class KineticBlockInteractions {
                     }
 
                     if (blasted) {
-                        level.levelEvent(3004, pos, 0); // Particles/Sound for scraping
-                        
+                        level.levelEvent(LEVEL_EVENT_WAX_OFF, pos, 0); // Particles/Sound for scraping
+
                         // Sand breaks upon blasting
-                        level.levelEvent(2001, entity.blockPosition(), Block.getId(fallingState));
-                        fallingBlock.spawnAtLocation(fallingState.getBlock());
+                        level.levelEvent(LevelEvent.PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
+                        if (level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS)) {
+                            fallingBlock.spawnAtLocation(fallingState.getBlock());
+                        }
                         fallingBlock.discard();
                         return true; // Interaction happened
                     }
@@ -181,17 +187,19 @@ public class KineticBlockInteractions {
 
                 // Hardness Check: If falling block is softer than what it hits, it breaks
                 if (hitHardness > fallingHardness) {
-                     level.levelEvent(2001, entity.blockPosition(), Block.getId(fallingState));
-                     fallingBlock.spawnAtLocation(fallingState.getBlock());
-                     fallingBlock.discard();
-                     return false; // Stop processing, entity is gone
+                    level.levelEvent(LevelEvent.PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
+                    if (level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS)) {
+                        fallingBlock.spawnAtLocation(fallingState.getBlock());
+                    }
+                    fallingBlock.discard();
+                    return false; // Stop processing, entity is gone
                 }
             }
 
             // --- LOGIC 1: Destruction ---
 
             // Check mob griefing rule for breaking
-            if (!level.getGameRules().getBoolean(net.minecraft.world.level.GameRules.RULE_MOBGRIEFING) && !isPlayer) {
+            if (!level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING) && !isPlayer) {
                 continue;
             }
 

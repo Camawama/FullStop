@@ -3,6 +3,8 @@ package net.camacraft.fullstop.common.physics.interaction;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.Block;
@@ -99,6 +101,19 @@ public final class BounceHandler {
 
         entity.setDeltaMovement(newV.scale(0.05));
         entity.hurtMarked = true;
+
+        if (!entity.level().isClientSide && entity instanceof Mob mob) {
+            // Stop any currently running path
+            mob.getNavigation().stop();
+
+            // Clear common brain targets (safe even if unused)
+            mob.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
+            mob.getBrain().eraseMemory(MemoryModuleType.PATH);
+            mob.getBrain().eraseMemory(MemoryModuleType.LOOK_TARGET);
+
+            // Optional: helps avoid the visual "burst sprint" frame
+            mob.setSprinting(false);
+        }
 
         if (!SERVER.rotateCamera.get()) return;
         if (newV.length() < 3.0) return;
