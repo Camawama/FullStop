@@ -7,6 +7,7 @@ import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Objects;
@@ -98,11 +99,17 @@ public final class EntityCollisionHandler {
     }
 
     public static boolean canRideSafely(Entity rider, Entity vehicle) {
+//        if (rider instanceof LivingEntity living) {
+//            
+//        }
+
         if (vehicle == null || rider == null) return false;
         if (rider.level().isClientSide()) return false;
         if (!rider.isAlive() || !vehicle.isAlive()) return false;
         if (rider == vehicle) return false;
         if (rider.isCrouching()) return false;
+        if (vehicle.isCrouching()) return false;
+        if (rider instanceof Player player && player.getAbilities().flying) return false;
         if (rider.getVehicle() != null) return false;
         if (vehicle.getVehicle() == rider) return false;
         if (!vehicle.getPassengers().isEmpty()) return false;

@@ -13,7 +13,10 @@
   "config.velocitydamage.projectilesHaveMomentum": "If true, projectiles have the velocity of the entity who fired it added.",
   "config.velocitydamage.wildMode": "Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)",
   "death.fell.accident.water": "%s flopped into the water",
-  "enchantment.minecraft.feather_falling": "Kinetic Protection",
+  "enchantment.fullstop.kinetic_protection": "Kinetic Protection",
+  "enchantment.fullstop.reflective": "Reflective",
+  "enchantment.fullstop.pullback": "Pullback",
+  "attribute.name.generic.kinetic_dampening": "Kinetic Dampening",
 
   "effect.fullstop.sprain": "Sprain"
 }

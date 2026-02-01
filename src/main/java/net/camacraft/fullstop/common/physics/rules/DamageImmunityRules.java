@@ -46,6 +46,12 @@ public class DamageImmunityRules {
 
     public static boolean unphysable(Entity entity) {
         if (entity == null) return true;
+
+        //TODO make it so mobs with NO AI are not ticked for physics in fullstop
+//        if (entity instanceof LivingEntity living) {
+//            if (living.noPhysics) return true;
+//        }
+
         if (entity.noPhysics) return true;
         if (entity instanceof LivingEntity livingEntity)
             if (livingEntity.isDeadOrDying())
