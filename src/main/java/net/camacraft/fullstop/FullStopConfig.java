@@ -17,15 +17,22 @@ public class FullStopConfig {
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     public static final ForgeConfigSpec SERVER_SPEC;
-    public static final ConfigValues SERVER;
+    public static final ServerConfigValues SERVER;
+
+    public static final ForgeConfigSpec CLIENT_SPEC;
+    public static final ClientConfigValues CLIENT;
 
     static {
-        Pair<ConfigValues, ForgeConfigSpec> pair = new ForgeConfigSpec.Builder().configure(ConfigValues::new);
+        Pair<ServerConfigValues, ForgeConfigSpec> pair = new ForgeConfigSpec.Builder().configure(ServerConfigValues::new);
         SERVER_SPEC = pair.getRight();
         SERVER = pair.getLeft();
+
+        Pair<ClientConfigValues, ForgeConfigSpec> clientPair = new ForgeConfigSpec.Builder().configure(ClientConfigValues::new);
+        CLIENT_SPEC = clientPair.getRight();
+        CLIENT = clientPair.getLeft();
     }
 
-    public static class ConfigValues {
+    public static class ServerConfigValues {
         /**
          * Arbitrary value. The function f(x) represents the % increase of the original damage and real equal to
          * ((x / VELOCITY_INCREMENT)^2) / 2; where x indicates one-dimensional velocity in the direction of the target
@@ -52,15 +59,15 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
         public final ForgeConfigSpec.BooleanValue wildMode;
-        public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
+        public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
 
-        protected ConfigValues(ForgeConfigSpec.Builder builder) {
+        protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
             this.velocityIncrement = builder
                     .comment("\"Increases\" the necessary velocity to do an arbitrary damage by a factor of this.")
@@ -85,12 +92,6 @@ public class FullStopConfig {
                     .translation(key("maxDamagePercent"))
                     .comment("Default: " + Float.MAX_VALUE)
                     .defineInRange("maxDamagePercent", DEFAULT_MAXIMUM_DMG, 0, Float.MAX_VALUE);
-
-            this.rotateCamera = builder
-                    .comment("When true, enables camera rotation when bouncing on a slime block")
-                    .translation(key("rotateCamera"))
-                    .comment("Default: true")
-                    .define("rotateCamera", true);
 
             this.deathMessageAppend = builder
                     .comment("When true, adds the velocity to the death message")
@@ -158,11 +159,36 @@ public class FullStopConfig {
                             "minecraft:arrow,1000000.0"
                     ), o -> o instanceof String);
 
+            this.raycastMode = builder
+                    .comment("Experimental: Choose the raycast mode for collision detection. FULL_SWEEP may have significant performance impact.")
+                    .translation(key("raycastMode"))
+                    .defineEnum("raycastMode", RaycastMode.CORNERS_AND_CENTERS);
+
             builder.pop();
         }
 
         private static String key(String valueName) {
             return "config.velocitydamage." + valueName;
         }
+    }
+
+    public static class ClientConfigValues {
+        public final ForgeConfigSpec.BooleanValue rotateCamera;
+
+        protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
+            builder.push("Client settings");
+            this.rotateCamera = builder
+                    .comment("When true, enables camera rotation when bouncing on a slime block")
+                    .translation("config.fullstop.client.rotateCamera")
+                    .comment("Default: true")
+                    .define("rotateCamera", true);
+            builder.pop();
+        }
+    }
+
+    public enum RaycastMode {
+        CORNERS_ONLY,
+        CORNERS_AND_CENTERS,
+        FULL_SWEEP
     }
 }

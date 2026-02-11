@@ -6,7 +6,8 @@
   "mixins": [
     "ElytraDamageCanceler",
     "WaterSlowdownMixin",
-    "FallingBlockEntityMixin"
+    "FallingBlockEntityMixin",
+    "SlimeBlockNoBounceMixin"
   ],
   "injectors": {
     "defaultRequire": 1

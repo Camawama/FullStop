@@ -3,9 +3,11 @@ package net.camacraft.fullstop.server.physics.damage;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
+import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.StainedGlassBlock;
@@ -17,19 +19,29 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
 public class KineticDamageCalculator {
 
     public static double calculateDamage(Entity entity, FullStopCapability fullstop, Collision collision) {
+        if (entity instanceof LivingEntity living) {
+            if (DamageImmunityRules.isDamageImmune(living)) return 0;
+        }
+
         if (entity instanceof Mob mob) {
             if (mob.isLeashed() && fullstop.isMostlyDownward() && collision.fake()) return 0;
         }
 
-        if (!entity.isCrouching() && collision.bouncy()) {
+        // If the collision is bouncy (Slime, Bed, Honey), we should not apply damage
+        // UNLESS the player is crouching, which suppresses the bounce.
+//        if (!entity.isCrouching() && collision.bouncy()) {
+//            return 0;
+//        }
+
+        // TODO add a config variable for custom types
+        if (!entity.isCrouching() && collision.collisionType == Collision.CollisionType.SLIME ||
+                !entity.isCrouching() && collision.collisionType == Collision.CollisionType.BED ||
+                !entity.isCrouching() && collision.collisionType == Collision.CollisionType.HONEY
+        ) {
             return 0;
         }
 
-        if (!fullstop.isMostlyDownward() &&
-                collision.collisionType != Collision.CollisionType.SOLID &&
-                collision.collisionType != Collision.CollisionType.ENTITY) {
-            return 0;
-        }
+        if (collision.fake()) return 0;
 
         if (collision.collisionType == Collision.CollisionType.ENTITY) {
             if (!SERVER.entityCollisionDamage.get()) {

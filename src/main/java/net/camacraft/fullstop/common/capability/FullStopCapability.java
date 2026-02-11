@@ -11,6 +11,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.item.ElytraItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
@@ -33,7 +34,6 @@ import java.util.Objects;
 public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public static final ResourceLocation DELTA_VELOCITY = new ResourceLocation(FullStop.MODID, "delta_velocity");
-    public static final double BOUNCE_THRESHOLD = 0.6;
 
     private final Entity entity;
 
@@ -48,16 +48,16 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private Vec3 previousPosition = Vec3.ZERO;
     private Vec3 acceleration;
     private double decelerationForce = 0.0;
-    private double horizAccelMagnitude = 0;
-    private double avgHorizAccel = 0.0;
+    private double accelMagnitude = 0.0;
+    private double avgAccel = 0.0;
 
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
     private boolean hasDismounted = false;
     private boolean joinedForFirstTime = false;
     private boolean firstTick = true;
-    private double teleportCooldown = 0;
-    private double dismountCooldown = 0;
+    private double teleportCooldown = 0.0;
+    private double dismountCooldown = 0.0;
     private int soundCooldown = 0;
     private long lastTick = -1;
 
@@ -66,6 +66,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private int lastCollisionEntityId = -1;
 
     private double targetAngle = Double.NaN;
+    private double targetPitch = Double.NaN;
+
+    private boolean justBounced = false;
 
     public FullStopCapability(Entity entity) {
         this.entity = entity;
@@ -76,7 +79,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             resetVelocity();
             currentPosition = entity.position();
             previousPosition = currentPosition;
-            entity.setDeltaMovement(Vec3.ZERO);
         }
 
         tickVelocity(entity);
@@ -89,9 +91,54 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             soundCooldown--;
         }
 
-        if (Double.isNaN(avgHorizAccel))
-            avgHorizAccel = 0;
-        avgHorizAccel = (avgHorizAccel * 19 + horizAccelMagnitude) / 20;
+        if (Double.isNaN(avgAccel)) avgAccel = 0;
+
+        if (entity instanceof LivingEntity living) {
+            double gravity = 0.08;
+            if (!living.isNoGravity()) {
+                var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
+                if (gravityAttr != null) {
+                    gravity = gravityAttr.getValue();
+                }
+            } else {
+                gravity = 0.0;
+            }
+            
+            // Ensure gravity is treated as a downward force magnitude
+            gravity = Math.abs(gravity);
+
+            // Calculate proper acceleration (G-force) by subtracting gravity vector.
+            // Acceleration is in m/s/tick. Gravity attribute is blocks/tick^2.
+            // 1 block/tick^2 = 20 m/s/tick.
+            Vec3 gravityVector = new Vec3(0, -gravity * 20, 0);
+            Vec3 gForceVec = acceleration.subtract(gravityVector);
+
+            // When falling, the "drag" force acts upwards (positive Y).
+            // To simulate weightlessness during freefall, we ignore this upward component.
+            // This ensures that falling at terminal velocity (where drag = gravity) results in 0 G-force.
+            if (velocityMps.y < 0 && gForceVec.y > 0) {
+                gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+            }
+
+            double gForceMagnitude = gForceVec.length();
+
+            // Fix drift: if both current and average are negligible, snap to 0
+            if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
+                avgAccel = 0.0;
+            } else {
+                // Clamp input acceleration to prevent massive single-tick spikes (e.g. teleportation artifacts)
+                // 20.0 m/s/tick is ~400 m/s^2 (40g), which is a reasonable upper bound for "valid" movement.
+                double clampedInput = Math.min(gForceMagnitude, 20.0);
+                
+                // If we just bounced, we don't want to count the sudden change in velocity as G-force
+                if (justBounced) {
+                    clampedInput = 0;
+                    justBounced = false;
+                }
+                
+                avgAccel = (avgAccel * 19 + clampedInput) / 20;
+            }
+        }
     }
 
     private void tickVelocity(Entity entity) {
@@ -119,39 +166,21 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
-        if (clientVelocityMps != null) {
-            // This is the server-authoritative velocity based on actual position change.
-            // Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
-
-            // SANITY CHECK: If the client claims to be moving fast but the server sees little to no movement,
-            // it's a phantom force (e.g., hugging a wall). In this case, we MUST trust the server's calculation.
-            double clientSpeedSqr = clientVelocityMps.lengthSqr();
-            double actualSpeedSqr = actualVelocity.lengthSqr();
-
-            // Thresholds: client claims > ~4.5m/s, but server sees < 0.5m/s.
-            if (clientSpeedSqr > 5.0 && actualSpeedSqr < 0.25) {
-                double maxAllowedSpeed = Math.max(prevVelocityMps.length(), actualVelocity.length());
-                if (maxAllowedSpeed <= 0.001) {
-                    velocityMps = actualVelocity;
-                } else {
-                    double clientSpeed = Math.sqrt(clientSpeedSqr);
-                    double scale = Math.min(1.0, maxAllowedSpeed / clientSpeed);
-                    velocityMps = clientVelocityMps.scale(scale);
-                }
-            } else {
-                // Otherwise, we trust the client's input, which is needed for responsive controls.
-                velocityMps = clientVelocityMps;
-            }
+        // We only use client velocity for players to ensure responsive controls
+        // For everything else, we trust the server's calculation
+        if (entity instanceof Player && clientVelocityMps != null) {
+            velocityMps = clientVelocityMps;
             clientVelocityMps = null; // Consume the value
         } else {
-            // For non-player entities, we use the actual velocity derived from position change.
             velocityMps = actualVelocity;
         }
 
         if (entity instanceof LivingEntity living) {
             double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
 
-            if (velocityMps.y >= gravity * -20 && velocityMps.y < 0) {
+            // FIX: Only zero out Y velocity if we are actually on the ground AND not moving downwards significantly
+            // This prevents "accumulating" downward velocity while standing on a ledge or hugging a wall
+            if (velocityMps.y >= gravity * -20 && velocityMps.y < 0 && entity.onGround()) {
                 velocityMps = new Vec3(velocityMps.x, 0, velocityMps.z);
             }
         }
@@ -177,7 +206,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         // We use the "velocityMps" which has been sanity-checked against client input.
         acceleration = velocityMps.subtract(prevVelocityMps);
 
-        horizAccelMagnitude = acceleration.multiply(1, 0, 1).length();
+        // Calculate full 3D acceleration magnitude (including Y)
+        accelMagnitude = acceleration.length();
     }
 
     private double calculateStoppingForceComponent(double current, double old) {
@@ -203,6 +233,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         if (entity instanceof Player || entity.isControlledByLocalInstance()) return;
         if (Double.isNaN(targetAngle)) return;
 
+        if (entity instanceof Boat) return;
+
         double rot = entity.getYRot();
         float newYRot = (float) (rotationCorrection(1) + rot);
 
@@ -222,6 +254,20 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         if (Math.abs(correction) < 0.5) {
             targetAngle = Double.NaN;
+        }
+
+        return correction * 0.005 * delta;
+    }
+
+    public double pitchCorrection(double delta) {
+        if (Double.isNaN(targetPitch)) {
+            return 0;
+        }
+
+        double correction = MathUtils.angleWrap(targetPitch - entity.getXRot());
+
+        if (Math.abs(correction) < 0.5) {
+            targetPitch = Double.NaN;
         }
 
         return correction * 0.005 * delta;
@@ -281,7 +327,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     }
 
     public double getRunningAverageDelta() {
-        return avgHorizAccel;
+        return avgAccel;
     }
 
 
@@ -352,18 +398,22 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         this.targetAngle = targetAngle;
     }
 
+    public void setTargetPitch(double targetPitch) {
+        this.targetPitch = targetPitch;
+    }
+
     public boolean isMostlyDownward() {
-        Vec3 v = prevPrevVelocityMps;
+        Vec3 v = prevVelocityMps;
         return (-v.y) > Math.sqrt(v.x * v.x + v.z * v.z);
     }
 
     public boolean isMostlyUpward() {
-        Vec3 v = prevPrevVelocityMps;
+        Vec3 v = prevVelocityMps;
         return v.y > Math.sqrt(v.x * v.x + v.z * v.z);
     }
 
     public boolean isMostlyHorizontal() {
-        Vec3 v = prevPrevVelocityMps;
+        Vec3 v = prevVelocityMps;
         return Math.sqrt(v.x * v.x + v.z * v.z) > Math.abs(v.y);
     }
 
@@ -394,6 +444,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         this.prevVelocityMps = Vec3.ZERO;
         this.prevPrevVelocityMps = Vec3.ZERO;
         this.clientVelocityMps = null;
+    }
+
+    public void setJustBounced(boolean justBounced) {
+        this.justBounced = justBounced;
     }
 
     // --- NBT Serialization ---

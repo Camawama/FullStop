@@ -40,21 +40,22 @@ public class PlayerTurnHook {
 
         if (fullstop.isMostlyDownward() || fullstop.isMostlyUpward()) {
             fullstop.setTargetAngle(Double.NaN);
-            return;
         }
 
         if (accumulatedDX != 0 || accumulatedDY != 0) {
             fullstop.setTargetAngle(Double.NaN);
+            fullstop.setTargetPitch(Double.NaN);
         }
 
         double rotationCorrection = fullstop.rotationCorrection(delta);
+        double pitchCorrection = fullstop.pitchCorrection(delta);
 
-        if (rotationCorrection != 0.0) {
+        if (rotationCorrection != 0.0 || pitchCorrection != 0.0) {
             // Apply the physics-based rotation correction.
             // We do NOT cancel the event, allowing vanilla logic (and other mods)
             // to handle the actual mouse input (accumulatedDX/DY).
             // This ensures we don't eat mouse inputs or break compatibility.
-            minecraft.player.turn(rotationCorrection, 0.0);
+            minecraft.player.turn(rotationCorrection, pitchCorrection);
         }
     }
 }

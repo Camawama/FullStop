@@ -3,6 +3,7 @@ package net.camacraft.fullstop.server.physics;
 import com.google.common.collect.Lists;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.particle.CollisionParticleSpawner;
 import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler;
@@ -21,6 +22,7 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.SoundType;
@@ -86,19 +88,36 @@ public class PhysicsDispatchServer {
     }
 
     private static void onEntityTick(Entity entity) {
+
         if (DamageImmunityRules.unphysable(entity)) return;
 
         FullStopCapability fullstop = grabCapability(entity);
         if (fullstop == null) return;
+
+//        if (entity instanceof Player targetEntity) {
+////            LogToChat.logToChat(targetEntity.getName().getString(), "Native Vel: ", "X", Math.round(fullstop.getCurrentScaledVelocity().x), "Y", Math.round(fullstop.getCurrentScaledVelocity().y), "Z", Math.round(fullstop.getCurrentScaledVelocity().z));
+//            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRunningAverageDelta());
+//        }
 
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
         }
 
+        if (entity instanceof Player) {
+//            LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
+        }
+
         // If the entity is damage immune (e.g. just teleported), skip physics calculations
         if (fullstop.getIsDamageImmune()) {
             fullstop.resetVelocity();
+            return;
+        }
+
+        // Optimization: Skip collision detection for slow-moving entities
+        // This prevents 1500+ raycasts per tick for idle mobs
+        // Threshold: 0.01 m/s (very slow)
+        if (fullstop.getPreviousScaledVelocity().lengthSqr() < 0.0001) {
             return;
         }
 

@@ -1,8 +1,10 @@
 package net.camacraft.fullstop.common.physics.interaction;
 
+import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.player.Player;
@@ -14,8 +16,6 @@ import net.minecraft.world.level.block.TrapDoorBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
-
-import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
 public final class BounceHandler {
     private BounceHandler() {
@@ -63,7 +63,7 @@ public final class BounceHandler {
                 friction = 0.0;
             }
             default -> {
-                restitution = -0.2;
+                restitution = 0.0;
                 friction = 0.8;
             }
         }
@@ -92,6 +92,12 @@ public final class BounceHandler {
         double vDotN = preV.dot(averageNormal);
         if (vDotN >= 0) return;
 
+        // If falling mostly downward and hitting solid ground (not bouncy), skip bounce logic
+        // to prevent velocity cancellation which might interfere with fall damage.
+        if (fullstop.isMostlyDownward() && !collision.bouncy()) {
+            return;
+        }
+
         Vec3 vNormal = averageNormal.scale(vDotN);
         Vec3 vTangential = preV.subtract(vNormal);
 
@@ -101,6 +107,10 @@ public final class BounceHandler {
 
         entity.setDeltaMovement(newV.scale(0.05));
         entity.hurtMarked = true;
+
+        if (collision.bouncy()) {
+            fullstop.setJustBounced(true);
+        }
 
         if (!entity.level().isClientSide && entity instanceof Mob mob) {
             // Stop any currently running path
@@ -115,7 +125,21 @@ public final class BounceHandler {
             mob.setSprinting(false);
         }
 
-        if (!SERVER.rotateCamera.get()) return;
+        // Camera rotation is client-side only
+        if (entity.level().isClientSide) {
+            if (!FullStopConfig.CLIENT.rotateCamera.get()) return;
+        } else {
+            // On server side, we don't care about camera rotation, but we might want to skip this block
+            // if we were relying on the config to disable bouncing entirely?
+            // The original code was: if (!SERVER.rotateCamera.get()) return;
+            // This implies that if camera rotation was disabled, the bounce logic (setting target angle/pitch)
+            // was skipped. Since target angle/pitch are stored in the capability and synced/used by client,
+            // we should probably check the client config if we are on client, or just set it anyway?
+            // Actually, the capability fields targetAngle/targetPitch are likely only used for rendering/camera.
+            // So we can just skip this block if we are on server.
+            return;
+        }
+
         if (newV.length() < 3.0) return;
         if (entity instanceof Player && ((Player) entity).getAbilities().flying) return;
 
@@ -123,6 +147,15 @@ public final class BounceHandler {
             double newAngle = Math.atan2(-newV.x, newV.z);
             double targetAngle = newAngle / Math.PI * 180;
             fullstop.setTargetAngle(targetAngle);
+
+            double horizontalDistance = Math.sqrt(newV.x * newV.x + newV.z * newV.z);
+            double targetPitch = -Math.toDegrees(Math.atan2(newV.y, horizontalDistance));
+
+            boolean isElytraFlying = entity instanceof LivingEntity && ((LivingEntity) entity).isFallFlying();
+//            if (!fullstop.isMostlyDownward() || isElytraFlying) {
+//                fullstop.setTargetPitch(targetPitch);
+//            }
+            fullstop.setTargetPitch(targetPitch);
         }
     }
 }

@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.client.physics;
 
+import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.client.physics.collision.ClientCollisionDetector;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
@@ -64,6 +65,7 @@ public class PhysicsDispatchClient {
     }
 
     private static void onEntityTick(Entity entity) {
+
         if (DamageImmunityRules.unphysable(entity)) return;
 
         FullStopCapability fullstop = grabCapability(entity);
@@ -77,10 +79,16 @@ public class PhysicsDispatchClient {
             fullstop.setLastTick(entity.tickCount);
         }
 
-        Collision collision = ClientCollisionDetector.detect(entity, fullstop);
+        // Optimization: Only process collision if moving fast enough or if it's the player
+        // This mirrors the server-side optimization we want to add, but for client visuals
+        if (entity instanceof LivingEntity || fullstop.getPreviousScaledVelocity().lengthSqr() > 0.01) {
+             Collision collision = ClientCollisionDetector.detect(entity, fullstop);
 
-        // We only care about bounce logic on the client for the camera rotation
-        // The server handles the actual velocity change and damage
-        BounceHandler.apply(entity, fullstop, collision, false);
+            // We only care about bounce logic on the client for the camera rotation
+            // The server handles the actual velocity change and damage
+            if (FullStopConfig.CLIENT.rotateCamera.get()) {
+                BounceHandler.apply(entity, fullstop, collision, false);
+            }
+        }
     }
 }

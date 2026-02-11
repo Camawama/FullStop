@@ -3,8 +3,8 @@ package net.camacraft.fullstop.common.mixin;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
-import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -38,8 +38,9 @@ public class WaterSlowdownMixin {
 
         Vec3 direction = v.normalize();
         double c = 0.2;
-        double newSpeed = oldSpeed - oldSpeed * oldSpeed * c;
-        if (newSpeed < 0) newSpeed = 0;
+        // Use a stable approximation for quadratic drag: v_new = v / (1 + c * v)
+        // This prevents high speeds (like knockback) from being cancelled or reversed.
+        double newSpeed = oldSpeed / (1.0 + oldSpeed * c);
 
         entity.setDeltaMovement(direction.scale(newSpeed));
 
@@ -50,20 +51,20 @@ public class WaterSlowdownMixin {
         }
 
         double maxSpeed = 0.45;
-        double speedT = MathUtils.clamp(horizontalSpeed / maxSpeed, 0.0, 1.0);
+        double speedT = Mth.clamp(horizontalSpeed / maxSpeed, 0.0, 1.0);
 
         double mass = EntityStackUtils.getEntityMass(entity);
         double massRef = 0.7;
-        double massT = MathUtils.clamp(
+        double massT = Mth.clamp(
                 Math.log1p(Math.max(0.0, mass / massRef)) / Math.log1p(6.0),
                 0.0,
                 1.0
         );
 
-        double impact = MathUtils.clamp(speedT * (0.75 + 0.50 * massT), 0.0, 1.0);
+        double impact = Mth.clamp(speedT * (0.75 + 0.50 * massT), 0.0, 1.0);
 
-        float volume = (float) MathUtils.clamp(0.05 + impact * 0.95 + massT * 0.15, 0.05, 1.4);
-        float pitch  = (float) MathUtils.clamp(1.30 - impact * 0.55 - massT * 0.25, 0.55, 1.35);
+        float volume = (float) Mth.clamp(0.05 + impact * 0.95 + massT * 0.15, 0.05, 1.4);
+        float pitch  = (float) Mth.clamp(1.30 - impact * 0.55 - massT * 0.25, 0.55, 1.35);
 
         if (entity.level().isClientSide()) {
             FSSoundPlayer.playSoundClient(entity, FSSoundPlayer.sound(FSSoundPlayer.WATER_SLOSH_ID), SoundSource.PLAYERS, volume, pitch);
@@ -76,6 +77,6 @@ public class WaterSlowdownMixin {
         }
 
         int nextCd = (int) Math.round(12 - impact * 10);
-        entity.getPersistentData().putInt(SLOSH_CD_TAG, MathUtils.clamp(nextCd, 2, 14));
+        entity.getPersistentData().putInt(SLOSH_CD_TAG, Mth.clamp(nextCd, 2, 14));
     }
 }

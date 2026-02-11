@@ -7,7 +7,6 @@ import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.EntityWeight;
 import net.camacraft.fullstop.server.CancelEvents;
-import net.camacraft.fullstop.server.handler.events.KineticDamageEventHandler;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
@@ -26,6 +25,7 @@ import net.minecraftforge.fml.loading.FMLEnvironment;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.FullStopConfig.SERVER_SPEC;
+import static net.camacraft.fullstop.FullStopConfig.CLIENT_SPEC;
 
 @Mod(FullStop.MODID)
 public class FullStop
@@ -43,12 +43,12 @@ public class FullStop
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             MinecraftForge.EVENT_BUS.register(PhysicsDispatchClient.class);
+            ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
         MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
-        MinecraftForge.EVENT_BUS.register(KineticDamageEventHandler.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
         // MinecraftForge.EVENT_BUS.register(LogToChat.class); // TODO: Re-implement LogToChat
 
@@ -60,15 +60,24 @@ public class FullStop
     }
 
     public void onConfigLoad(ModConfigEvent.Loading event) {
-        EntityWeight.loadConfigWeights();
+        // Only load weights if the server config is actually loaded
+        if (event.getConfig().getType() == ModConfig.Type.SERVER) {
+            EntityWeight.loadConfigWeights();
+        }
     }
 
     public void onConfigReload(ModConfigEvent.Reloading event) {
-        EntityWeight.loadConfigWeights();
+        // Only reload weights if the server config is actually reloaded
+        if (event.getConfig().getType() == ModConfig.Type.SERVER) {
+            EntityWeight.loadConfigWeights();
+        }
     }
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        // Check if config is loaded before accessing it to prevent crashes
+        if (!SERVER_SPEC.isLoaded()) return;
+
         if (!(SERVER.projectilesHaveMomentum.get())) return;
         if (!(event.getEntity() instanceof Projectile projectile) || projectile.level().isClientSide) return;
         if (projectile.getOwner() == null) return;

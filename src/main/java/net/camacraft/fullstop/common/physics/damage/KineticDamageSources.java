@@ -192,4 +192,28 @@ public final class KineticDamageSources {
             }
         };
     }
+
+    @NotNull
+    public static DamageSource makeEntityMutualCollisionSource(DamageSource baseSource,
+                                                               LivingEntity victim,
+                                                               LivingEntity collided,
+                                                               String velocityToDisplay,
+                                                               TextColor color) {
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            @NotNull
+            public Component getLocalizedDeathMessage(@NotNull LivingEntity v) {
+                Component collidedName = collided.getDisplayName();
+
+                Component velocityComponent = Component.literal(" " + velocityToDisplay)
+                        .withStyle(Style.EMPTY.withColor(color));
+
+                return Component.literal("")
+                        .append(victim.getDisplayName())
+                        .append(" collided with ")
+                        .append(collidedName)
+                        .append(velocityComponent);
+            }
+        };
+    }
 }

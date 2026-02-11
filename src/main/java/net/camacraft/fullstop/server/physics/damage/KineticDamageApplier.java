@@ -5,7 +5,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.damage.DamageMitigation;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
-import net.camacraft.fullstop.common.physics.rules.EntityPhysicsRules;
+import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.minecraft.network.chat.TextColor;
@@ -21,6 +21,7 @@ import net.minecraft.world.entity.animal.horse.Horse;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
 
@@ -90,8 +91,8 @@ public class KineticDamageApplier {
         DamageSource customSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
 
         if (fullstop.isMostlyDownward()) {
-            double totalMass = EntityPhysicsRules.getAllEntitiesInStack(entity).stream().mapToDouble(EntityPhysicsRules::getEntityMass).sum();
-            double selfMass = EntityPhysicsRules.getEntityMass(entity);
+            double totalMass = EntityStackUtils.getAllEntitiesInStack(entity).stream().mapToDouble(EntityStackUtils::getEntityMass).sum();
+            double selfMass = EntityStackUtils.getEntityMass(entity);
             if (selfMass < 0.001) selfMass = 0.001;
 
             float crushFactor = (float) (totalMass / selfMass);
@@ -105,7 +106,7 @@ public class KineticDamageApplier {
             }
 
             float passengerDamage = (float) damage * 0.5f;
-            for (Entity passenger : EntityPhysicsRules.getAllEntitiesInStack(entity)) {
+            for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
                 if (passenger == entity) continue;
                 passenger.hurt(customSource, passengerDamage);
             }
@@ -141,10 +142,10 @@ public class KineticDamageApplier {
             float basePitch = 1.0f;
 
             float volume = baseVolume + (float)damage * 0.05f;
-            volume = MathUtils.clamp(volume, 0.6f, 1.8f);
+            volume = Mth.clamp(volume, 0.6f, 1.8f);
 
             float pitch = basePitch - (float)damage * 0.02f;
-            pitch = MathUtils.clamp(pitch, 0.7f, 1.2f);
+            pitch = Mth.clamp(pitch, 0.7f, 1.2f);
 
             FSSoundPlayer.playSoundServer(golem, SoundEvents.IRON_GOLEM_HURT, SoundSource.NEUTRAL, volume, pitch);
 
@@ -170,21 +171,65 @@ public class KineticDamageApplier {
             }
         }
 
+        // --- FIX: Determine who is the "attacker" for the death message ---
+        // The entity moving faster should be the one "attacking" in the message.
+        Vec3 myVel = VelocityMath.entityVelocity(entity);
+        Vec3 otherVel = VelocityMath.entityVelocity(firstCollider);
+        double mySpeed = myVel.length();
+        double otherSpeed = otherVel.length();
+        
+        // Calculate relative velocity (impact speed)
+        double impactSpeed = myVel.subtract(otherVel).length();
+        
+        boolean otherIsFaster = otherSpeed > mySpeed;
+        boolean bothMovingFast = mySpeed > 2.0 && otherSpeed > 2.0; // Threshold for "both moving"
+
+        String displayVelocityStr;
+        if (bothMovingFast) {
+             displayVelocityStr = String.format("(at %.2f m/s)", impactSpeed);
+        } else if (otherIsFaster) {
+            displayVelocityStr = String.format("(going %.2f m/s)", otherSpeed);
+        } else {
+            displayVelocityStr = velocityToDisplay;
+        }
+        
         DamageSource selfSource;
         if (collidedExample != null && entity instanceof LivingEntity living) {
-            selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityCollisionSelfSource(
-                    sources.flyIntoWall(),
-                    living,
-                    collidedExample,
-                    velocityToDisplay,
-                    color,
-                    fullstop.isMostlyDownward(),
-                    fullstop.isMostlyUpward()
-            );
+            if (bothMovingFast) {
+                // Mutual collision
+                 selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityMutualCollisionSource(
+                        sources.flyIntoWall(),
+                        living,
+                        collidedExample,
+                        displayVelocityStr,
+                        color
+                );
+            } else if (otherIsFaster) {
+                // If the other entity is faster, use the attacker source logic for the message
+                // But we need a damage source that targets 'entity' (victim)
+                // makeEntityAttackerSource creates a source where 'attacker' is the entity causing damage.
+                selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(
+                        sources,
+                        collidedExample,
+                        displayVelocityStr,
+                        color,
+                        fullstop.isMostlyDownward() // This might need adjustment if the other entity is falling on us
+                );
+            } else {
+                selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityCollisionSelfSource(
+                        sources.flyIntoWall(),
+                        living,
+                        collidedExample,
+                        displayVelocityStr,
+                        color,
+                        fullstop.isMostlyDownward(),
+                        fullstop.isMostlyUpward()
+                );
+            }
         } else {
             selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeSelfSource(
                     sources.flyIntoWall(),
-                    velocityToDisplay,
+                    displayVelocityStr,
                     color,
                     fullstop.isMostlyDownward(),
                     fullstop.isMostlyUpward()
@@ -204,8 +249,8 @@ public class KineticDamageApplier {
             splitEntityDamage = 0;
         }
 
-        double stackMass = EntityPhysicsRules.getAllEntitiesInStack(entity).stream().mapToDouble(EntityPhysicsRules::getEntityMass).sum();
-        double selfMass = EntityPhysicsRules.getEntityMass(entity);
+        double stackMass = EntityStackUtils.getAllEntitiesInStack(entity).stream().mapToDouble(EntityStackUtils::getEntityMass).sum();
+        double selfMass = EntityStackUtils.getEntityMass(entity);
         if (selfMass < 0.001) selfMass = 0.001;
 
         float selfDamage = splitEntityDamage;
@@ -219,7 +264,7 @@ public class KineticDamageApplier {
 
         if (fullstop.isMostlyDownward()) {
             float passengerDamage = splitEntityDamage * 0.5f;
-            for (Entity passenger : EntityPhysicsRules.getAllEntitiesInStack(entity)) {
+            for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
                 if (passenger == entity) continue;
                 passenger.hurt(selfSource, passengerDamage);
             }
@@ -227,9 +272,14 @@ public class KineticDamageApplier {
 
         if (entity instanceof LivingEntity living) {
             for (LivingEntity target : validTargets) {
+                // For the target, 'entity' is the attacker.
+                // If 'entity' is slower, we might want to change the message for the target too?
+                // But usually if I run into a cow, I am the attacker.
+                // If a cow runs into me, the loop runs for the cow, and I am the target.
+
                 DamageSource attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
 
-                double targetMass = EntityPhysicsRules.getEntityMass(target);
+                double targetMass = EntityStackUtils.getEntityMass(target);
                 if (targetMass < 0.001) targetMass = 0.001;
 
                 float targetDamageScale = (float) (stackMass / targetMass);

@@ -55,6 +55,6 @@ public class Collision {
     }
 
     public boolean bouncy() {
-        return collisionType == CollisionType.SLIME || collisionType == CollisionType.HONEY || collisionType == CollisionType.BED;
+        return collisionType == CollisionType.SLIME || collisionType == CollisionType.BED;
     }
 }

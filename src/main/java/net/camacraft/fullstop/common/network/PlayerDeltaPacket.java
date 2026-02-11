@@ -1,8 +1,10 @@
 package net.camacraft.fullstop.common.network;
 
+import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkEvent;
 
@@ -32,12 +34,22 @@ public class PlayerDeltaPacket {
             ServerPlayer sendingPlayer = ctx.get().getSender();
 
             if (sendingPlayer != null) {
+                // Security check: Clamp velocity to prevent massive exploits
+                // 100 blocks/tick (2000 m/s) is a generous upper bound for legitimate modded movement
+                if (playerDelta.lengthSqr() > 100 * 100) {
+                    return;
+                }
+
                 if (sendingPlayer.isPassenger()) {
                     Entity vehicle = sendingPlayer.getVehicle();
                     // Only apply velocity to the vehicle if the player is actually driving it
                     if (vehicle != null && vehicle.getControllingPassenger() == sendingPlayer) {
-                        vehicle.getCapability(DELTAV_CAP)
-                                .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
+                        // Additional check: Only allow if vehicle is a LivingEntity (like a horse/pig) or Boat
+                        // This prevents controlling things like Minecarts which are usually on rails
+                        if (vehicle instanceof LivingEntity || vehicle instanceof net.minecraft.world.entity.vehicle.Boat) {
+                            vehicle.getCapability(DELTAV_CAP)
+                                    .ifPresent(delta -> delta.setCurrentNativeVelocity(this.playerDelta));
+                        }
                     }
                 } else {
                     sendingPlayer.getCapability(DELTAV_CAP)

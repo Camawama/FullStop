@@ -1,7 +1,7 @@
 package net.camacraft.fullstop.common.physics.interaction;
 
 import net.camacraft.fullstop.FullStopConfig;
-import net.camacraft.fullstop.common.physics.rules.EntityPhysicsRules;
+import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
@@ -55,6 +55,7 @@ public class KineticBlockInteractions {
      */
     public static boolean handleBlockImpacts(Entity entity, Vec3 impactVelocity, List<BlockPos> impactedBlocks, List<BlockHitResult> impactedHits) {
         if (entity.level().isClientSide) return false;
+        if (!entity.isAlive()) return false;
 
         if (!FullStopConfig.SERVER.kineticBlockBreaking.get()) {
             return false;
@@ -71,7 +72,7 @@ public class KineticBlockInteractions {
 
         // 1. Calculate Mass
 
-        double totalMass = EntityPhysicsRules.getEntityMass(entity);
+        double totalMass = EntityStackUtils.getEntityMass(entity);
 
         if (entity instanceof LivingEntity living) {
             double armorValue = living.getAttributeValue(Attributes.ARMOR);
@@ -230,23 +231,28 @@ public class KineticBlockInteractions {
             double breakCost = hardness * HARDNESS_BREAK_THRESHOLD_MULTIPLIER;
 
             if (kineticEnergy >= breakCost) {
-                level.destroyBlock(pos, true, entity);
-                blockBroken = true;
+                if (level.destroyBlock(pos, true, entity)) {
+                    blockBroken = true;
 
-                // Consume energy and update velocity to prevent tunneling
-                kineticEnergy -= breakCost;
-                
-                if (!isFragile) {
-                    kineticEnergy *= ENERGY_DAMPING_FACTOR; // Dampen remaining energy
+                    // Consume energy and update velocity to prevent tunneling
+                    kineticEnergy -= breakCost;
+
+                    if (!isFragile) {
+                        kineticEnergy *= ENERGY_DAMPING_FACTOR; // Dampen remaining energy
+                    }
+
+                    if (kineticEnergy < 0) kineticEnergy = 0;
+
+                    double newVelocityMag = Math.sqrt(2 * kineticEnergy / totalMass);
+                    Vec3 newVelocity = impactVelocity.normalize().scale(newVelocityMag);
+
+                    entity.setDeltaMovement(newVelocity);
+                    entity.hasImpulse = true;
+                    entity.setOnGround(false);
+                    entity.verticalCollision = false;
+                    entity.horizontalCollision = false;
+                    entity.hurtMarked = true; // Force velocity update to client
                 }
-
-                if (kineticEnergy < 0) kineticEnergy = 0;
-
-                double newVelocityMag = Math.sqrt(2 * kineticEnergy / totalMass);
-                Vec3 newVelocity = impactVelocity.normalize().scale(newVelocityMag);
-
-                entity.setDeltaMovement(newVelocity);
-                entity.hurtMarked = true; // Force velocity update to client
             }
 
             // --- LOGIC 2: Grass Paths ---
