@@ -28,4 +28,16 @@ public final class MathUtils {
 
         return (r << 16) | (g << 8) | b;
     }
+
+    public static float easeOutCubic(float x) {
+        return 1 - (float) Math.pow(1 - x, 3);
+    }
+
+    public static float easeInCubic(float x) {
+        return x * x * x;
+    }
+
+    public static float easeInOutCubic(float x) {
+        return x < 0.5 ? 4 * x * x * x : 1 - (float) Math.pow(-2 * x + 2, 3) / 2;
+    }
 }

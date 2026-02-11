@@ -8,6 +8,7 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.GameRenderer;
@@ -56,9 +57,12 @@ public class GforceEffectsRenderer {
             int screenWidth = guiGraphics.guiWidth();
             int screenHeight = guiGraphics.guiHeight();
 
+            // Apply easing to make the effect feel more natural
+            float easedIntensity = MathUtils.easeOutCubic(currentIntensity);
+
             // Render our effects on top of the vanilla vignette.
-            renderVignette(screenWidth, screenHeight, currentIntensity);
-            renderBlackout(screenWidth, screenHeight, currentIntensity);
+            //renderVignette(screenWidth, screenHeight, easedIntensity);
+            renderBlackout(screenWidth, screenHeight, easedIntensity);
         }
     }
 
@@ -84,6 +88,9 @@ public class GforceEffectsRenderer {
     }
 
     private static void renderVignette(int screenWidth, int screenHeight, float intensity) {
+        // TODO FIX OR REPLACE VIGNETTE RENDERER, IT DOESN'T SEEM TO SUPPORT FADING
+
+
         // This renders the vignette effect, which darkens the corners.
         RenderSystem.enableBlend();
         // This blend function darkens the destination by the source color: Dst' = Dst * (1 - Src)
@@ -91,7 +98,9 @@ public class GforceEffectsRenderer {
         
         // The color value should be proportional to the desired darkness.
         // A value of 0 means no darkening (Dst' = Dst * 1), a value of 1 means full blackening (Dst' = Dst * 0).
-        float darkness = intensity * 0.8f;
+        // Invert intensity because the shader multiplies by this color. 
+        // 1.0 = white (no change), 0.0 = black (full darkness)
+        float darkness = 1.0f - (intensity * 0.8f);
 
         RenderSystem.setShader(GameRenderer::getPositionTexShader);
         RenderSystem.setShaderColor(darkness, darkness, darkness, 1.0F);
