@@ -89,31 +89,32 @@ dependencies {
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
     implementation fg.deobf("io.github.llamalad7:mixinextras-forge:0.4.1")
 
-//    // -------------------------
-//    // Optional Valkyrien Skies integration
-//    // -------------------------
-//    // Compile against VS classes if you reference them in code, but don't ship as a hard dependency.
-//    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
-//
-//    // Dev runtime: include VS in your run configs so you can test locally.
-//    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
-//
-//    // Only keep KotlinForForge if YOU need it (your mod is Kotlin) or some runtime dev setup needs it.
-//    // If you don't use Kotlin at all, you can remove this.
-//    runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
+    // -------------------------
+    // Optional Valkyrien Skies integration
+    // -------------------------
+    // Compile against VS classes if you reference them in code, but don't ship as a hard dependency.
+    compileOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
+
+    // Dev runtime: include VS in your run configs so you can test locally.
+    runtimeOnly fg.deobf("org.valkyrienskies:valkyrienskies-120-forge:2.4.9")
+
+    // Only keep KotlinForForge if YOU need it (your mod is Kotlin) or some runtime dev setup needs it.
+    // If you don't use Kotlin at all, you can remove this.
+    runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
 
     // -------------------------
     // Other Mods (compat testing only)
     // -------------------------
 
-//    runtimeOnly fg.deobf("curse.maven:grappling-hook-mod-reforged-1166811:7087090")
-//    runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
-//    runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
-//    runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
-//    runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
-//    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
-//    runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
-//    runtimeOnly fg.deobf("curse.maven:damagenumbers-1022853:5475417")
+    runtimeOnly fg.deobf("curse.maven:grappling-hook-mod-reforged-1166811:7087090")
+    runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
+    runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
+    runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
+    runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
+    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
+    runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
+    runtimeOnly fg.deobf("curse.maven:damagenumbers-1022853:5475417")
+    runtimeOnly fg.deobf("curse.maven:cubes-without-borders-975120:5855464")
 
     //runtimeOnly fg.deobf("curse.maven:gravityvs-1410068:7363495")
     //runtimeOnly fg.deobf("curse.maven:particular-reforged-1219053:6916904")

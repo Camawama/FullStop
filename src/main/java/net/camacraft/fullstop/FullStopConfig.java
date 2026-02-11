@@ -174,6 +174,9 @@ public class FullStopConfig {
 
     public static class ClientConfigValues {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
+        public final ForgeConfigSpec.BooleanValue enableGForceEffects;
+        public final ForgeConfigSpec.DoubleValue minGForceThreshold;
+        public final ForgeConfigSpec.DoubleValue maxGForceThreshold;
 
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
@@ -182,6 +185,25 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.rotateCamera")
                     .comment("Default: true")
                     .define("rotateCamera", true);
+
+            this.enableGForceEffects = builder
+                    .comment("When true, enables visual effects (vignette and blackout) when experiencing high G-forces")
+                    .translation("config.fullstop.client.enableGForceEffects")
+                    .comment("Default: true")
+                    .define("enableGForceEffects", true);
+
+            this.minGForceThreshold = builder
+                    .comment("The G-force value at which visual effects start to appear")
+                    .translation("config.fullstop.client.minGForceThreshold")
+                    .comment("Default: 2.5")
+                    .defineInRange("minGForceThreshold", 2.5, 0.0, 100.0);
+
+            this.maxGForceThreshold = builder
+                    .comment("The G-force value at which visual effects reach maximum intensity")
+                    .translation("config.fullstop.client.maxGForceThreshold")
+                    .comment("Default: 7.0")
+                    .defineInRange("maxGForceThreshold", 7.0, 0.0, 100.0);
+
             builder.pop();
         }
     }
