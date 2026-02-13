@@ -96,7 +96,7 @@ public class PhysicsDispatchServer {
 
 //        if (entity instanceof Player targetEntity) {
 ////            LogToChat.logToChat(targetEntity.getName().getString(), "Native Vel: ", "X", Math.round(fullstop.getCurrentScaledVelocity().x), "Y", Math.round(fullstop.getCurrentScaledVelocity().y), "Z", Math.round(fullstop.getCurrentScaledVelocity().z));
-//            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRunningAverageDelta());
+//            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRawRunningAverageDelta());
 //        }
 
         if (entity.tickCount != fullstop.getLastTick()) {
@@ -104,9 +104,10 @@ public class PhysicsDispatchServer {
             fullstop.setLastTick(entity.tickCount);
         }
 
-        if (entity instanceof Player) {
-//            LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
-        }
+//        if (entity instanceof Player) {
+////            LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
+//            LogToChat.logToChat(fullstop.getRunningAverageDelta());
+//        }
 
         // If the entity is damage immune (e.g. just teleported), skip physics calculations
         if (fullstop.getIsDamageImmune()) {

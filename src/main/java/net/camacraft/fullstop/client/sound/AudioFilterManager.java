@@ -1,0 +1,179 @@
+package net.camacraft.fullstop.client.sound;
+
+import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.client.mixin.ChannelAccessor;
+import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.effect.ModEffects;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.resources.sounds.ElytraOnPlayerSoundInstance;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.sound.PlaySoundSourceEvent;
+import net.minecraftforge.client.event.sound.PlayStreamingSourceEvent;
+import net.minecraftforge.client.event.sound.SoundEngineLoadEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import org.lwjgl.openal.AL10;
+import org.lwjgl.openal.EXTEfx;
+
+@Mod.EventBusSubscriber(value = Dist.CLIENT)
+public class AudioFilterManager {
+
+    private static int filterObject = -1;
+    private static boolean supported = false;
+    private static boolean initialized = false;
+    private static float currentCutoff = 1.0f; // 1.0 = full range (22kHz), 0.0 = min range
+
+    private static void init() {
+        if (initialized) return;
+        initialized = true;
+
+        try {
+            // Check if OpenAL EFX is supported
+            long device = org.lwjgl.openal.ALC10.alcGetContextsDevice(org.lwjgl.openal.ALC10.alcGetCurrentContext());
+            if (org.lwjgl.openal.ALC10.alcIsExtensionPresent(device, "ALC_EXT_EFX")) {
+                supported = true;
+                
+                // Generate a Filter Object (not an Effect Object)
+                if (filterObject != -1) {
+                    EXTEfx.alDeleteFilters(filterObject);
+                }
+                filterObject = EXTEfx.alGenFilters();
+
+                // Set filter type to Low Pass
+                EXTEfx.alFilteri(filterObject, EXTEfx.AL_FILTER_TYPE, EXTEfx.AL_FILTER_LOWPASS);
+                
+                // Check for errors
+                if (AL10.alGetError() != AL10.AL_NO_ERROR) {
+                    supported = false;
+                    System.err.println("FullStop: Failed to initialize OpenAL EFX for audio filtering.");
+                } else {
+                    // Initial filter settings (no filtering)
+                    EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAIN, 1.0f);
+                    EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, 1.0f);
+                }
+            }
+        } catch (Exception e) {
+            supported = false;
+            e.printStackTrace();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onSoundEngineLoad(SoundEngineLoadEvent event) {
+        // Re-initialize when sound engine reloads
+        initialized = false;
+        filterObject = -1;
+        init();
+    }
+
+    @SubscribeEvent
+    public static void onPlaySoundSource(PlaySoundSourceEvent event) {
+        if (!supported || filterObject == -1) return;
+        
+        // Apply the filter to the new source
+        if (event.getChannel() instanceof ChannelAccessor accessor) {
+            int sourceId = accessor.fullstop$getSource();
+            if (sourceId != 0) {
+                AL10.alSourcei(sourceId, EXTEfx.AL_DIRECT_FILTER, filterObject);
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayStreamingSource(PlayStreamingSourceEvent event) {
+        if (!supported || filterObject == -1) return;
+        
+        // Apply the filter to the new streaming source
+        if (event.getChannel() instanceof ChannelAccessor accessor) {
+            int sourceId = accessor.fullstop$getSource();
+            if (sourceId != 0) {
+                AL10.alSourcei(sourceId, EXTEfx.AL_DIRECT_FILTER, filterObject);
+            }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+        
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null || !FullStopConfig.SERVER.enableGForceEffects.get()) {
+            if (currentCutoff < 0.99f) {
+                currentCutoff = 1.0f;
+                updateFilter(1.0f);
+            }
+            return;
+        }
+
+        if (!initialized) {
+            init();
+        }
+
+        if (!supported) return;
+
+        FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+        if (cap == null) return;
+
+        double gForce = cap.getRunningAverageDelta();
+        double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
+        double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+
+        // Calculate Potion Modifiers
+        int clarityLevel = 0;
+        int vertigoLevel = 0;
+
+        MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
+        if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
+
+        MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
+        if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
+
+        int netLevel = vertigoLevel - clarityLevel;
+
+        if (netLevel > 0) {
+            double multiplier = Math.pow(0.8, netLevel); 
+            minGforce *= multiplier;
+            maxGforce *= multiplier;
+        } else if (netLevel < 0) {
+            double multiplier = Math.pow(1.25, -netLevel);
+            minGforce *= multiplier;
+            maxGforce *= multiplier;
+        }
+
+        float targetCutoff = 1.0f;
+
+        if (gForce > minGforce) {
+            float intensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
+            intensity = Math.min(intensity, 1.0f);
+
+            // Make the effect more intense:
+            // Allow cutoff to go much lower (e.g., down to 0.05 or 0.1)
+            // And make the curve steeper.
+            targetCutoff = 1.0f - (intensity * 0.95f); // Allows dropping to 0.05
+        }
+
+        // Smooth interpolation
+        currentCutoff = currentCutoff + (targetCutoff - currentCutoff) * 0.1f;
+        
+        // Only update if there's a significant change or we are filtering
+        if (Math.abs(currentCutoff - targetCutoff) > 0.001f || currentCutoff < 0.99f) {
+            updateFilter(currentCutoff);
+        }
+    }
+
+    private static void updateFilter(float cutoff) {
+        if (!supported || filterObject == -1) return;
+
+        // Update the filter parameters globally.
+        // Since all sources point to this same filter object ID, updating the object updates all sources.
+        
+        // To make it more intense, we can also lower the overall volume (GAIN) as the cutoff drops.
+        // This simulates the sound becoming faint as well as muffled.
+        float gain = 0.2f + (cutoff * 0.8f); // Min volume 20%
+        
+        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAIN, gain);
+        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, cutoff * cutoff); // Square the cutoff for more aggressive filtering
+    }
+}

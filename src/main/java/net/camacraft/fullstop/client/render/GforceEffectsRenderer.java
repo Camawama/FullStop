@@ -16,6 +16,7 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ComputeFovModifierEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -24,8 +25,39 @@ import net.minecraftforge.fml.common.Mod;
 @Mod.EventBusSubscriber(value = Dist.CLIENT)
 public class GforceEffectsRenderer {
 
-    private static final ResourceLocation VIGNETTE_LOCATION = new ResourceLocation("textures/misc/vignette.png");
+    private static final ResourceLocation POWDER_SNOW_OUTLINE_LOCATION = new ResourceLocation("textures/misc/powder_snow_outline.png");
     private static float currentIntensity = 0.0f;
+    private static float currentFovModifier = 1.0f;
+
+    @SubscribeEvent
+    public static void onComputeFovModifier(ComputeFovModifierEvent event) {
+        if (!FullStopConfig.SERVER.enableGForceEffects.get()) return;
+
+        Minecraft minecraft = Minecraft.getInstance();
+        if (minecraft.player == null) return;
+
+        float targetFovModifier = 1.0f;
+        
+        FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+        if (cap != null) {
+            // Use raw G-force (unaffected by potions) for FOV
+            double gForce = cap.getRawRunningAverageDelta();
+            
+            // Exponential scaling for FOV
+            // We want 15G to be 100% increase (2.0x FOV)
+            // Formula: 1.0 + (gForce / 15.0)^2
+            
+            targetFovModifier = 1.0f + (float) Math.pow(gForce / 15.0, 2);
+        }
+
+        // Smooth interpolation for FOV
+        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.1f;
+        
+        // Apply the modifier. This multiplies the existing FOV, so it respects user settings but can exceed limits.
+        if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
+            event.setNewFovModifier(event.getNewFovModifier() * currentFovModifier);
+        }
+    }
 
     @SubscribeEvent
     public static void onRenderGuiOverlayPost(RenderGuiOverlayEvent.Post event) {
@@ -61,25 +93,22 @@ public class GforceEffectsRenderer {
                 int netLevel = vertigoLevel - clarityLevel;
 
                 // Adjust thresholds based on net level
-                // Positive netLevel (Vertigo dominant) -> Lower thresholds (easier to blackout)
-                // Negative netLevel (Clarity dominant) -> Higher thresholds (harder to blackout)
-                
-                // Each level shifts the threshold by roughly 20-25%
                 if (netLevel > 0) {
-                    // Vertigo: Lower thresholds
                     double multiplier = Math.pow(0.8, netLevel); 
                     minGforce *= multiplier;
                     maxGforce *= multiplier;
                 } else if (netLevel < 0) {
-                    // Clarity: Raise thresholds
                     double multiplier = Math.pow(1.25, -netLevel);
                     minGforce *= multiplier;
                     maxGforce *= multiplier;
                 }
 
                 if (gForce > minGforce) {
+                    // Scale from minGforce to maxGforce
                     targetIntensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
                     targetIntensity = Math.min(targetIntensity, 1.0f);
+                } else {
+                    targetIntensity = 0.0f;
                 }
             }
         }
@@ -88,7 +117,7 @@ public class GforceEffectsRenderer {
         // The 0.1f factor controls the speed of the transition. Lower is smoother and slower.
         currentIntensity = currentIntensity + (targetIntensity - currentIntensity) * 0.1f;
 
-        if (currentIntensity > 0.01f) { // Use a small threshold to avoid rendering for tiny values
+        if (currentIntensity > 0.001f) { // Use a small threshold to avoid rendering for tiny values
             GuiGraphics guiGraphics = event.getGuiGraphics();
             int screenWidth = guiGraphics.guiWidth();
             int screenHeight = guiGraphics.guiHeight();
@@ -97,7 +126,7 @@ public class GforceEffectsRenderer {
             float easedIntensity = MathUtils.easeOutCubic(currentIntensity);
 
             // Render our effects on top of the vanilla vignette.
-            renderVignette(screenWidth, screenHeight, easedIntensity);
+            renderTunnelVision(screenWidth, screenHeight, easedIntensity);
             renderBlackout(screenWidth, screenHeight, easedIntensity);
         }
     }
@@ -123,34 +152,39 @@ public class GforceEffectsRenderer {
         }
     }
 
-    private static void renderVignette(int screenWidth, int screenHeight, float intensity) {
-        // This renders the vignette effect, which darkens the corners.
-        RenderSystem.enableBlend();
-        // This blend function darkens the destination by the source color: Dst' = Dst * (1 - Src)
-        RenderSystem.blendFuncSeparate(GlStateManager.SourceFactor.ZERO, GlStateManager.DestFactor.ONE_MINUS_SRC_COLOR, GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO);
+    private static void renderTunnelVision(int screenWidth, int screenHeight, float intensity) {
+        // This renders a texture similar to the powder snow effect, creating a tunnel vision effect.
+        // We use the powder snow outline texture but color it black.
         
-        // The color value should be proportional to the desired darkness.
-        // A value of 0 means no darkening (Dst' = Dst * 1), a value of 1 means full blackening (Dst' = Dst * 0).
-        // Invert intensity because the shader multiplies by this color. 
-        // 1.0 = white (no change), 0.0 = black (full darkness)
-        float darkness = 1.0f - (intensity * 0.8f);
-
-        RenderSystem.setShader(GameRenderer::getPositionTexShader);
-        RenderSystem.setShaderColor(darkness, darkness, darkness, 1.0F);
-        RenderSystem.setShaderTexture(0, VIGNETTE_LOCATION);
-
+        RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        
+        // Set color to black with alpha based on intensity
+        RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
+        RenderSystem.setShaderTexture(0, POWDER_SNOW_OUTLINE_LOCATION);
+        
         Tesselator tesselator = Tesselator.getInstance();
         BufferBuilder bufferbuilder = tesselator.getBuilder();
-        bufferbuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX);
-        bufferbuilder.vertex(0.0D, screenHeight, -90.0D).uv(0.0F, 1.0F).endVertex();
-        bufferbuilder.vertex(screenWidth, screenHeight, -90.0D).uv(1.0F, 1.0F).endVertex();
-        bufferbuilder.vertex(screenWidth, 0.0D, -90.0D).uv(1.0F, 0.0F).endVertex();
-        bufferbuilder.vertex(0.0D, 0.0D, -90.0D).uv(0.0F, 0.0F).endVertex();
+        bufferbuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
+        
+        // Render the texture stretched over the screen
+        // We can render it multiple times or scale it to make the tunnel tighter if needed.
+        // For now, let's just render it once with varying alpha.
+        
+        float alpha = intensity; // Full intensity = full opacity
+        
+        bufferbuilder.vertex(0.0D, screenHeight, -90.0D).uv(0.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
+        bufferbuilder.vertex(screenWidth, screenHeight, -90.0D).uv(1.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
+        bufferbuilder.vertex(screenWidth, 0.0D, -90.0D).uv(1.0F, 0.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
+        bufferbuilder.vertex(0.0D, 0.0D, -90.0D).uv(0.0F, 0.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
+        
         tesselator.end();
-
-        // Reset shader color and blend func
+        
+        RenderSystem.depthMask(true);
+        RenderSystem.enableDepthTest();
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
-        RenderSystem.defaultBlendFunc();
         RenderSystem.disableBlend();
     }
 }

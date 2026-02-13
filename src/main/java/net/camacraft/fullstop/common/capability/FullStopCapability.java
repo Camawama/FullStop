@@ -52,6 +52,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private double decelerationForce = 0.0;
     private double accelMagnitude = 0.0;
     private double avgAccel = 0.0;
+    private double rawAvgAccel = 0.0; // Unaffected by potions
 
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
@@ -94,6 +95,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         }
 
         if (Double.isNaN(avgAccel)) avgAccel = 0;
+        if (Double.isNaN(rawAvgAccel)) rawAvgAccel = 0;
 
         if (entity instanceof LivingEntity living) {
             double gravity = 0.08;
@@ -127,6 +129,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             // Fix drift: if both current and average are negligible, snap to 0
             if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
                 avgAccel = 0.0;
+                rawAvgAccel = 0.0;
             } else {
                 // Clamp input acceleration to prevent massive single-tick spikes (e.g. teleportation artifacts)
                 // 20.0 m/s/tick is ~400 m/s^2 (40g), which is a reasonable upper bound for "valid" movement.
@@ -137,6 +140,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                     clampedInput = 0;
                     justBounced = false;
                 }
+
+                // Calculate Raw Average (Standard smoothing, unaffected by potions)
+                rawAvgAccel = (rawAvgAccel * 19 + clampedInput) / 20;
 
                 // Apply Potion Modifiers to the running average calculation
                 // This affects how quickly the G-force builds up or decays
@@ -359,6 +365,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         return avgAccel;
     }
 
+    public double getRawRunningAverageDelta() {
+        return rawAvgAccel;
+    }
 
     public boolean getIsDamageImmune() {
         return isDamageImmune;

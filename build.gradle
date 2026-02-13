@@ -111,9 +111,9 @@ dependencies {
     runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
     runtimeOnly fg.deobf("curse.maven:wall-jump-txf-909143:6584381")
     runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
-    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
-    runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
-    runtimeOnly fg.deobf("curse.maven:damagenumbers-1022853:5475417")
+//    runtimeOnly fg.deobf("curse.maven:wakes-reforged-1223529:7494279")
+//    runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
+//    runtimeOnly fg.deobf("curse.maven:damagenumbers-1022853:5475417")
     runtimeOnly fg.deobf("curse.maven:cubes-without-borders-975120:5855464")
 
     //runtimeOnly fg.deobf("curse.maven:gravityvs-1410068:7363495")
