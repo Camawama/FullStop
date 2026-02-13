@@ -1,11 +1,13 @@
 package net.camacraft.fullstop.common.capability;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.effect.ModEffects;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -135,8 +137,35 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                     clampedInput = 0;
                     justBounced = false;
                 }
+
+                // Apply Potion Modifiers to the running average calculation
+                // This affects how quickly the G-force builds up or decays
+                double smoothingFactor = 20.0; // Default smoothing (higher = slower change)
+
+                int clarityLevel = 0;
+                int vertigoLevel = 0;
+
+                MobEffectInstance clarity = living.getEffect(ModEffects.CLARITY.get());
+                if (clarity != null) {
+                    clarityLevel = clarity.getAmplifier() + 1;
+                }
+
+                MobEffectInstance vertigo = living.getEffect(ModEffects.VERTIGO.get());
+                if (vertigo != null) {
+                    vertigoLevel = vertigo.getAmplifier() + 1;
+                }
+
+                int netLevel = vertigoLevel - clarityLevel;
+
+                if (netLevel > 0) {
+                    // Vertigo: Faster buildup (lower smoothing factor)
+                    smoothingFactor = Math.max(5.0, smoothingFactor * Math.pow(0.7, netLevel));
+                } else if (netLevel < 0) {
+                    // Clarity: Slower buildup (higher smoothing factor)
+                    smoothingFactor = smoothingFactor * Math.pow(1.5, -netLevel);
+                }
                 
-                avgAccel = (avgAccel * 19 + clampedInput) / 20;
+                avgAccel = (avgAccel * (smoothingFactor - 1) + clampedInput) / smoothingFactor;
             }
         }
     }

@@ -6,6 +6,7 @@ import net.camacraft.fullstop.common.effect.ModEffects;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.EntityWeight;
+import net.camacraft.fullstop.common.potion.ModPotions;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -34,7 +35,8 @@ public class FullStop
 
     public FullStop() {
         var modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
-        ModEffects.MOB_EFFECTS.register(modEventBus);
+        ModEffects.register(modEventBus);
+        ModPotions.register(modEventBus);
         modEventBus.addListener(this::commonSetup);
         modEventBus.addListener(this::onConfigLoad);
         modEventBus.addListener(this::onConfigReload);
@@ -56,7 +58,10 @@ public class FullStop
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
-        PacketHandler.register();
+        event.enqueueWork(() -> {
+            PacketHandler.register();
+            ModPotions.registerBrewingRecipes();
+        });
     }
 
     public void onConfigLoad(ModConfigEvent.Loading event) {

@@ -8,11 +8,13 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.effect.ModEffects;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
@@ -34,12 +36,46 @@ public class GforceEffectsRenderer {
         float targetIntensity = 0.0f;
         Minecraft minecraft = Minecraft.getInstance();
 
-        if (minecraft.player != null && minecraft.options.getCameraType().isFirstPerson() && FullStopConfig.CLIENT.enableGForceEffects.get()) {
+        // Check server config instead of client config
+        if (minecraft.player != null && minecraft.options.getCameraType().isFirstPerson() && FullStopConfig.SERVER.enableGForceEffects.get()) {
             FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
             if (cap != null) {
                 double gForce = cap.getRunningAverageDelta();
                 double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
                 double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+
+                // Calculate Potion Modifiers
+                int clarityLevel = 0;
+                int vertigoLevel = 0;
+
+                MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
+                if (clarity != null) {
+                    clarityLevel = clarity.getAmplifier() + 1;
+                }
+
+                MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
+                if (vertigo != null) {
+                    vertigoLevel = vertigo.getAmplifier() + 1;
+                }
+
+                int netLevel = vertigoLevel - clarityLevel;
+
+                // Adjust thresholds based on net level
+                // Positive netLevel (Vertigo dominant) -> Lower thresholds (easier to blackout)
+                // Negative netLevel (Clarity dominant) -> Higher thresholds (harder to blackout)
+                
+                // Each level shifts the threshold by roughly 20-25%
+                if (netLevel > 0) {
+                    // Vertigo: Lower thresholds
+                    double multiplier = Math.pow(0.8, netLevel); 
+                    minGforce *= multiplier;
+                    maxGforce *= multiplier;
+                } else if (netLevel < 0) {
+                    // Clarity: Raise thresholds
+                    double multiplier = Math.pow(1.25, -netLevel);
+                    minGforce *= multiplier;
+                    maxGforce *= multiplier;
+                }
 
                 if (gForce > minGforce) {
                     targetIntensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
@@ -61,7 +97,7 @@ public class GforceEffectsRenderer {
             float easedIntensity = MathUtils.easeOutCubic(currentIntensity);
 
             // Render our effects on top of the vanilla vignette.
-            //renderVignette(screenWidth, screenHeight, easedIntensity);
+            renderVignette(screenWidth, screenHeight, easedIntensity);
             renderBlackout(screenWidth, screenHeight, easedIntensity);
         }
     }
@@ -88,9 +124,6 @@ public class GforceEffectsRenderer {
     }
 
     private static void renderVignette(int screenWidth, int screenHeight, float intensity) {
-        // TODO FIX OR REPLACE VIGNETTE RENDERER, IT DOESN'T SEEM TO SUPPORT FADING
-
-
         // This renders the vignette effect, which darkens the corners.
         RenderSystem.enableBlend();
         // This blend function darkens the destination by the source color: Dst' = Dst * (1 - Src)

@@ -66,6 +66,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
+        public final ForgeConfigSpec.BooleanValue enableGForceEffects;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -98,6 +99,12 @@ public class FullStopConfig {
                     .translation(key("deathMessageAppend"))
                     .comment("Default: true")
                     .define("deathMessageAppend", true);
+
+            this.enableGForceEffects = builder
+                    .comment("When true, enables visual effects (vignette and blackout) when experiencing high G-forces")
+                    .translation("config.fullstop.server.enableGForceEffects")
+                    .comment("Default: true")
+                    .define("enableGForceEffects", true);
 
             builder.pop();
             builder.push("Projectile settings");
@@ -174,7 +181,6 @@ public class FullStopConfig {
 
     public static class ClientConfigValues {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
-        public final ForgeConfigSpec.BooleanValue enableGForceEffects;
         public final ForgeConfigSpec.DoubleValue minGForceThreshold;
         public final ForgeConfigSpec.DoubleValue maxGForceThreshold;
 
@@ -185,12 +191,6 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.rotateCamera")
                     .comment("Default: true")
                     .define("rotateCamera", true);
-
-            this.enableGForceEffects = builder
-                    .comment("When true, enables visual effects (vignette and blackout) when experiencing high G-forces")
-                    .translation("config.fullstop.client.enableGForceEffects")
-                    .comment("Default: true")
-                    .define("enableGForceEffects", true);
 
             this.minGForceThreshold = builder
                     .comment("The G-force value at which visual effects start to appear")
