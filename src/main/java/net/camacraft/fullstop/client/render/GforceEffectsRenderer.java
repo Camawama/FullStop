@@ -1,6 +1,5 @@
 package net.camacraft.fullstop.client.render;
 
-import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
@@ -16,9 +15,10 @@ import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.ComputeFovModifierEvent;
 import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.ViewportEvent;
 import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
@@ -29,8 +29,8 @@ public class GforceEffectsRenderer {
     private static float currentIntensity = 0.0f;
     private static float currentFovModifier = 1.0f;
 
-    @SubscribeEvent
-    public static void onComputeFovModifier(ComputeFovModifierEvent event) {
+    @SubscribeEvent(priority = EventPriority.LOW)
+    public static void onComputeFov(ViewportEvent.ComputeFov event) {
         if (!FullStopConfig.SERVER.enableGForceEffects.get()) return;
 
         Minecraft minecraft = Minecraft.getInstance();
@@ -51,11 +51,28 @@ public class GforceEffectsRenderer {
         }
 
         // Smooth interpolation for FOV
-        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.1f;
+        // Use partial ticks for smoother interpolation
+        float partialTick = (float) event.getPartialTick();
+        
+        // We want to interpolate towards the target, but we need to be careful not to make it frame-rate dependent.
+        // A simple lerp every frame is frame-rate dependent.
+        // However, for visual effects like this, a simple lerp is often "good enough" if the target changes slowly.
+        // The issue is likely that 'gForce' updates only on game ticks (20Hz), while this render method runs every frame (e.g. 60Hz+).
+        // This causes the target to "step", and the lerp smooths the step.
+        // If the lerp is too fast, you see the steps. If too slow, it lags.
+        
+        // To make it perfectly smooth, we should interpolate the G-force itself using partial ticks, 
+        // but G-force is a complex derived value in the capability.
+        
+        // Instead, let's just make the interpolation factor smaller to smooth out the 20Hz steps more aggressively.
+        // 0.1f is quite fast (closes 10% of the gap per frame). At 60FPS, that's very fast.
+        // Let's try 0.05f or even lower to make it feel "heavy" and smooth.
+        
+        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.05f;
         
         // Apply the modifier. This multiplies the existing FOV, so it respects user settings but can exceed limits.
         if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
-            event.setNewFovModifier(event.getNewFovModifier() * currentFovModifier);
+            event.setFOV(event.getFOV() * currentFovModifier);
         }
     }
 

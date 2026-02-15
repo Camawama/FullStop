@@ -10,39 +10,45 @@
 
 [Modrinth Page](https://modrinth.com/mod/full-stop!-)
 
-# 🛑 Full Stop! 
+# 🛑 Full Stop!
 
 NOTICE: This mod is in Beta. There will be many bugs! Please report all bugs on the issue tracker!
 
 ## Overview
-Full Stop! introduces a new level of challenge to your Minecraft experience by simulating the dangers of velocity and impact. With every sprint, jump, and fall, you'll face realistic consequences that will keep you on your toes. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and was a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
+Full Stop! introduces a new level of challenge to your Minecraft experience by simulating the dangers of velocity and impact. With every sprint, jump, and fall, you'll face realistic consequences that will keep you on your toes. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and was a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
 
-## Features (strikethrough means it hasn't been implemented yet)
-- 💥 Dynamic Damage System: Experience realistic damage based on speed and collision force. Deal more damage when moving toward a target and less when moving away. Sudden impacts can leave you reeling. 
-- 🛠️ Durability Scaling: The damage you deal affects the durability of your items, meaning every hit counts. 
-- 🌪️ G-Force Effects: High-velocity maneuvers can inflict blindness and nausea as you push the limits of your movement. 
-- 🔄 Knockback Mechanics: Running into players or walls won't just hurt you; ~~you'll both be sent flying in the opposite direction!~~
-- ~~🌊 Environmental Challenges: Encounter pressure damage when submerged underwater and~~ experience slowness upon hard landings. 
-- ⚠️ Bounce Physics: Collide with walls at sharp angles to be knocked away realistically, adding a tactical element to movement. 
+## Features
+- 💥 **Dynamic Kinetic Damage System:** Damage is no longer just a number. It is dynamically calculated based on mass, velocity, impact force, block hardness, and armor toughness.
+- 🏃 **Velocity-Based Damage Scaling:** Speed is power. Attacks deal significantly more damage when moving towards your target, and less when retreating.
+- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Entities can shatter blocks upon impact if they possess enough mass and velocity.
+- 🚪 **Kinetic Interactions:** The world reacts to your impact. Slam into doors to fling them open, crash into Note Blocks to play them, or use falling sand to scrape oxidation off copper blocks.
+- 😵 **G-Force Effects (G-LOC):** Push the limits of human endurance. High-acceleration maneuvers trigger visual and auditory cues, leading to tunnel vision (blackout/redout) if you aren't careful.
+- 🧪 **New Status Effects:**
+  - **Clarity:** Focus your mind to reduce the negative effects of G-force.
+  - **Vertigo:** A disorienting effect that amplifies G-force penalties—deadly in elytra combat.
+  - **Sprain:** Land too hard on your feet? You'll be slowed and unable to jump for a while.
+- 🟢 **Slime Bounce Overhaul:** Physics unleashed. Bounce off slime blocks in *any* direction—walls, ceilings, or floors—complete with smooth camera rotation for total immersion.
+- 🤕 **Fall Damage Overhaul:** Vanilla fall damage is gone. It has been replaced by the kinetic damage system, meaning *any* collision at speed hurts, not just hitting the ground.
+- 🤼 **Entity-on-Entity Collisions:** No more phasing through mobs. Collide with entities using realistic physics, transfer momentum, and even "scoop up" smaller entities to ride them.
+- 🌊 **Realistic Water Drag:** Feel the resistance with overhauled water physics and sound effects.
+- ✨ **New Enchantments:**
+  - **Pullback:** The opposite of Knockback—pull your enemies closer.
+  - **Reflective:** Armor enchantment that reflects kinetic energy back at the attacker.
+  - **Kinetic Protection:** Specialized armor protection against high-velocity impacts.
+- 💀 **Detailed Death Messages:** Humiliation in detail. Death messages now display the exact speed at which the entity met its demise.
+- 🛠️ **Debug Mode:** Press `F3 + V` to visualize velocity vectors and raycast lines.
 
 ## Planned Features
-- Implement equal and opposite force transfer for entities
-- Prevent damage to leashed entities
-- Make it so that an entity hitting a block at extreme velocities may break the block
 - Implement pressure damage deep underwater
-- Diving with prone mods
-- Damage dampening by crouching in time
 
 ## Known Bugs (to be fixed)
-- Horses may take damage when jumping
 - Certain types of projectile attacks may scale their damage unintentionally
-- Honey particles and sounds are broken
   (please report bugs!)
 
-## Known Incompatabillities
+## Known Incompatibilities
 - CustomNPCs (NPCs will not look at players)
 
- 
+
 
 🚧 Warning:
 Speed is your enemy!

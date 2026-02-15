@@ -1,8 +1,10 @@
 package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
+import net.camacraft.fullstop.common.attribute.ModAttributes;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.enchantment.ModEnchantments;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.EntityWeight;
@@ -37,6 +39,8 @@ public class FullStop
         var modEventBus = FMLJavaModLoadingContext.get().getModEventBus();
         ModEffects.register(modEventBus);
         ModPotions.register(modEventBus);
+        ModAttributes.register(modEventBus);
+        ModEnchantments.register(modEventBus);
         modEventBus.addListener(this::commonSetup);
         modEventBus.addListener(this::onConfigLoad);
         modEventBus.addListener(this::onConfigReload);

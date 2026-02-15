@@ -152,10 +152,10 @@ public final class BounceHandler {
             double targetPitch = -Math.toDegrees(Math.atan2(newV.y, horizontalDistance));
 
             boolean isElytraFlying = entity instanceof LivingEntity && ((LivingEntity) entity).isFallFlying();
-//            if (!fullstop.isMostlyDownward() || isElytraFlying) {
-//                fullstop.setTargetPitch(targetPitch);
-//            }
-            fullstop.setTargetPitch(targetPitch);
+            if (!fullstop.isMostlyDownward() || isElytraFlying) {
+                fullstop.setTargetPitch(targetPitch);
+            }
+//            fullstop.setTargetPitch(targetPitch);
         }
     }
 }

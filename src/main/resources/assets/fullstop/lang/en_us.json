@@ -16,7 +16,9 @@
   "enchantment.fullstop.kinetic_protection": "Kinetic Protection",
   "enchantment.fullstop.reflective": "Reflective",
   "enchantment.fullstop.pullback": "Pullback",
-  "attribute.name.generic.kinetic_dampening": "Kinetic Dampening",
+  "attribute.name.fullstop.kinetic_dampening": "Kinetic Dampening",
 
-  "effect.fullstop.sprain": "Sprain"
+  "effect.fullstop.sprain": "Sprain",
+  "effect.fullstop.clarity": "Clarity",
+  "effect.fullstop.vertigo": "Vertigo"
 }

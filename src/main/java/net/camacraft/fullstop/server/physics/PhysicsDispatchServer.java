@@ -14,6 +14,7 @@ import net.camacraft.fullstop.server.physics.collision.ServerCollisionDetector;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageApplier;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageCalculator;
 import net.camacraft.fullstop.server.physics.effects.StatusEffectApplier;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvent;
@@ -106,13 +107,23 @@ public class PhysicsDispatchServer {
 
 //        if (entity instanceof Player) {
 ////            LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
-//            LogToChat.logToChat(fullstop.getRunningAverageDelta());
+//            LogToChat.logToChat(fullstop.getCurrentScaledVelocity());
 //        }
 
         // If the entity is damage immune (e.g. just teleported), skip physics calculations
         if (fullstop.getIsDamageImmune()) {
             fullstop.resetVelocity();
             return;
+        }
+
+        // Check for sonic boom
+        if (fullstop.getCurrentScaledVelocity().length() >= 343.0 && fullstop.canSonicBoom()) {
+            if (entity.level() instanceof ServerLevel serverLevel) {
+                serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
+                FSSoundPlayer.playSoundServer(entity, SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, 4.0f, (1.0f + (entity.level().random.nextFloat() - entity.level().random.nextFloat()) * 0.2f) * 0.7f);
+                FSSoundPlayer.playSoundServer(entity, SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, 4.0f, 2.0f);
+                fullstop.setSonicBoomCooldown(100);
+            }
         }
 
         // Optimization: Skip collision detection for slow-moving entities

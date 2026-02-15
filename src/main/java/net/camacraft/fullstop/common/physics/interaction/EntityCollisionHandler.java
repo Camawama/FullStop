@@ -2,12 +2,15 @@ package net.camacraft.fullstop.common.physics.interaction;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.enchantment.ModEnchantments;
 import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -209,9 +212,46 @@ public final class EntityCollisionHandler {
 
             Vec3 impulse = normal.scale(j);
             
+            // Reflective Enchantment Logic
+            if (entity instanceof LivingEntity livingEntity) {
+                int reflectiveLevel = 0;
+                for (ItemStack stack : livingEntity.getArmorSlots()) {
+                    reflectiveLevel += EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.REFLECTIVE.get(), stack);
+                }
+                if (reflectiveLevel > 0) {
+                    // Reflect velocity back to the other entity
+                    // We reduce the impulse on 'entity' and increase it on 'other'
+                    // Or simply reflect the incoming velocity component
+                    
+                    // For simplicity, let's say reflective armor makes the collision more elastic for the wearer (they bounce off more?)
+                    // Or maybe it transfers more momentum to the other entity?
+                    
+                    // "it will absorb a small amount of the incoming damage and also reflect the incoming velocity from the entity"
+                    // This suggests the wearer takes less impulse, and the other entity takes more (or gets pushed back).
+                    
+                    // Let's reduce the impulse applied to 'entity'
+                    // And maybe apply a bonus impulse to 'other'
+                    
+                    // Reduce impulse on wearer
+                    impulse = impulse.scale(1.0 - (reflectiveLevel * 0.1)); // 10% reduction per level
+                }
+            }
+            
             totalImpulseOnEntity = totalImpulseOnEntity.add(impulse);
             
             Vec3 impulseOnOther = impulse.scale(-1);
+            
+            // If the other entity has reflective armor too?
+            if (other instanceof LivingEntity livingOther) {
+                 int otherReflectiveLevel = 0;
+                 for (ItemStack stack : livingOther.getArmorSlots()) {
+                     otherReflectiveLevel += EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.REFLECTIVE.get(), stack);
+                 }
+                 if (otherReflectiveLevel > 0) {
+                     impulseOnOther = impulseOnOther.scale(1.0 - (otherReflectiveLevel * 0.1));
+                 }
+            }
+
             Vec3 v2New = v2.add(impulseOnOther.scale(1 / m2));
             
             other.setDeltaMovement(v2New);

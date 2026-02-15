@@ -62,6 +62,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private double teleportCooldown = 0.0;
     private double dismountCooldown = 0.0;
     private int soundCooldown = 0;
+    private int sonicBoomCooldown = 0;
     private long lastTick = -1;
 
     private long lastCollisionTick = -1000;
@@ -92,6 +93,10 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         if (soundCooldown > 0) {
             soundCooldown--;
+        }
+        
+        if (sonicBoomCooldown > 0) {
+            sonicBoomCooldown--;
         }
 
         if (Double.isNaN(avgAccel)) avgAccel = 0;
@@ -412,6 +417,14 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public boolean canPlaySound() {
         return soundCooldown <= 0;
+    }
+
+    public void setSonicBoomCooldown(int ticks) {
+        this.sonicBoomCooldown = ticks;
+    }
+    
+    public boolean canSonicBoom() {
+        return sonicBoomCooldown <= 0;
     }
 
     public boolean isCollisionOnCooldown(long currentTick, BlockPos blockPos, int entityId, int cooldownTicks) {
