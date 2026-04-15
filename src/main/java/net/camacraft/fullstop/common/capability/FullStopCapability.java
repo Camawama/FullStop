@@ -209,7 +209,19 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         // We only use client velocity for players to ensure responsive controls
         // For everything else, we trust the server's calculation
         if (entity instanceof Player && clientVelocityMps != null) {
-            velocityMps = clientVelocityMps;
+            double actualSpeedSqr = actualVelocity.lengthSqr();
+            double clientSpeedSqr = clientVelocityMps.lengthSqr();
+
+            // FIX: Completely override client velocity if actual velocity is significantly lower,
+            // or if we are actively colliding with a block.
+            if (entity.horizontalCollision || entity.verticalCollision || (clientSpeedSqr > actualSpeedSqr + 0.1)) {
+                // If there is a huge mismatch or a hard collision, the client is probably pressing against a wall/floor.
+                // We should completely trust the server's actual movement calculation to avoid velocity buildup.
+                velocityMps = actualVelocity;
+            } else {
+                // If moving normally and no collision, trust the client for responsiveness
+                velocityMps = clientVelocityMps;
+            }
             clientVelocityMps = null; // Consume the value
         } else {
             velocityMps = actualVelocity;
@@ -218,7 +230,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         if (entity instanceof LivingEntity living) {
             double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
 
-            // FIX: Only zero out Y velocity if we are actually on the ground AND not moving downwards significantly
+            // Only zero out Y velocity if we are actually on the ground AND not moving downwards significantly
             // This prevents "accumulating" downward velocity while standing on a ledge or hugging a wall
             if (velocityMps.y >= gravity * -20 && velocityMps.y < 0 && entity.onGround()) {
                 velocityMps = new Vec3(velocityMps.x, 0, velocityMps.z);
