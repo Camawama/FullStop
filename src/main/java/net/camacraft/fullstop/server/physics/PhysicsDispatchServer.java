@@ -95,9 +95,15 @@ public class PhysicsDispatchServer {
         FullStopCapability fullstop = grabCapability(entity);
         if (fullstop == null) return;
 
-//        if (entity instanceof Player targetEntity) {
+//        if (entity instanceof Player) {
 ////            LogToChat.logToChat(targetEntity.getName().getString(), "Native Vel: ", "X", Math.round(fullstop.getCurrentScaledVelocity().x), "Y", Math.round(fullstop.getCurrentScaledVelocity().y), "Z", Math.round(fullstop.getCurrentScaledVelocity().z));
-//            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRawRunningAverageDelta());
+////            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRawRunningAverageDelta());
+////            LogToChat.logToChat(" X:", Math.round(fullstop.getCurrentScaledVelocity().x), "\n", "Y:",Math.round(fullstop.getCurrentScaledVelocity().y), "\n", "Z:", Math.round(fullstop.getCurrentScaledVelocity().z));
+//        }
+
+//        if (entity instanceof Player) {
+//            float speed = (float) fullstop.getCurrentScaledVelocity().length();
+//            LogToChat.logToChat(String.format("%.1f m/s", speed));
 //        }
 
         if (entity.tickCount != fullstop.getLastTick()) {
@@ -122,7 +128,7 @@ public class PhysicsDispatchServer {
                 serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
                 FSSoundPlayer.playSoundServer(entity, SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, 4.0f, (1.0f + (entity.level().random.nextFloat() - entity.level().random.nextFloat()) * 0.2f) * 0.7f);
                 FSSoundPlayer.playSoundServer(entity, SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, 4.0f, 2.0f);
-                fullstop.setSonicBoomCooldown(100);
+                fullstop.setSonicBoomCooldown(20);
             }
         }
 
