@@ -172,23 +172,25 @@ public class KineticDamageApplier {
         }
 
         // --- FIX: Determine who is the "attacker" for the death message ---
-        // The entity moving faster should be the one "attacking" in the message.
+        // The entity with the greater momentum (mass * velocity) should be the one "attacking".
         Vec3 myVel = VelocityMath.entityVelocity(entity);
         Vec3 otherVel = VelocityMath.entityVelocity(firstCollider);
-        double mySpeed = myVel.length();
-        double otherSpeed = otherVel.length();
-        
+        double myMass = EntityStackUtils.getEntityMass(entity);
+        double otherMass = EntityStackUtils.getEntityMass(firstCollider);
+        double myMomentum = myVel.length() * myMass;
+        double otherMomentum = otherVel.length() * otherMass;
+
         // Calculate relative velocity (impact speed)
         double impactSpeed = myVel.subtract(otherVel).length();
-        
-        boolean otherIsFaster = otherSpeed > mySpeed;
-        boolean bothMovingFast = mySpeed > 2.0 && otherSpeed > 2.0; // Threshold for "both moving"
+
+        boolean otherHasMoreMomentum = otherMomentum > myMomentum;
+        boolean bothMovingFast = myVel.length() > 2.0 && otherVel.length() > 2.0; // Threshold for "both moving"
 
         String displayVelocityStr;
         if (bothMovingFast) {
              displayVelocityStr = String.format("(at %.2f m/s)", impactSpeed);
-        } else if (otherIsFaster) {
-            displayVelocityStr = String.format("(going %.2f m/s)", otherSpeed);
+        } else if (otherHasMoreMomentum) {
+            displayVelocityStr = String.format("(going %.2f m/s)", otherVel.length());
         } else {
             displayVelocityStr = velocityToDisplay;
         }
@@ -204,10 +206,8 @@ public class KineticDamageApplier {
                         displayVelocityStr,
                         color
                 );
-            } else if (otherIsFaster) {
-                // If the other entity is faster, use the attacker source logic for the message
-                // But we need a damage source that targets 'entity' (victim)
-                // makeEntityAttackerSource creates a source where 'attacker' is the entity causing damage.
+            } else if (otherHasMoreMomentum) {
+                // If the other entity has more momentum, they are the attacker.
                 selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(
                         sources,
                         collidedExample,
@@ -272,12 +272,27 @@ public class KineticDamageApplier {
 
         if (entity instanceof LivingEntity living) {
             for (LivingEntity target : validTargets) {
-                // For the target, 'entity' is the attacker.
-                // If 'entity' is slower, we might want to change the message for the target too?
-                // But usually if I run into a cow, I am the attacker.
-                // If a cow runs into me, the loop runs for the cow, and I am the target.
+                DamageSource attackerSource;
+                if (otherHasMoreMomentum) {
+                     attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityCollisionSelfSource(
+                             sources.flyIntoWall(),
+                             target,
+                             living,
+                             displayVelocityStr,
+                             color,
+                             fullstop.isMostlyDownward(),
+                             fullstop.isMostlyUpward()
+                     );
+                } else {
+                    attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(
+                            sources,
+                            living,
+                            velocityToDisplay,
+                            color,
+                            fullstop.isMostlyDownward()
+                    );
+                }
 
-                DamageSource attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(sources, living, velocityToDisplay, color, fullstop.isMostlyDownward());
 
                 double targetMass = EntityStackUtils.getEntityMass(target);
                 if (targetMass < 0.001) targetMass = 0.001;
