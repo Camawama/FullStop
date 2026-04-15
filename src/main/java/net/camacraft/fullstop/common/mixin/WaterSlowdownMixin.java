@@ -4,11 +4,14 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -16,6 +19,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(LivingEntity.class)
 public class WaterSlowdownMixin {
 
+    @Unique
     private static final String SLOSH_CD_TAG = "fullstop_slosh_cd";
 
     @Inject(method = "travel", at = @At("HEAD"))
@@ -25,6 +29,7 @@ public class WaterSlowdownMixin {
 
         if (!entity.isInWater()
                 || entity.isAutoSpinAttack()
+                || entity.getMobType() == MobType.WATER
                 || FullStopCapability.hasDolphinsGrace(entity)
                 || FullStopCapability.hasDepthStrider(entity)) {
             return;
@@ -65,6 +70,10 @@ public class WaterSlowdownMixin {
 
         float volume = (float) Mth.clamp(0.05 + impact * 0.95 + massT * 0.15, 0.05, 1.4);
         float pitch  = (float) Mth.clamp(1.30 - impact * 0.55 - massT * 0.25, 0.55, 1.35);
+
+        if (entity.isEyeInFluid(FluidTags.WATER)) {
+            volume *= 0.5f;
+        }
 
         if (entity.level().isClientSide()) {
             FSSoundPlayer.playSoundClient(entity, FSSoundPlayer.sound(FSSoundPlayer.WATER_SLOSH_ID), SoundSource.PLAYERS, volume, pitch);
