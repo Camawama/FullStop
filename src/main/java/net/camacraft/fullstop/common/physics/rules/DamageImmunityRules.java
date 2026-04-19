@@ -25,6 +25,14 @@ public class DamageImmunityRules {
         if (living instanceof Player player && (player.isCreative() || player.isSpectator())) {
             return true;
         }
+        
+        if (living.isSleeping()) {
+            return true;
+        }
+
+        if (living.isInvulnerable()) {
+            return true;
+        }
 
         // Bosses
         if (living instanceof WitherBoss) return true;

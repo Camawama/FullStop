@@ -1,11 +1,13 @@
 package net.camacraft.fullstop.client.sound;
 
+import com.mojang.blaze3d.audio.Channel;
 import net.camacraft.fullstop.FullStopConfig;
-import net.camacraft.fullstop.client.mixin.ChannelAccessor;
+import net.camacraft.fullstop.client.mixin.*;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.effect.ModEffects;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.resources.sounds.ElytraOnPlayerSoundInstance;
+import net.minecraft.client.sounds.ChannelAccess;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.sound.PlaySoundSourceEvent;
@@ -58,6 +60,35 @@ public class AudioFilterManager {
             supported = false;
             e.printStackTrace();
         }
+    }
+
+    public static void applyFilterToAllChannels() {
+        if (!supported || filterObject == -1) return;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getSoundManager() == null) return;
+
+        try {
+            var soundManager = mc.getSoundManager();
+            var engine = ((SoundManagerAccessor) soundManager).fullstop$getSoundEngine();
+            if (engine == null) return;
+
+            ChannelAccess access = ((SoundEngineAccessor) engine).fullstop$getChannelAccess();
+            if (access == null) return;
+
+            // ✅ This already runs on the sound thread
+            access.executeOnChannels(stream -> {
+                stream.forEach(channel -> {
+                    if (channel instanceof ChannelAccessor accessor) {
+                        int sourceId = accessor.fullstop$getSource();
+                        if (sourceId != 0) {
+                            AL10.alSourcei(sourceId, EXTEfx.AL_DIRECT_FILTER, filterObject);
+                        }
+                    }
+                });
+            });
+
+        } catch (Exception ignored) {}
     }
 
     @SubscribeEvent
@@ -151,11 +182,12 @@ public class AudioFilterManager {
             // Make the effect more intense:
             // Allow cutoff to go much lower (e.g., down to 0.05 or 0.1)
             // And make the curve steeper.
-            targetCutoff = 1.0f - (intensity * 0.95f); // Allows dropping to 0.05
+            float curve = intensity * intensity; // quadratic ramp
+            targetCutoff = 1.0f - (curve * 0.98f);
         }
 
         // Smooth interpolation
-        currentCutoff = currentCutoff + (targetCutoff - currentCutoff) * 0.1f;
+        currentCutoff = currentCutoff + (targetCutoff - currentCutoff) * 0.07f;
         
         // Only update if there's a significant change or we are filtering
         if (Math.abs(currentCutoff - targetCutoff) > 0.001f || currentCutoff < 0.99f) {
@@ -171,9 +203,9 @@ public class AudioFilterManager {
         
         // To make it more intense, we can also lower the overall volume (GAIN) as the cutoff drops.
         // This simulates the sound becoming faint as well as muffled.
-        float gain = 0.2f + (cutoff * 0.8f); // Min volume 20%
+        float gain = 0.05f + (cutoff * 0.95f);
         
         EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAIN, gain);
-        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, cutoff * cutoff); // Square the cutoff for more aggressive filtering
+        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, cutoff * cutoff * cutoff); // Square the cutoff for more aggressive filtering
     }
 }

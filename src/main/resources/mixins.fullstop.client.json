@@ -5,6 +5,9 @@
   "compatibilityLevel": "JAVA_17",
   "client": [
     "ChannelAccessor",
+    "ChannelAccessMixin",
+    "SoundEngineAccessor",
+    "SoundManagerAccessor",
     "KeyboardHandlerMixin",
     "PlayerTurnHook"
   ],

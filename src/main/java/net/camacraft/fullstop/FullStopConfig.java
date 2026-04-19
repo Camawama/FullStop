@@ -14,7 +14,7 @@ public class FullStopConfig {
     public static final float DEFAULT_PROJECTILE_MULTIPLIER = 1.00F;
     public static final float DEFAULT_VELOCITY_THRESHOLD = 6.3F;
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77f;
-    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 3.8F; // Adjusted from 12.77F
+    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     public static final ForgeConfigSpec SERVER_SPEC;
     public static final ServerConfigValues SERVER;
@@ -139,7 +139,7 @@ public class FullStopConfig {
             this.velocityDamageThresholdVertical = builder
                     .comment("This value determines how fast an entity must be moving in order to apply kinetic damage vertically. Very low values may be unplayable!")
                     .translation(key("velocityDamageThresholdVertical"))
-                    .comment("Default: 3.8") // Adjusted from 12.77
+                    .comment("Default: 12.77")
                     .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL, 0, 100);
 
             this.entityCollisionDamage = builder
