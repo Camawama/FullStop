@@ -327,7 +327,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     private void tickImmunity() {
         if (hasTeleported) {
-            teleportCooldown = 20;
+            teleportCooldown = 5;
             hasTeleported = false;
         }
 

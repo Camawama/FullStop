@@ -2,6 +2,7 @@ package net.camacraft.fullstop.server.physics.damage;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.minecraft.tags.BlockTags;
@@ -9,6 +10,7 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.StainedGlassBlock;
 import net.minecraft.world.level.block.StainedGlassPaneBlock;
@@ -27,13 +29,6 @@ public class KineticDamageCalculator {
             if (mob.isLeashed() && fullstop.isMostlyDownward() && collision.fake()) return 0;
         }
 
-        // If the collision is bouncy (Slime, Bed, Honey), we should not apply damage
-        // UNLESS the player is crouching, which suppresses the bounce.
-//        if (!entity.isCrouching() && collision.bouncy()) {
-//            return 0;
-//        }
-
-        // TODO add a config variable for custom types
         if (!entity.isCrouching() && collision.collisionType == Collision.CollisionType.SLIME ||
                 !entity.isCrouching() && collision.collisionType == Collision.CollisionType.BED ||
                 !entity.isCrouching() && collision.collisionType == Collision.CollisionType.HONEY
@@ -50,6 +45,15 @@ public class KineticDamageCalculator {
         }
 
         double stoppingForce = fullstop.getStoppingForce();
+
+        // The original stoppingForce is calculated before the collision is processed,
+        // resulting in a value of 0 on hard impacts because the velocity hasn't been updated to 0 yet.
+        // For a solid vertical impact, the change in velocity (the stopping force) is simply the
+        // vertical speed the entity had right before the impact.
+        if (collision.collisionType == Collision.CollisionType.SOLID && fullstop.isMostlyDownward()) {
+            stoppingForce = Math.abs(fullstop.getPreviousScaledVelocity().y);
+        }
+
         if (collision.collisionType == Collision.CollisionType.ENTITY
                 && collision.collidingEntities != null
                 && !collision.collidingEntities.isEmpty()) {
@@ -65,6 +69,16 @@ public class KineticDamageCalculator {
         } else {
             damage = Math.max(stoppingForce - SERVER.velocityDamageThresholdVertical.get(), 0);
         }
+
+//        if (entity instanceof Player && fullstop.isMostlyDownward()) {
+//            LogToChat.logToChat(
+//                    "Stopping Force: " + String.format("%.2f", stoppingForce),
+//                    "Threshold: " + String.format("%.2f", SERVER.velocityDamageThresholdVertical.get()),
+//                    "Damage: " + String.format("%.2f", damage),
+//                    "Prev Velocity Y: " + String.format("%.2f", fullstop.getPreviousScaledVelocity().y),
+//                    "On Ground: " + entity.onGround()
+//            );
+//        }
 
         if (damage <= 0) return 0;
         
