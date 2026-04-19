@@ -171,7 +171,7 @@ public class KineticDamageApplier {
             }
         }
 
-        // --- FIX: Determine who is the "attacker" for the death message ---
+        // Determine who is the "attacker" for the death message
         // The entity with the greater momentum (mass * velocity) should be the one "attacking".
         Vec3 myVel = VelocityMath.entityVelocity(entity);
         Vec3 otherVel = VelocityMath.entityVelocity(firstCollider);

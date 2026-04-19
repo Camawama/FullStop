@@ -12,6 +12,7 @@ import net.minecraft.world.entity.animal.Parrot;
 import net.minecraft.world.entity.animal.allay.Allay;
 import net.minecraft.world.entity.boss.enderdragon.EnderDragon;
 import net.minecraft.world.entity.boss.wither.WitherBoss;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Blaze;
 import net.minecraft.world.entity.monster.Ghast;
 import net.minecraft.world.entity.monster.Phantom;
@@ -55,6 +56,8 @@ public class DamageImmunityRules {
 
     public static boolean unphysable(Entity entity) {
         if (entity == null) return true;
+
+        if (entity instanceof ItemEntity) return true;
 
         if (entity instanceof Mob mob && mob.isNoAi()) return true;
 

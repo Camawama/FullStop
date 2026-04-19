@@ -32,6 +32,7 @@ public final class EntityCollisionHandler {
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
         if (collision.collidingEntities.isEmpty()) return;
 
+
         //LogToChat.sendTo(entity, entity.getName(), "has collided with", collision.collidingEntities.stream().findFirst().get().getName());
 
         Vec3 v1Initial = entity.hasImpulse ? entity.getDeltaMovement() : fullstop.getCurrentNativeVelocity();
