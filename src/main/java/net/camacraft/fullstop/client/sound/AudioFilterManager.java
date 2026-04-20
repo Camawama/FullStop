@@ -130,7 +130,7 @@ public class AudioFilterManager {
         if (event.phase != TickEvent.Phase.END) return;
         
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null) {
+        if (minecraft.player == null || minecraft.player.isCreative()) {
             if (currentCutoff < 0.99f) {
                 currentCutoff = 1.0f;
                 updateFilter(1.0f);
@@ -144,7 +144,6 @@ public class AudioFilterManager {
 
         if (!supported) return;
 
-        // --- G-Force Calculation ---
         float gForceCutoff = 1.0f;
         if (FullStopConfig.SERVER.enableGForceEffects.get()) {
             FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
@@ -153,7 +152,6 @@ public class AudioFilterManager {
                 double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
                 double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
 
-                // Potion Modifiers
                 int clarityLevel = 0;
                 int vertigoLevel = 0;
                 MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
@@ -181,23 +179,19 @@ public class AudioFilterManager {
             }
         }
 
-        // --- Drowning Calculation ---
         float drowningCutoff = 1.0f;
         int airSupply = minecraft.player.getAirSupply();
         int maxAir = minecraft.player.getMaxAirSupply();
         if (airSupply < maxAir) {
             float intensity = 1.0f - ((float)airSupply / (float)maxAir);
-            float curve = intensity * intensity * intensity * intensity;
+            float curve = intensity * intensity * intensity;
             drowningCutoff = 1.0f - (curve * 0.98f);
         }
 
-        // Use the stronger (lower) of the two effects
         float targetCutoff = Math.min(gForceCutoff, drowningCutoff);
 
-        // Smooth interpolation
         currentCutoff = currentCutoff + (targetCutoff - currentCutoff) * 0.07f;
         
-        // Only update if there's a significant change or we are filtering
         if (Math.abs(currentCutoff - targetCutoff) > 0.001f || currentCutoff < 0.99f) {
             updateFilter(currentCutoff);
         }
@@ -205,15 +199,10 @@ public class AudioFilterManager {
 
     private static void updateFilter(float cutoff) {
         if (!supported || filterObject == -1) return;
-
-        // Update the filter parameters globally.
-        // Since all sources point to this same filter object ID, updating the object updates all sources.
         
-        // To make it more intense, we can also lower the overall volume (GAIN) as the cutoff drops.
-        // This simulates the sound becoming faint as well as muffled.
         float gain = 0.05f + (cutoff * 0.95f);
         
         EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAIN, gain);
-        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, cutoff * cutoff * cutoff); // Square the cutoff for more aggressive filtering
+        EXTEfx.alFilterf(filterObject, EXTEfx.AL_LOWPASS_GAINHF, cutoff * cutoff * cutoff);
     }
 }

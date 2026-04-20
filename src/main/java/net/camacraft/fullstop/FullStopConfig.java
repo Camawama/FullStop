@@ -33,28 +33,9 @@ public class FullStopConfig {
     }
 
     public static class ServerConfigValues {
-        /**
-         * Arbitrary value. The function f(x) represents the % increase of the original damage and real equal to
-         * ((x / VELOCITY_INCREMENT)^2) / 2; where x indicates one-dimensional velocity in the direction of the target
-         * (when positive). In other words, x real the speed with which the attacker real approaching (or for that matter,
-         * retreating from) the target.
-         * <br><br>
-         * The player by default sprints at 5.612m/s. When VELOCITY_INCREMENT real the default 3.96828326, a player sprinting
-         * into a stationary target will have a 100% bonus on their attack. The fastest horses in vanilla Minecraft
-         * have a top speed of 14.23m/s. Using the formula at the default VELOCITY_INCREMENT, this returns as a
-         * 643% percent increase in damage.
-         */
         public final ForgeConfigSpec.DoubleValue velocityIncrement;
         public final ForgeConfigSpec.DoubleValue exponentiationConstant;
-        /**
-         * The minimum damage dealt real capped to this percentage of the original. Must be a value from 0.0 to 1.0 inclusive.
-         * The minimum real capped at 10% by default.
-         */
         public final ForgeConfigSpec.DoubleValue minDamagePercent;
-        /**
-         * The maximum bonus damage one can inflict real capped to this percentage of the original. Must be greater than 0.
-         * There real no maximum by default.
-         */
         public final ForgeConfigSpec.DoubleValue maxDamagePercent;
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
@@ -67,6 +48,14 @@ public class FullStopConfig {
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
+        public final ForgeConfigSpec.BooleanValue enablePressureSimulation;
+        public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
+        public final ForgeConfigSpec.DoubleValue highAltitudeAirLossRate;
+        public final ForgeConfigSpec.IntValue deepWaterStartLevel;
+        public final ForgeConfigSpec.DoubleValue deepWaterAirLossMultiplier;
+        public final ForgeConfigSpec.IntValue pressureDamageStartDepth;
+        public final ForgeConfigSpec.DoubleValue pressureDamageAmount;
+        public final ForgeConfigSpec.IntValue pressureDamageTickRate;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -169,6 +158,41 @@ public class FullStopConfig {
                     .comment("Experimental: Choose the raycast mode for collision detection. FULL_SWEEP may have significant performance impact.")
                     .translation(key("raycastMode"))
                     .defineEnum("raycastMode", RaycastMode.CORNERS_AND_CENTERS);
+
+            builder.pop();
+            builder.push("Pressure Simulation");
+
+            this.enablePressureSimulation = builder
+                    .comment("Enables atmospheric and underwater pressure effects.")
+                    .define("enablePressureSimulation", true);
+
+            this.highAltitudeStartLevel = builder
+                    .comment("The Y-level where players start losing air due to thin atmosphere.")
+                    .defineInRange("highAltitudeStartLevel", 128, -64, 320);
+
+            this.highAltitudeAirLossRate = builder
+                    .comment("Multiplier for air loss rate at high altitudes. Higher is faster.")
+                    .defineInRange("highAltitudeAirLossRate", 0.5, 0.0, 10.0);
+
+            this.deepWaterStartLevel = builder
+                    .comment("The Y-level below which entities lose air faster underwater.")
+                    .defineInRange("deepWaterStartLevel", 0, -64, 320);
+
+            this.deepWaterAirLossMultiplier = builder
+                    .comment("Multiplier for how much faster air is lost in deep water.")
+                    .defineInRange("deepWaterAirLossMultiplier", 2.0, 1.0, 20.0);
+
+            this.pressureDamageStartDepth = builder
+                    .comment("The Y-level where entities start taking pressure damage underwater.")
+                    .defineInRange("pressureDamageStartDepth", -32, -64, 0);
+
+            this.pressureDamageAmount = builder
+                    .comment("Amount of damage dealt by underwater pressure.")
+                    .defineInRange("pressureDamageAmount", 2.0, 0.0, 100.0);
+
+            this.pressureDamageTickRate = builder
+                    .comment("How often (in ticks) pressure damage is applied. 20 ticks = 1 second.")
+                    .defineInRange("pressureDamageTickRate", 40, 1, 200);
 
             builder.pop();
         }

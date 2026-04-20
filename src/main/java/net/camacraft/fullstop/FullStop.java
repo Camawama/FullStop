@@ -56,7 +56,6 @@ public class FullStop
         MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
-        // MinecraftForge.EVENT_BUS.register(LogToChat.class); // TODO: Re-implement LogToChat
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
     }
@@ -69,14 +68,12 @@ public class FullStop
     }
 
     public void onConfigLoad(ModConfigEvent.Loading event) {
-        // Only load weights if the server config is actually loaded
         if (event.getConfig().getType() == ModConfig.Type.SERVER) {
             EntityWeight.loadConfigWeights();
         }
     }
 
     public void onConfigReload(ModConfigEvent.Reloading event) {
-        // Only reload weights if the server config is actually reloaded
         if (event.getConfig().getType() == ModConfig.Type.SERVER) {
             EntityWeight.loadConfigWeights();
         }
@@ -84,7 +81,6 @@ public class FullStop
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
-        // Check if config is loaded before accessing it to prevent crashes
         if (!SERVER_SPEC.isLoaded()) return;
 
         if (!(SERVER.projectilesHaveMomentum.get())) return;

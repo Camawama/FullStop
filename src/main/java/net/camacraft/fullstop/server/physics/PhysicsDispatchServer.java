@@ -1,10 +1,11 @@
 package net.camacraft.fullstop.server.physics;
 
 import com.google.common.collect.Lists;
+import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
-import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.particle.CollisionParticleSpawner;
+import net.camacraft.fullstop.common.physics.damage.KineticDamageSources;
 import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.common.physics.interaction.KineticBlockInteractions;
@@ -23,7 +24,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.SoundType;
@@ -89,40 +89,23 @@ public class PhysicsDispatchServer {
     }
 
     private static void onEntityTick(Entity entity) {
+        handlePressure(entity);
 
         if (DamageImmunityRules.unphysable(entity)) return;
 
         FullStopCapability fullstop = grabCapability(entity);
         if (fullstop == null) return;
 
-//        if (entity instanceof Player) {
-////            LogToChat.logToChat(targetEntity.getName().getString(), "Native Vel: ", "X", Math.round(fullstop.getCurrentScaledVelocity().x), "Y", Math.round(fullstop.getCurrentScaledVelocity().y), "Z", Math.round(fullstop.getCurrentScaledVelocity().z));
-////            LogToChat.logToChat(targetEntity.getName().getString(), fullstop.getRawRunningAverageDelta());
-////            LogToChat.logToChat(" X:", Math.round(fullstop.getCurrentScaledVelocity().x), "\n", "Y:",Math.round(fullstop.getCurrentScaledVelocity().y), "\n", "Z:", Math.round(fullstop.getCurrentScaledVelocity().z));
-//        }
-
-//        if (entity instanceof Player) {
-//            float speed = (float) fullstop.getCurrentScaledVelocity().length();
-//            LogToChat.logToChat(String.format("%.1f m/s", speed));
-//        }
-
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
         }
 
-//        if (entity instanceof Player) {
-////            LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
-//            LogToChat.logToChat(fullstop.getCurrentScaledVelocity());
-//        }
-
-        // If the entity is damage immune (e.g. just teleported), skip physics calculations
         if (fullstop.getIsDamageImmune()) {
             fullstop.resetVelocity();
             return;
         }
 
-        // Check for sonic boom
         if (fullstop.getCurrentScaledVelocity().length() >= 343.0 && fullstop.canSonicBoom()) {
             if (entity.level() instanceof ServerLevel serverLevel) {
                 serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
@@ -132,9 +115,6 @@ public class PhysicsDispatchServer {
             }
         }
 
-        // Optimization: Skip collision detection for slow-moving entities
-        // This prevents 1500+ raycasts per tick for idle mobs
-        // Threshold: 0.01 m/s (very slow)
         if (fullstop.getPreviousScaledVelocity().lengthSqr() < 0.0001) {
             return;
         }
@@ -166,12 +146,47 @@ public class PhysicsDispatchServer {
         }
     }
 
+    private static void handlePressure(Entity entity) {
+        if (!FullStopConfig.SERVER.enablePressureSimulation.get()) return;
+        if (!(entity instanceof LivingEntity living)) return;
+        if (living instanceof Player player && player.isCreative()) return;
+        if (living.canBreatheUnderwater()) return; // Exclude aquatic mobs
+
+        // High Altitude Air Loss
+        if (living instanceof Player) { // Only affect players
+            int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
+            if (living.getY() > altitudeStart) {
+                int y = (int) living.getY();
+                double rate = FullStopConfig.SERVER.highAltitudeAirLossRate.get();
+                // Lose 1 air every tick, scaled by height difference and rate
+                int airLoss = (int) (1 + (y - altitudeStart) * rate / 10);
+                living.setAirSupply(living.getAirSupply() - airLoss);
+            }
+        }
+
+        // Underwater Pressure
+        if (living.isUnderWater()) {
+            int deepWaterStart = FullStopConfig.SERVER.deepWaterStartLevel.get();
+            if (living.getY() < deepWaterStart) {
+                double multiplier = FullStopConfig.SERVER.deepWaterAirLossMultiplier.get();
+                int airLoss = (int) (1 * multiplier);
+                living.setAirSupply(living.getAirSupply() - airLoss);
+            }
+
+            int damageDepth = FullStopConfig.SERVER.pressureDamageStartDepth.get();
+            if (living.getY() < damageDepth) {
+                int tickRate = FullStopConfig.SERVER.pressureDamageTickRate.get();
+                if (living.tickCount % tickRate == 0) {
+                    float damage = FullStopConfig.SERVER.pressureDamageAmount.get().floatValue();
+                    living.hurt(KineticDamageSources.pressure(living), damage);
+                }
+            }
+        }
+    }
+
     private static void impactAesthetic(Entity entity, FullStopCapability fullstop, Collision collision) {
         if (collision.fake()) return;
-//        if (fullstop.getStoppingForce() < 4.0) return;
-
         Vec3 pos = entity.position();
-
         if (collision.blockStates != null) {
             for (BlockState blockState : collision.blockStates) {
                 CollisionParticleSpawner.spawnParticle(entity.level(), pos, collision, blockState);
@@ -180,20 +195,12 @@ public class PhysicsDispatchServer {
     }
 
     private static void impactSound(Entity entity, FullStopCapability fullstop, Collision collision) {
-        if (!fullstop.canPlaySound()) return;
-
-//        if (fullstop.getStoppingForce() <= 2.0) return;
-        if (collision.fake()) return;
+        if (!fullstop.canPlaySound() || collision.fake()) return;
 
         float volume = ((float) (fullstop.getStoppingForce() * 0.05f));
-
         int hitCount = (collision.blockStates != null ? collision.blockStates.size() : 0)
                 + (collision.collidingEntities != null ? collision.collidingEntities.size() : 0);
-
-        if (hitCount > 1) {
-            volume /= (float) (hitCount * 0.6);
-        }
-
+        if (hitCount > 1) volume /= (float) (hitCount * 0.6);
         volume = Mth.clamp(volume, 0.0f, 1.0f);
 
         float minPitch = 0.9f;
@@ -201,49 +208,40 @@ public class PhysicsDispatchServer {
         float pitch = (float) Mth.clamp(minPitch + (fullstop.getStoppingForce() / 100f) * (maxPitch - minPitch), minPitch, maxPitch);
 
         List<SoundEvent> playedSounds = new ArrayList<>();
-
         if (collision.collidingEntities != null) {
             for (Entity collidedEntity : collision.collidingEntities) {
                 SoundEvent hitSound = SoundEvents.BOOK_PUT;
-
                 if (!playedSounds.contains(hitSound)) {
                     FSSoundPlayer.playSoundServer(entity.level(), collidedEntity.blockPosition(), hitSound, SoundSource.PLAYERS, volume, pitch);
                     playedSounds.add(hitSound);
                 }
             }
         }
-
         if (collision.blockStates != null) {
             for (BlockState blockState : collision.blockStates) {
                 SoundType soundType = blockState.getSoundType();
                 SoundEvent sound = soundType.getFallSound();
-
                 if (!playedSounds.contains(sound)) {
                     FSSoundPlayer.playSoundServer(entity.level(), entity.blockPosition(), sound, SoundSource.PLAYERS, volume, pitch);
                     playedSounds.add(sound);
                 }
-
                 if (entity instanceof Minecart) {
                     FSSoundPlayer.playSoundServer(entity.level(), entity.blockPosition(), SoundEvents.IRON_GOLEM_HURT, SoundSource.PLAYERS, volume / 2, pitch * (float) Math.random());
                     FSSoundPlayer.playSoundServer(entity.level(), entity.blockPosition(), SoundEvents.ANVIL_FALL, SoundSource.PLAYERS, volume / 2, pitch * (float) Math.random());
                 }
             }
         }
-
         fullstop.setSoundCooldown(4);
     }
 
     private static void impactDamageSound(Entity entity, double damage, Collision collision) {
-        if (entity instanceof Player player) {
-            if (player.isCreative() || player.isSpectator()) return;
-        }
+        if (entity instanceof Player player && (player.isCreative() || player.isSpectator())) return;
         if (!(entity instanceof LivingEntity)) return;
         if (damage <= 0) return;
 
         float volume = Math.min(0.1F * (float) damage, 1.0F);
         float pitch = 0.5F;
         SoundEvent sound = SoundEvents.PLAYER_BIG_FALL;
-
         if (collision.collisionType == Collision.CollisionType.SOLID) {
             FSSoundPlayer.playSoundServer(entity, sound, SoundSource.PLAYERS, volume, pitch);
         }

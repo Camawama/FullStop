@@ -34,43 +34,21 @@ public class GforceEffectsRenderer {
         if (!FullStopConfig.SERVER.enableGForceEffects.get()) return;
 
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null) return;
+        if (minecraft.player == null || minecraft.player.isCreative()) {
+            currentFovModifier = 1.0f;
+            return;
+        }
 
         float targetFovModifier = 1.0f;
         
         FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
         if (cap != null) {
-            // Use raw G-force (unaffected by potions) for FOV
             double gForce = cap.getRawRunningAverageDelta();
-            
-            // Exponential scaling for FOV
-            // We want 15G to be 100% increase (2.0x FOV)
-            // Formula: 1.0 + (gForce / 15.0)^2
-            
             targetFovModifier = 1.0f + (float) Math.pow(gForce / 15.0, 2);
         }
 
-        // Smooth interpolation for FOV
-        // Use partial ticks for smoother interpolation
-        float partialTick = (float) event.getPartialTick();
-        
-        // We want to interpolate towards the target, but we need to be careful not to make it frame-rate dependent.
-        // A simple lerp every frame is frame-rate dependent.
-        // However, for visual effects like this, a simple lerp is often "good enough" if the target changes slowly.
-        // The issue is likely that 'gForce' updates only on game ticks (20Hz), while this render method runs every frame (e.g. 60Hz+).
-        // This causes the target to "step", and the lerp smooths the step.
-        // If the lerp is too fast, you see the steps. If too slow, it lags.
-        
-        // To make it perfectly smooth, we should interpolate the G-force itself using partial ticks, 
-        // but G-force is a complex derived value in the capability.
-        
-        // Instead, let's just make the interpolation factor smaller to smooth out the 20Hz steps more aggressively.
-        // 0.1f is quite fast (closes 10% of the gap per frame). At 60FPS, that's very fast.
-        // Let's try 0.05f or even lower to make it feel "heavy" and smooth.
-        
         currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.05f;
         
-        // Apply the modifier. This multiplies the existing FOV, so it respects user settings but can exceed limits.
         if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
             event.setFOV(event.getFOV() * currentFovModifier);
         }
@@ -86,8 +64,7 @@ public class GforceEffectsRenderer {
         float drowningIntensity = 0.0f;
         Minecraft minecraft = Minecraft.getInstance();
 
-        if (minecraft.player != null && minecraft.options.getCameraType().isFirstPerson()) {
-            // --- G-Force Calculation ---
+        if (minecraft.player != null && !minecraft.player.isCreative() && minecraft.options.getCameraType().isFirstPerson()) {
             if (FullStopConfig.SERVER.enableGForceEffects.get()) {
                 FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
                 if (cap != null) {
@@ -95,7 +72,6 @@ public class GforceEffectsRenderer {
                     double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
                     double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
 
-                    // Potion modifiers
                     int clarityLevel = 0;
                     int vertigoLevel = 0;
                     MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
@@ -121,42 +97,35 @@ public class GforceEffectsRenderer {
                 }
             }
 
-            // --- Drowning Calculation ---
             int airSupply = minecraft.player.getAirSupply();
             int maxAir = minecraft.player.getMaxAirSupply();
             if (airSupply < maxAir) {
-                // As air goes from max to 0, intensity goes from 0 to 1.
                 float intensity = 1.0f - ((float)airSupply / (float)maxAir);
-                drowningIntensity = intensity * intensity * intensity * intensity;
+                drowningIntensity = intensity * intensity * intensity;
             }
         }
 
-        // Use the stronger of the two effects
         float targetIntensity = Math.max(gForceIntensity, drowningIntensity);
 
-        // Smoothly interpolate towards the target intensity.
         currentIntensity = currentIntensity + (targetIntensity - currentIntensity) * 0.1f;
 
-        if (currentIntensity > 0.001f) { // Use a small threshold to avoid rendering for tiny values
+        if (currentIntensity > 0.001f) {
             GuiGraphics guiGraphics = event.getGuiGraphics();
             int screenWidth = guiGraphics.guiWidth();
             int screenHeight = guiGraphics.guiHeight();
 
-            // Apply easing to make the effect feel more natural
             float easedIntensity = MathUtils.easeOutCubic(currentIntensity);
 
-            // Render our effects on top of the vanilla vignette.
             renderTunnelVision(screenWidth, screenHeight, easedIntensity);
             renderBlackout(screenWidth, screenHeight, easedIntensity);
         }
     }
 
     private static void renderBlackout(int screenWidth, int screenHeight, float intensity) {
-        // This renders a fullscreen darkening effect.
-        float alpha = intensity * 0.95f; // Max blackout opacity
+        float alpha = intensity * 0.95f;
         if (alpha > 0) {
             RenderSystem.enableBlend();
-            RenderSystem.defaultBlendFunc(); // Use standard alpha blending
+            RenderSystem.defaultBlendFunc();
             RenderSystem.setShader(GameRenderer::getPositionColorShader);
             
             Tesselator tesselator = Tesselator.getInstance();
@@ -173,15 +142,11 @@ public class GforceEffectsRenderer {
     }
 
     private static void renderTunnelVision(int screenWidth, int screenHeight, float intensity) {
-        // This renders a texture similar to the powder snow effect, creating a tunnel vision effect.
-        // We use the powder snow outline texture but color it black.
-        
         RenderSystem.disableDepthTest();
         RenderSystem.depthMask(false);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         
-        // Set color to black with alpha based on intensity
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderTexture(0, POWDER_SNOW_OUTLINE_LOCATION);
         
@@ -189,11 +154,7 @@ public class GforceEffectsRenderer {
         BufferBuilder bufferbuilder = tesselator.getBuilder();
         bufferbuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
         
-        // Render the texture stretched over the screen
-        // We can render it multiple times or scale it to make the tunnel tighter if needed.
-        // For now, let's just render it once with varying alpha.
-        
-        float alpha = intensity; // Full intensity = full opacity
+        float alpha = intensity;
         
         bufferbuilder.vertex(0.0D, screenHeight, -90.0D).uv(0.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
         bufferbuilder.vertex(screenWidth, screenHeight, -90.0D).uv(1.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();

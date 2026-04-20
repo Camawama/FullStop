@@ -11,13 +11,20 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * Generates damage sources with custom death messages for kinetic damage events.
- * Messages vary based on direction (up/down/horizontal), collision target (block/entity),
- * equipment (Elytra), and player pitch.
- */
 public final class KineticDamageSources {
-    private KineticDamageSources() {
+    public static DamageSource pressure(LivingEntity entity) {
+        // Get the vanilla 'drown' damage source, which already bypasses armor.
+        DamageSource baseSource = entity.damageSources().drown();
+        
+        // Create a new DamageSource that wraps the 'drown' type's holder.
+        // This inherits all its properties (like bypassing armor), but lets us override the death message.
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public @NotNull Component getLocalizedDeathMessage(@NotNull LivingEntity killed) {
+                // Return our custom death message instead of the default drowning one.
+                return Component.translatable("death.attack.pressure", killed.getDisplayName());
+            }
+        };
     }
 
     @NotNull
