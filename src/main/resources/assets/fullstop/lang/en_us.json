@@ -14,6 +14,8 @@
   "config.velocitydamage.wildMode": "Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)",
   "death.fell.accident.water": "%s flopped into the water",
   "death.attack.pressure": "%1$s was crushed by the depths",
+  "death.attack.stalagmite": "%1$s was impaled on a stalagmite",
+  "death.attack.atmosphere": "%1$s suffocated in the thin air",
   "enchantment.fullstop.kinetic_protection": "Kinetic Protection",
   "enchantment.fullstop.reflective": "Reflective",
   "enchantment.fullstop.pullback": "Pullback",

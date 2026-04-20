@@ -3,11 +3,13 @@ package net.camacraft.fullstop.server.physics.damage;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.damage.DamageMitigation;
+import net.camacraft.fullstop.common.physics.damage.FullStopDamageSources;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
+import net.minecraft.core.Direction;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -21,11 +23,12 @@ import net.minecraft.world.entity.animal.horse.Horse;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.PointedDripstoneBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
-
-import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
 public class KineticDamageApplier {
 
@@ -68,7 +71,7 @@ public class KineticDamageApplier {
         DamageSources sources = entity.damageSources();
 
         if (collision.collisionType != Collision.CollisionType.ENTITY) {
-            applyBlockCollisionDamage(entity, fullstop, damage, velocityToDisplay, color, sources);
+            applyBlockCollisionDamage(entity, fullstop, collision, damage, velocityToDisplay, color, sources);
         }
 
         if (collision.collisionType == Collision.CollisionType.ENTITY && collision.collidingEntities != null && !collision.collidingEntities.isEmpty()) {
@@ -78,17 +81,32 @@ public class KineticDamageApplier {
         fullstop.recordCollision(entity.tickCount, collisionPos, collisionEntityId);
     }
 
-    private static void applyBlockCollisionDamage(Entity entity, FullStopCapability fullstop, double damage, String velocityToDisplay, TextColor color, DamageSources sources) {
-        DamageSource baseSource;
-        if (fullstop.isMostlyDownward()) {
-            baseSource = sources.fall();
-        } else if (fullstop.isMostlyUpward()) {
-            baseSource = sources.flyIntoWall();
-        } else {
-            baseSource = sources.flyIntoWall();
+    private static void applyBlockCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision, double damage, String velocityToDisplay, TextColor color, DamageSources sources) {
+        boolean hitDripstone = false;
+        if (collision.blockStates != null) {
+            for (BlockState state : collision.blockStates) {
+                if (state.is(Blocks.POINTED_DRIPSTONE) && state.getValue(PointedDripstoneBlock.TIP_DIRECTION) == Direction.UP) {
+                    hitDripstone = true;
+                    break;
+                }
+            }
         }
 
-        DamageSource customSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeSelfSource(baseSource, velocityToDisplay, color, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+        DamageSource customSource;
+        if (fullstop.isMostlyDownward()) {
+            if (hitDripstone && entity instanceof LivingEntity) {
+                // Use the dedicated stalagmite source directly, don't wrap it.
+                customSource = FullStopDamageSources.stalagmite((LivingEntity) entity);
+            } else {
+                // For regular falls, use our custom kinetic fall source to ensure our message is used.
+                DamageSource baseSource = entity instanceof LivingEntity ? FullStopDamageSources.kineticFall((LivingEntity) entity) : sources.fall();
+                customSource = FullStopDamageSources.makeSelfSource(baseSource, velocityToDisplay, color, true, false);
+            }
+        } else {
+            // For wall hits, etc.
+            DamageSource baseSource = sources.flyIntoWall();
+            customSource = FullStopDamageSources.makeSelfSource(baseSource, velocityToDisplay, color, false, fullstop.isMostlyUpward());
+        }
 
         if (fullstop.isMostlyDownward()) {
             double totalMass = EntityStackUtils.getAllEntitiesInStack(entity).stream().mapToDouble(EntityStackUtils::getEntityMass).sum();
@@ -99,7 +117,7 @@ public class KineticDamageApplier {
             float selfDamage = (float) damage * crushFactor;
 
             if (entity instanceof LivingEntity living) {
-                selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+                selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, true, false);
                 entity.hurt(customSource, selfDamage);
             } else {
                 entity.hurt(customSource, selfDamage);
@@ -113,7 +131,7 @@ public class KineticDamageApplier {
 
         } else {
             if (entity instanceof LivingEntity living) {
-                float finalSelfDamage = DamageMitigation.applyArmorReduction(living, (float) damage, fullstop.isMostlyDownward(), fullstop.isMostlyUpward());
+                float finalSelfDamage = DamageMitigation.applyArmorReduction(living, (float) damage, false, fullstop.isMostlyUpward());
                 entity.hurt(customSource, finalSelfDamage);
             } else {
                 entity.hurt(customSource, (float) damage);
@@ -171,8 +189,6 @@ public class KineticDamageApplier {
             }
         }
 
-        // Determine who is the "attacker" for the death message
-        // The entity with the greater momentum (mass * velocity) should be the one "attacking".
         Vec3 myVel = VelocityMath.entityVelocity(entity);
         Vec3 otherVel = VelocityMath.entityVelocity(firstCollider);
         double myMass = EntityStackUtils.getEntityMass(entity);
@@ -180,11 +196,10 @@ public class KineticDamageApplier {
         double myMomentum = myVel.length() * myMass;
         double otherMomentum = otherVel.length() * otherMass;
 
-        // Calculate relative velocity (impact speed)
         double impactSpeed = myVel.subtract(otherVel).length();
 
         boolean otherHasMoreMomentum = otherMomentum > myMomentum;
-        boolean bothMovingFast = myVel.length() > 2.0 && otherVel.length() > 2.0; // Threshold for "both moving"
+        boolean bothMovingFast = myVel.length() > 2.0 && otherVel.length() > 2.0;
 
         String displayVelocityStr;
         if (bothMovingFast) {
@@ -198,8 +213,7 @@ public class KineticDamageApplier {
         DamageSource selfSource;
         if (collidedExample != null && entity instanceof LivingEntity living) {
             if (bothMovingFast) {
-                // Mutual collision
-                 selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityMutualCollisionSource(
+                 selfSource = FullStopDamageSources.makeEntityMutualCollisionSource(
                         sources.flyIntoWall(),
                         living,
                         collidedExample,
@@ -207,16 +221,15 @@ public class KineticDamageApplier {
                         color
                 );
             } else if (otherHasMoreMomentum) {
-                // If the other entity has more momentum, they are the attacker.
-                selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(
+                selfSource = FullStopDamageSources.makeEntityAttackerSource(
                         sources,
                         collidedExample,
                         displayVelocityStr,
                         color,
-                        fullstop.isMostlyDownward() // This might need adjustment if the other entity is falling on us
+                        fullstop.isMostlyDownward()
                 );
             } else {
-                selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityCollisionSelfSource(
+                selfSource = FullStopDamageSources.makeEntityCollisionSelfSource(
                         sources.flyIntoWall(),
                         living,
                         collidedExample,
@@ -227,7 +240,7 @@ public class KineticDamageApplier {
                 );
             }
         } else {
-            selfSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeSelfSource(
+            selfSource = FullStopDamageSources.makeSelfSource(
                     sources.flyIntoWall(),
                     displayVelocityStr,
                     color,
@@ -274,7 +287,7 @@ public class KineticDamageApplier {
             for (LivingEntity target : validTargets) {
                 DamageSource attackerSource;
                 if (otherHasMoreMomentum) {
-                     attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityCollisionSelfSource(
+                     attackerSource = FullStopDamageSources.makeEntityCollisionSelfSource(
                              sources.flyIntoWall(),
                              target,
                              living,
@@ -284,7 +297,7 @@ public class KineticDamageApplier {
                              fullstop.isMostlyUpward()
                      );
                 } else {
-                    attackerSource = net.camacraft.fullstop.common.physics.damage.KineticDamageSources.makeEntityAttackerSource(
+                    attackerSource = FullStopDamageSources.makeEntityAttackerSource(
                             sources,
                             living,
                             velocityToDisplay,

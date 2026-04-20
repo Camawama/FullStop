@@ -27,7 +27,7 @@ public final class BounceHandler {
         if (entity.isCrouching() || collision.fake()) return;
 
         // If not bouncy and low speed, ignore.
-        if (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 9) return;
+        if (!collision.bouncy() && fullstop.getPreviousScaledVelocity().length() < 5) return;
 
         if (collision.collisionType == Collision.CollisionType.ENTITY) return;
 

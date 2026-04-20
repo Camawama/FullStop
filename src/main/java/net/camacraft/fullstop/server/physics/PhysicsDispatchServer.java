@@ -5,7 +5,7 @@ import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.particle.CollisionParticleSpawner;
-import net.camacraft.fullstop.common.physics.damage.KineticDamageSources;
+import net.camacraft.fullstop.common.physics.damage.FullStopDamageSources;
 import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.common.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.common.physics.interaction.KineticBlockInteractions;
@@ -33,6 +33,7 @@ import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
+import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.ArrayList;
@@ -50,6 +51,11 @@ public class PhysicsDispatchServer {
                 onEntityTick(entity);
             }
         }
+    }
+
+    @SubscribeEvent
+    public static void onLivingTick(LivingEvent.LivingTickEvent event) {
+        handlePressure(event.getEntity());
     }
 
     @SubscribeEvent
@@ -81,7 +87,7 @@ public class PhysicsDispatchServer {
 
                 if (living instanceof ServerPlayer) {
                     if (!cap.getJoinedForFirstTime()) {
-                        cap.setJoinedForFirstTime(true); // Old check that could be useful for checking if a player has joined for the first time
+                        cap.setJoinedForFirstTime(true);
                     }
                 }
             }
@@ -89,8 +95,6 @@ public class PhysicsDispatchServer {
     }
 
     private static void onEntityTick(Entity entity) {
-        handlePressure(entity);
-
         if (DamageImmunityRules.unphysable(entity)) return;
 
         FullStopCapability fullstop = grabCapability(entity);
@@ -146,25 +150,26 @@ public class PhysicsDispatchServer {
         }
     }
 
-    private static void handlePressure(Entity entity) {
-        if (!FullStopConfig.SERVER.enablePressureSimulation.get()) return;
-        if (!(entity instanceof LivingEntity living)) return;
+    private static void handlePressure(LivingEntity living) {
+        if (!FullStopConfig.SERVER.enablePressureSimulation.get() || living.level().isClientSide) return;
         if (living instanceof Player player && player.isCreative()) return;
-        if (living.canBreatheUnderwater()) return; // Exclude aquatic mobs
+        if (living.canBreatheUnderwater()) return;
 
-        // High Altitude Air Loss
-        if (living instanceof Player) { // Only affect players
-            int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
-            if (living.getY() > altitudeStart) {
-                int y = (int) living.getY();
-                double rate = FullStopConfig.SERVER.highAltitudeAirLossRate.get();
-                // Lose 1 air every tick, scaled by height difference and rate
-                int airLoss = (int) (1 + (y - altitudeStart) * rate / 10);
-                living.setAirSupply(living.getAirSupply() - airLoss);
+        int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
+        if (living.getY() > altitudeStart && !living.isUnderWater()) {
+            int y = (int) living.getY();
+            double rate = FullStopConfig.SERVER.highAltitudeAirLossRate.get();
+            int airLoss = (int) (1 + (y - altitudeStart) * rate / 10);
+            
+            int nextAir = living.getAirSupply() - airLoss;
+            living.setAirSupply(nextAir);
+
+            if (living.getAirSupply() <= -20) {
+                living.setAirSupply(0);
+                living.hurt(FullStopDamageSources.atmosphere(living), 2.0F);
             }
         }
 
-        // Underwater Pressure
         if (living.isUnderWater()) {
             int deepWaterStart = FullStopConfig.SERVER.deepWaterStartLevel.get();
             if (living.getY() < deepWaterStart) {
@@ -178,7 +183,7 @@ public class PhysicsDispatchServer {
                 int tickRate = FullStopConfig.SERVER.pressureDamageTickRate.get();
                 if (living.tickCount % tickRate == 0) {
                     float damage = FullStopConfig.SERVER.pressureDamageAmount.get().floatValue();
-                    living.hurt(KineticDamageSources.pressure(living), damage);
+                    living.hurt(FullStopDamageSources.pressure(living), damage);
                 }
             }
         }

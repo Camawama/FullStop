@@ -56,6 +56,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue pressureDamageStartDepth;
         public final ForgeConfigSpec.DoubleValue pressureDamageAmount;
         public final ForgeConfigSpec.IntValue pressureDamageTickRate;
+        public final ForgeConfigSpec.DoubleValue dripstoneDamageMultiplier;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -142,6 +143,10 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+            
+            this.dripstoneDamageMultiplier = builder
+                    .comment("Multiplier for damage when falling on pointed dripstone.")
+                    .defineInRange("dripstoneDamageMultiplier", 2.0, 1.0, 100.0);
 
             this.entityWeights = builder
                     .comment("Define custom weights (multipliers) for specific entities. Format: \"entity_id,multiplier\"")

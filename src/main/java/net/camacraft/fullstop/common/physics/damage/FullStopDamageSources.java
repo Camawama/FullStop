@@ -11,20 +11,39 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import org.jetbrains.annotations.NotNull;
 
-public final class KineticDamageSources {
+public final class FullStopDamageSources {
     public static DamageSource pressure(LivingEntity entity) {
-        // Get the vanilla 'drown' damage source, which already bypasses armor.
         DamageSource baseSource = entity.damageSources().drown();
-        
-        // Create a new DamageSource that wraps the 'drown' type's holder.
-        // This inherits all its properties (like bypassing armor), but lets us override the death message.
         return new DamageSource(baseSource.typeHolder()) {
             @Override
             public @NotNull Component getLocalizedDeathMessage(@NotNull LivingEntity killed) {
-                // Return our custom death message instead of the default drowning one.
                 return Component.translatable("death.attack.pressure", killed.getDisplayName());
             }
         };
+    }
+
+    public static DamageSource stalagmite(LivingEntity entity) {
+        DamageSource baseSource = entity.damageSources().fall();
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public @NotNull Component getLocalizedDeathMessage(@NotNull LivingEntity killed) {
+                return Component.translatable("death.attack.stalagmite", killed.getDisplayName());
+            }
+        };
+    }
+
+    public static DamageSource atmosphere(LivingEntity entity) {
+        DamageSource baseSource = entity.damageSources().drown();
+        return new DamageSource(baseSource.typeHolder()) {
+            @Override
+            public @NotNull Component getLocalizedDeathMessage(@NotNull LivingEntity killed) {
+                return Component.translatable("death.attack.atmosphere", killed.getDisplayName());
+            }
+        };
+    }
+
+    public static DamageSource kineticFall(LivingEntity entity) {
+        return entity.damageSources().generic();
     }
 
     @NotNull
@@ -51,12 +70,12 @@ public final class KineticDamageSources {
                         if (lookingDown) {
                             return Component.literal("")
                                     .append(victim.getDisplayName())
-                                    .append(" hit their head on the ground with Elytra")
+                                    .append(" hit their head on the ground wearing Elytra")
                                     .append(velocityComponent);
                         } else {
                             return Component.literal("")
                                     .append(victim.getDisplayName())
-                                    .append(" hit the ground too hard with Elytra")
+                                    .append(" hit the ground too hard wearing Elytra")
                                     .append(velocityComponent);
                         }
                     } else {
