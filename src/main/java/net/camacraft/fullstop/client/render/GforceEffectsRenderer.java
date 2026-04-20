@@ -64,7 +64,7 @@ public class GforceEffectsRenderer {
         float drowningIntensity = 0.0f;
         Minecraft minecraft = Minecraft.getInstance();
 
-        if (minecraft.player != null && !minecraft.player.isCreative() && minecraft.options.getCameraType().isFirstPerson()) {
+        if (minecraft.player != null && !minecraft.player.isCreative()) {
             if (FullStopConfig.SERVER.enableGForceEffects.get()) {
                 FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
                 if (cap != null) {
