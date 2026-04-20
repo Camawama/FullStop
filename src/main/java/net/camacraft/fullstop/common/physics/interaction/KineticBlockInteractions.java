@@ -19,15 +19,18 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.context.UseOnContext;
 import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.block.LevelEvent;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.block.state.properties.DoubleBlockHalf;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ToolActions;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
@@ -44,6 +47,7 @@ public class KineticBlockInteractions {
 
     // Event ID 3004 corresponds to LevelEvent.PARTICLES_AND_SOUND_WAX_OFF in newer mappings
     private static final int LEVEL_EVENT_WAX_OFF = 3004;
+    private static final int PARTICLES_DESTROY_BLOCK = 2001;
 
     /**
      * Handles kinetic impacts with blocks, potentially breaking them or creating paths.
@@ -91,6 +95,8 @@ public class KineticBlockInteractions {
         FakePlayer fakePlayer = null;
 
         boolean blockBroken = false;
+        final List<BlockPos> processedMainDoorPositions = new ArrayList<>();
+
         for (int i = 0; i < impactedBlocks.size(); i++) {
             BlockPos pos = impactedBlocks.get(i);
             BlockState state = level.getBlockState(pos);
@@ -122,23 +128,49 @@ public class KineticBlockInteractions {
                 // Special Case: Note Blocks (Left Click / Attack to play sound without changing pitch)
                 if (state.getBlock() instanceof NoteBlock) {
                     state.attack(level, pos, fakePlayer);
-                } else {
-                    // Allow collision to toggle door-like blocks. For open doors, only allow closing when hit on a side face.
-                    boolean isOpenedDoor = false;
-                    if (state.hasProperty(BlockStateProperties.OPEN) && state.getValue(BlockStateProperties.OPEN)) {
-                        if (state.getBlock() instanceof DoorBlock ||
-                            state.getBlock() instanceof TrapDoorBlock ||
-                            state.getBlock() instanceof FenceGateBlock) {
-                            isOpenedDoor = true;
-                        }
+                    continue; // Interaction happened, skip breaking logic
+                }
+
+                boolean isDoorLike = state.getBlock() instanceof DoorBlock ||
+                                     state.getBlock() instanceof TrapDoorBlock ||
+                                     state.getBlock() instanceof FenceGateBlock;
+
+                if (isDoorLike && state.hasProperty(BlockStateProperties.OPEN)) {
+                    BlockPos mainPos = pos;
+                    if (state.hasProperty(BlockStateProperties.DOUBLE_BLOCK_HALF) && state.getValue(BlockStateProperties.DOUBLE_BLOCK_HALF) == DoubleBlockHalf.UPPER) {
+                        mainPos = pos.below();
                     }
 
-                    boolean canToggleOpenDoor = isOpenedDoor && hitResult.getDirection().getAxis().isHorizontal();
-                    if (!isOpenedDoor || canToggleOpenDoor) {
-                        InteractionResult result = state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult);
-                        if (result.consumesAction()) {
-                            continue;
+                    if (processedMainDoorPositions.contains(mainPos)) {
+                        continue;
+                    }
+                    
+                    boolean isOpened = state.getValue(BlockStateProperties.OPEN);
+                    boolean canToggle = !isOpened || hitResult.getDirection().getAxis().isHorizontal();
+
+                    if (canToggle) {
+                        BlockState newState = state.cycle(BlockStateProperties.OPEN);
+                        level.setBlockAndUpdate(pos, newState);
+
+                        boolean isNowOpen = newState.getValue(BlockStateProperties.OPEN);
+                        int soundId;
+                        if (state.getBlock() instanceof FenceGateBlock) {
+                            soundId = isNowOpen ? 1008 : 1009;
+                        } else if (state.getBlock() instanceof TrapDoorBlock) {
+                            soundId = isNowOpen ? 1003 : 1013;
+                        } else { // DoorBlock
+                            soundId = isNowOpen ? 1006 : 1012;
                         }
+                        level.levelEvent(null, soundId, mainPos, 0);
+
+                        processedMainDoorPositions.add(mainPos);
+                        continue;
+                    }
+                } else if (!isDoorLike) {
+                    // Fallback for other interactive blocks (levers, buttons, etc.)
+                    InteractionResult result = state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult);
+                    if (result.consumesAction()) {
+                        continue;
                     }
                 }
             }
@@ -177,7 +209,7 @@ public class KineticBlockInteractions {
                         level.levelEvent(LEVEL_EVENT_WAX_OFF, pos, 0); // Particles/Sound for scraping
 
                         // Sand breaks upon blasting
-                        level.levelEvent(LevelEvent.PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
+                        level.levelEvent(PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
                         if (level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS)) {
                             fallingBlock.spawnAtLocation(fallingState.getBlock());
                         }
@@ -188,7 +220,7 @@ public class KineticBlockInteractions {
 
                 // Hardness Check: If falling block is softer than what it hits, it breaks
                 if (hitHardness > fallingHardness) {
-                    level.levelEvent(LevelEvent.PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
+                    level.levelEvent(PARTICLES_DESTROY_BLOCK, entity.blockPosition(), Block.getId(fallingState));
                     if (level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS)) {
                         fallingBlock.spawnAtLocation(fallingState.getBlock());
                     }

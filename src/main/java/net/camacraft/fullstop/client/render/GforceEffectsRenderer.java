@@ -82,56 +82,59 @@ public class GforceEffectsRenderer {
             return;
         }
 
-        float targetIntensity = 0.0f;
+        float gForceIntensity = 0.0f;
+        float drowningIntensity = 0.0f;
         Minecraft minecraft = Minecraft.getInstance();
 
-        // Check server config instead of client config
-        if (minecraft.player != null && minecraft.options.getCameraType().isFirstPerson() && FullStopConfig.SERVER.enableGForceEffects.get()) {
-            FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
-            if (cap != null) {
-                double gForce = cap.getRunningAverageDelta();
-                double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
-                double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+        if (minecraft.player != null && minecraft.options.getCameraType().isFirstPerson()) {
+            // --- G-Force Calculation ---
+            if (FullStopConfig.SERVER.enableGForceEffects.get()) {
+                FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+                if (cap != null) {
+                    double gForce = cap.getRunningAverageDelta();
+                    double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
+                    double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
 
-                // Calculate Potion Modifiers
-                int clarityLevel = 0;
-                int vertigoLevel = 0;
+                    // Potion modifiers
+                    int clarityLevel = 0;
+                    int vertigoLevel = 0;
+                    MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
+                    if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
+                    MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
+                    if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
 
-                MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
-                if (clarity != null) {
-                    clarityLevel = clarity.getAmplifier() + 1;
+                    int netLevel = vertigoLevel - clarityLevel;
+                    if (netLevel > 0) {
+                        double multiplier = Math.pow(0.8, netLevel);
+                        minGforce *= multiplier;
+                        maxGforce *= multiplier;
+                    } else if (netLevel < 0) {
+                        double multiplier = Math.pow(1.25, -netLevel);
+                        minGforce *= multiplier;
+                        maxGforce *= multiplier;
+                    }
+
+                    if (gForce > minGforce) {
+                        gForceIntensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
+                        gForceIntensity = Math.min(gForceIntensity, 1.0f);
+                    }
                 }
+            }
 
-                MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
-                if (vertigo != null) {
-                    vertigoLevel = vertigo.getAmplifier() + 1;
-                }
-
-                int netLevel = vertigoLevel - clarityLevel;
-
-                // Adjust thresholds based on net level
-                if (netLevel > 0) {
-                    double multiplier = Math.pow(0.8, netLevel); 
-                    minGforce *= multiplier;
-                    maxGforce *= multiplier;
-                } else if (netLevel < 0) {
-                    double multiplier = Math.pow(1.25, -netLevel);
-                    minGforce *= multiplier;
-                    maxGforce *= multiplier;
-                }
-
-                if (gForce > minGforce) {
-                    // Scale from minGforce to maxGforce
-                    targetIntensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
-                    targetIntensity = Math.min(targetIntensity, 1.0f);
-                } else {
-                    targetIntensity = 0.0f;
-                }
+            // --- Drowning Calculation ---
+            int airSupply = minecraft.player.getAirSupply();
+            int maxAir = minecraft.player.getMaxAirSupply();
+            if (airSupply < maxAir) {
+                // As air goes from max to 0, intensity goes from 0 to 1.
+                float intensity = 1.0f - ((float)airSupply / (float)maxAir);
+                drowningIntensity = intensity * intensity * intensity * intensity;
             }
         }
 
+        // Use the stronger of the two effects
+        float targetIntensity = Math.max(gForceIntensity, drowningIntensity);
+
         // Smoothly interpolate towards the target intensity.
-        // The 0.1f factor controls the speed of the transition. Lower is smoother and slower.
         currentIntensity = currentIntensity + (targetIntensity - currentIntensity) * 0.1f;
 
         if (currentIntensity > 0.001f) { // Use a small threshold to avoid rendering for tiny values

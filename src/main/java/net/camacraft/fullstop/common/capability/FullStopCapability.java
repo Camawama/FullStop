@@ -122,6 +122,11 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             Vec3 gravityVector = new Vec3(0, -gravity * 20, 0);
             Vec3 gForceVec = acceleration.subtract(gravityVector);
 
+            // When on ground, ignore positive Y acceleration to prevent stair-climbing G-force spikes.
+            if (entity.onGround() && gForceVec.y > 0) {
+                gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+            }
+
             // When falling, the "drag" force acts upwards (positive Y).
             // To simulate weightlessness during freefall, we ignore this upward component.
             // This ensures that falling at terminal velocity (where drag = gravity) results in 0 G-force.

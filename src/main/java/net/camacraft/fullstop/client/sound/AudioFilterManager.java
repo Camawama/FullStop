@@ -130,7 +130,7 @@ public class AudioFilterManager {
         if (event.phase != TickEvent.Phase.END) return;
         
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || !FullStopConfig.SERVER.enableGForceEffects.get()) {
+        if (minecraft.player == null) {
             if (currentCutoff < 0.99f) {
                 currentCutoff = 1.0f;
                 updateFilter(1.0f);
@@ -144,47 +144,55 @@ public class AudioFilterManager {
 
         if (!supported) return;
 
-        FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
-        if (cap == null) return;
+        // --- G-Force Calculation ---
+        float gForceCutoff = 1.0f;
+        if (FullStopConfig.SERVER.enableGForceEffects.get()) {
+            FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+            if (cap != null) {
+                double gForce = cap.getRunningAverageDelta();
+                double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
+                double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
 
-        double gForce = cap.getRunningAverageDelta();
-        double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
-        double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+                // Potion Modifiers
+                int clarityLevel = 0;
+                int vertigoLevel = 0;
+                MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
+                if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
+                MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
+                if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
 
-        // Calculate Potion Modifiers
-        int clarityLevel = 0;
-        int vertigoLevel = 0;
+                int netLevel = vertigoLevel - clarityLevel;
+                if (netLevel > 0) {
+                    double multiplier = Math.pow(0.8, netLevel);
+                    minGforce *= multiplier;
+                    maxGforce *= multiplier;
+                } else if (netLevel < 0) {
+                    double multiplier = Math.pow(1.25, -netLevel);
+                    minGforce *= multiplier;
+                    maxGforce *= multiplier;
+                }
 
-        MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
-        if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
-
-        MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
-        if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
-
-        int netLevel = vertigoLevel - clarityLevel;
-
-        if (netLevel > 0) {
-            double multiplier = Math.pow(0.8, netLevel); 
-            minGforce *= multiplier;
-            maxGforce *= multiplier;
-        } else if (netLevel < 0) {
-            double multiplier = Math.pow(1.25, -netLevel);
-            minGforce *= multiplier;
-            maxGforce *= multiplier;
+                if (gForce > minGforce) {
+                    float intensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
+                    intensity = Math.min(intensity, 1.0f);
+                    float curve = intensity * intensity;
+                    gForceCutoff = 1.0f - (curve * 0.98f);
+                }
+            }
         }
 
-        float targetCutoff = 1.0f;
-
-        if (gForce > minGforce) {
-            float intensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
-            intensity = Math.min(intensity, 1.0f);
-
-            // Make the effect more intense:
-            // Allow cutoff to go much lower (e.g., down to 0.05 or 0.1)
-            // And make the curve steeper.
-            float curve = intensity * intensity; // quadratic ramp
-            targetCutoff = 1.0f - (curve * 0.98f);
+        // --- Drowning Calculation ---
+        float drowningCutoff = 1.0f;
+        int airSupply = minecraft.player.getAirSupply();
+        int maxAir = minecraft.player.getMaxAirSupply();
+        if (airSupply < maxAir) {
+            float intensity = 1.0f - ((float)airSupply / (float)maxAir);
+            float curve = intensity * intensity * intensity * intensity;
+            drowningCutoff = 1.0f - (curve * 0.98f);
         }
+
+        // Use the stronger (lower) of the two effects
+        float targetCutoff = Math.min(gForceCutoff, drowningCutoff);
 
         // Smooth interpolation
         currentCutoff = currentCutoff + (targetCutoff - currentCutoff) * 0.07f;
