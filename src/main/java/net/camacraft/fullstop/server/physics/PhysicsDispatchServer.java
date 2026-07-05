@@ -32,6 +32,7 @@ import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import java.util.ArrayList;
@@ -79,6 +80,16 @@ public class PhysicsDispatchServer {
 
     @SubscribeEvent
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
+        markTeleported(event.getEntity());
+    }
+
+    @SubscribeEvent
+    public static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+        markTeleported(event.getEntity());
+    }
+
+    @SubscribeEvent
+    public static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
         markTeleported(event.getEntity());
     }
 
@@ -139,6 +150,9 @@ public class PhysicsDispatchServer {
             return;
         }
 
+        // Doors ahead open before they ever become collisions (no speed scrub).
+        KineticBlockInteractions.openDoorsAhead(entity, fullstop.getCurrentNativeVelocity());
+
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
         EntityCollisionHandler.handle(entity, fullstop, collision);
@@ -153,8 +167,10 @@ public class PhysicsDispatchServer {
 
         boolean brokeBlock = false;
         if (!collision.impactedPositions.isEmpty()) {
-            brokeBlock = KineticBlockInteractions.handleBlockImpacts(entity, fullstop.getPreviousNativeVelocity(),
-                    collision.impactedPositions, collision.impactedHits);
+            KineticBlockInteractions.ImpactResult impactResult = KineticBlockInteractions.handleBlockImpacts(
+                    entity, fullstop.getPreviousNativeVelocity(), collision.impactedPositions, collision.impactedHits);
+            brokeBlock = impactResult.brokeBlock();
+            damage += impactResult.smashDamage();
         } else if (entity.level() instanceof ServerLevel serverLevel) {
             KineticBlockInteractions.clearCrack(entity, serverLevel);
         }
@@ -169,7 +185,11 @@ public class PhysicsDispatchServer {
     }
 
     private static void sonicBoom(Entity entity, FullStopCapability fullstop) {
-        if (fullstop.getCurrentScaledVelocity().length() >= 343.0 && fullstop.canSonicBoom()) {
+        // Supersonic on two consecutive ticks: a real supersonic entity sustains its
+        // speed, while a respawn/teleport position jump reads as huge for one tick only.
+        if (fullstop.getCurrentScaledVelocity().length() >= 343.0
+                && fullstop.getPreviousScaledVelocity().length() >= 343.0
+                && fullstop.canSonicBoom()) {
             if (entity.level() instanceof ServerLevel serverLevel) {
                 serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
                 FSSoundPlayer.playSoundServer(entity, SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, 4.0f,

@@ -7,18 +7,19 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.vehicle.Minecart;
-import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.DoorBlock;
-import net.minecraft.world.level.block.FenceGateBlock;
-import net.minecraft.world.level.block.TrapDoorBlock;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Server-side bounce/deflection. Applies velocity and syncs it (hurtMarked);
- * the client never touches remote entities' motion — camera-only reactions
- * live in {@code client.physics.CameraBounceHandler}.
+ * Server-side bounce for springy/sticky surfaces. Applies velocity and syncs it
+ * (hurtMarked); the client never touches remote entities' motion — camera-only
+ * reactions live in {@code client.physics.CameraBounceHandler}.
+ *
+ * Plain solid blocks are deliberately NOT handled here: the raycast collision
+ * fires one tick before physical contact, so changing velocity for solids
+ * pre-empted vanilla collision — the entity never set its collision flags and
+ * never showed a measured stopping force, which silently disabled kinetic
+ * wall/ceiling damage.
  */
 public final class BounceHandler {
     private BounceHandler() {
@@ -34,28 +35,16 @@ public final class BounceHandler {
             return;
         }
 
-        if (collision.collisionType == Collision.CollisionType.ENTITY) return;
+        if (!collision.bouncy() && collision.collisionType != Collision.CollisionType.HONEY) return;
         if (entity instanceof Minecart) return;
 
         Vec3 preV = fullstop.getPreviousScaledVelocity();
-        if (!collision.bouncy() && preV.length() < 5) return;
-        if (preV.lengthSqr() < 0.0001) return;
-
-        for (BlockState state : collision.blockStates) {
-            Block block = state.getBlock();
-            if (block instanceof DoorBlock ||
-                    block instanceof TrapDoorBlock ||
-                    block instanceof FenceGateBlock) {
-                return;
-            }
-        }
-
         Vec3 normal = firstHitNormal(collision);
         if (normal == null) return;
 
-        if (fullstop.isMostlyDownward() && !collision.bouncy()) {
-            return;
-        }
+        // Rubbing along a surface is not an impact: without real speed INTO the
+        // surface, walking through a slime tunnel bounced the player around.
+        if (-preV.dot(normal) < BounceMath.MIN_IMPACT_SPEED_MPS) return;
 
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);
         if (newV == null) return;

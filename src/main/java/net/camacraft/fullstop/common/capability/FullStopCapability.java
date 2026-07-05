@@ -68,6 +68,7 @@ public class FullStopCapability {
     private int soundCooldown = 0;
     private int sonicBoomCooldown = 0;
     private int waterSkipCooldown = 0;
+    private double lastMeasuredSpeed = 0.0;
     private long lastTick = -1;
 
     private long damageCooldownUntilTick = Long.MIN_VALUE;
@@ -128,18 +129,14 @@ public class FullStopCapability {
         gravity = Math.abs(gravity);
 
         // acceleration is m/s per tick; gravity attr is blocks/tick², so ×20 puts both in the same units.
-        Vec3 gravityVector = new Vec3(0, -gravity * 20, 0);
-        Vec3 gForceVec = acceleration.subtract(gravityVector);
+        double baseline = gravity * 20;
+        Vec3 gravityVector = new Vec3(0, -baseline, 0);
 
-        if (entity.onGround() && gForceVec.y > 0) {
-            gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
-        }
-
-        if (velocityMps.y < 0 && gForceVec.y > 0) {
-            gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
-        }
-
-        double gForceMagnitude = gForceVec.length();
+        // Proper (felt) acceleration relative to freefall, minus the 1g baseline
+        // everyone feels at rest. Continuous by construction: the old hard cutoffs
+        // (zero the Y term when grounded / while falling) flipped on and off from
+        // tick to tick at speed, making the blackout and audio muffle flash.
+        double gForceMagnitude = Math.max(acceleration.subtract(gravityVector).length() - baseline, 0.0);
 
         if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
             avgAccel = 0.0;
@@ -189,6 +186,21 @@ public class FullStopCapability {
         currentPosition = entity.position();
 
         Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
+
+        // Position discontinuity (respawn, /tp, mod teleports that fire no event):
+        // no physical process triples an entity's speed past 60 m/s in a single
+        // tick. Compared against the last MEASURED delta, not the tracked velocity,
+        // so a genuinely fast entity is only suppressed for the one flagged tick.
+        double measuredSpeed = actualVelocity.length();
+        if (measuredSpeed > lastMeasuredSpeed * 3 + 60.0) {
+            lastMeasuredSpeed = measuredSpeed;
+            previousPosition = currentPosition;
+            velocityMps = Vec3.ZERO;
+            prevVelocityMps = Vec3.ZERO;
+            clientVelocityMps = null;
+            return;
+        }
+        lastMeasuredSpeed = measuredSpeed;
 
         if (entity instanceof Player && clientVelocityMps != null) {
             double actualSpeedSqr = actualVelocity.lengthSqr();

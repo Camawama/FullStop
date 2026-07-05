@@ -54,7 +54,7 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
-        MinecraftForge.EVENT_BUS.register(PressureHandler.class);
+    MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
 

@@ -10,6 +10,14 @@ import org.jetbrains.annotations.Nullable;
  * All vectors are in m/s.
  */
 public final class BounceMath {
+
+    /**
+     * Minimum speed INTO the surface (m/s) for a hit to count as a bounce rather
+     * than rubbing along the surface. Shared by the server bounce and the client
+     * camera so both always agree on what bounced.
+     */
+    public static final double MIN_IMPACT_SPEED_MPS = 2.5;
+
     private BounceMath() {
     }
 
