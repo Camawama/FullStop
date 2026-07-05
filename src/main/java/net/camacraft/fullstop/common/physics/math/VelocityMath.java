@@ -1,40 +1,21 @@
 package net.camacraft.fullstop.common.physics.math;
 
+import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
-import static net.camacraft.fullstop.common.capability.FullStopCapability.Provider.DELTAV_CAP;
 
 public class VelocityMath {
-    // Standard gravity for many entities is 0.08, but after drag it can be slightly less.
-    // Using a small epsilon range is safer than exact equality.
-    public static final double RESTING_Y_DELTA = 0.0784000015258789;
-    private static final double EPSILON = 1.0E-5;
 
+    /** Entity velocity in m/s: the capability's measured value when present, else deltaMovement. */
     public static Vec3 entityVelocity(Entity entity) {
-        if (entity.getCapability(DELTAV_CAP).isPresent()) {
-            Vec3 velocity = entity.getCapability(DELTAV_CAP).orElseThrow(IllegalStateException::new).getCurrentScaledVelocity();
-            // FIX: Do not artificially add gravity compensation here.
-            // The velocity stored in the capability should be the true velocity.
-            // If we add gravity back, we might be masking the fact that the entity is actually falling or stationary.
-            // if (entity.onGround() && !(entity instanceof Player) && velocity.y < 0) {
-            //    return velocity.add(0, RESTING_Y_DELTA * 20, 0);
-            // }
-            return velocity;
+        FullStopCapability cap = FullStopCapability.grabCapability(entity);
+        if (cap != null) {
+            return cap.getCurrentScaledVelocity();
         }
-
-        Vec3 movement = entity.getDeltaMovement();
-        // Same here, return raw velocity.
-        // if (entity.onGround() && movement.y < 0) {
-        //    // Check if close to resting gravity
-        //    if (Math.abs(movement.y + RESTING_Y_DELTA) < EPSILON) {
-        //         return movement.add(0, RESTING_Y_DELTA, 0).scale(20);
-        //    }
-        // }
-        return movement.scale(20);
+        return entity.getDeltaMovement().scale(20);
     }
 
     public static double calculateApproachVelocity(Entity attacker, Entity target) {
@@ -54,7 +35,7 @@ public class VelocityMath {
         if (targetVelocity.y() >= attackerVelocity.y() && target.position().y() > attacker.position().y()) {
             attackerPosition = attacker.getEyePosition();
         }
-        if (targetVelocity.y() <=  attackerVelocity.y() && target.position().y() < attacker.position().y()) {
+        if (targetVelocity.y() <= attackerVelocity.y() && target.position().y() < attacker.position().y()) {
             targetPosition = target.getEyePosition();
         }
 

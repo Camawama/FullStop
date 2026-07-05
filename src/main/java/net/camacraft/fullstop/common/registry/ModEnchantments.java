@@ -1,6 +1,9 @@
-package net.camacraft.fullstop.common.enchantment;
+package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.enchantment.KineticProtectionEnchantment;
+import net.camacraft.fullstop.common.enchantment.PullbackEnchantment;
+import net.camacraft.fullstop.common.enchantment.ReflectiveEnchantment;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentCategory;

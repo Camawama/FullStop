@@ -1,14 +1,13 @@
 package net.camacraft.fullstop.client.sound;
 
-import com.mojang.blaze3d.audio.Channel;
 import net.camacraft.fullstop.FullStopConfig;
-import net.camacraft.fullstop.client.mixin.*;
+import net.camacraft.fullstop.client.mixin.ChannelAccessor;
+import net.camacraft.fullstop.client.mixin.SoundEngineAccessor;
+import net.camacraft.fullstop.client.mixin.SoundManagerAccessor;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
-import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.sounds.ElytraOnPlayerSoundInstance;
 import net.minecraft.client.sounds.ChannelAccess;
-import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.sound.PlaySoundSourceEvent;
 import net.minecraftforge.client.event.sound.PlayStreamingSourceEvent;
@@ -130,7 +129,8 @@ public class AudioFilterManager {
         if (event.phase != TickEvent.Phase.END) return;
         
         Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.player.isCreative()) {
+        if (minecraft.player == null || minecraft.player.isCreative() || minecraft.player.isSpectator()
+                || !FullStopConfig.SERVER_SPEC.isLoaded()) {
             if (currentCutoff < 0.99f) {
                 currentCutoff = 1.0f;
                 updateFilter(1.0f);
@@ -149,29 +149,12 @@ public class AudioFilterManager {
             FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
             if (cap != null) {
                 double gForce = cap.getRunningAverageDelta();
-                double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
-                double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+                GForceThresholds.Range thresholds = GForceThresholds.effective(minecraft.player,
+                        FullStopConfig.CLIENT.minGForceThreshold.get(),
+                        FullStopConfig.CLIENT.maxGForceThreshold.get());
 
-                int clarityLevel = 0;
-                int vertigoLevel = 0;
-                MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
-                if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
-                MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
-                if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
-
-                int netLevel = vertigoLevel - clarityLevel;
-                if (netLevel > 0) {
-                    double multiplier = Math.pow(0.8, netLevel);
-                    minGforce *= multiplier;
-                    maxGforce *= multiplier;
-                } else if (netLevel < 0) {
-                    double multiplier = Math.pow(1.25, -netLevel);
-                    minGforce *= multiplier;
-                    maxGforce *= multiplier;
-                }
-
-                if (gForce > minGforce) {
-                    float intensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
+                if (gForce > thresholds.min()) {
+                    float intensity = (float) ((gForce - thresholds.min()) / (thresholds.max() - thresholds.min()));
                     intensity = Math.min(intensity, 1.0f);
                     float curve = intensity * intensity;
                     gForceCutoff = 1.0f - (curve * 0.98f);

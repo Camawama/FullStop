@@ -25,14 +25,15 @@ public class KeyboardHandlerMixin {
     private static final String RESOURCEPACKS_HELP_KEY = "debug.reload_resourcepacks.help";
 
     /**
-     * Treat F3+V as a handled debug combo so vanilla doesn't also toggle the debug screen.
-     * NOTE: This method only runs when vanilla is already in the "F3 is held" path,
-     * because handleDebugKeys is only used for F3-combos.
+     * F3+V toggles the velocity debug lines. This method only runs when vanilla is
+     * already in the "F3 is held" path (handleDebugKeys is only used for F3-combos),
+     * and returning true marks the combo as handled so the debug screen doesn't toggle.
      */
     @Inject(method = "handleDebugKeys", at = @At("HEAD"), cancellable = true)
-    private void fullstop$consumeF3V(int key, CallbackInfoReturnable<Boolean> cir) {
+    private void fullstop$handleF3V(int key, CallbackInfoReturnable<Boolean> cir) {
         if (key == GLFW.GLFW_KEY_V) {
-            cir.setReturnValue(true); // mark as "handled"
+            net.camacraft.fullstop.client.hotkey.DebugHotkeyHandler.toggle();
+            cir.setReturnValue(true);
         }
     }
 

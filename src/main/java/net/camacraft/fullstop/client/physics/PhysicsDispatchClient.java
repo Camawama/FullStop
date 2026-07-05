@@ -1,94 +1,73 @@
 package net.camacraft.fullstop.client.physics;
 
 import net.camacraft.fullstop.FullStopConfig;
-import net.camacraft.fullstop.client.physics.collision.ClientCollisionDetector;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
-import net.camacraft.fullstop.common.message.LogToChat;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
-import net.camacraft.fullstop.common.physics.interaction.BounceHandler;
+import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.multiplayer.ClientLevel;
-import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
-import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability;
 
+/**
+ * Client physics: only the LOCAL player is simulated (for the g-force effects and
+ * bounce camera). The server owns everything else — the old client-side simulation
+ * of all rendered entities caused rubber-banding.
+ */
 public class PhysicsDispatchClient {
+
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
+        // One packet per tick, END phase only (this event fires for both phases).
+        if (event.phase != TickEvent.Phase.END) return;
+        if (event.side.isServer()) return;
         if (event.player.isDeadOrDying() || event.player.isRemoved()) return;
-        if (event.player instanceof ServerPlayer || event.player != Minecraft.getInstance().player) return;
+        if (event.player != Minecraft.getInstance().player) return;
 
-        FullStopCapability fullstopcap = grabCapability(event.player);
+        FullStopCapability cap = grabCapability(event.player);
+        if (cap == null) return;
+
         Vec3 playerDelta = event.player.getDeltaMovement();
-        fullstopcap.setCurrentNativeVelocity(playerDelta);
+        cap.setCurrentNativeVelocity(playerDelta);
 
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
             if (vehicle != null) {
-                Vec3 vehicleDelta = vehicle.getDeltaMovement();
-                PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(vehicleDelta);
-                PacketHandler.sendToServer(deltaPacket);
+                PacketHandler.sendToServer(new PlayerDeltaPacket(vehicle.getDeltaMovement(), true));
             }
         } else {
-            PlayerDeltaPacket deltaPacket = new PlayerDeltaPacket(playerDelta);
-            PacketHandler.sendToServer(deltaPacket);
+            PacketHandler.sendToServer(new PlayerDeltaPacket(playerDelta, false));
         }
     }
 
     @SubscribeEvent
-    public static void onLevelTick(TickEvent.LevelTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && event.level instanceof ClientLevel level) {
-            for (Entity entity : level.entitiesForRendering()) {
-                onEntityTick(entity);
-            }
-        }
-    }
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
 
-    @SubscribeEvent
-    public static void onDismount(EntityMountEvent event) {
-        if (event.getEntity() instanceof LivingEntity living) {
-            FullStopCapability cap = grabCapability(living);
+        Minecraft minecraft = Minecraft.getInstance();
+        LocalPlayer player = minecraft.player;
+        if (player == null || minecraft.level == null) return;
+        if (DamageImmunityRules.unphysable(player)) return;
 
-            if (cap != null) {
-                cap.justDismounted();
-            }
-        }
-    }
-
-    private static void onEntityTick(Entity entity) {
-
-        if (DamageImmunityRules.unphysable(entity)) return;
-
-        FullStopCapability fullstop = grabCapability(entity);
+        FullStopCapability fullstop = grabCapability(player);
         if (fullstop == null) return;
 
-//        LogToChat.logToChat(Math.round(fullstop.getAcceleration().x), Math.round(fullstop.getAcceleration().y), Math.round(fullstop.getAcceleration().z));
-//        LogToChat.logToChat(fullstop.isMostlyUpward(), fullstop.isMostlyDownward(), fullstop.isMostlyHorizontal());
-
-        if (entity.tickCount != fullstop.getLastTick()) {
-            fullstop.tick(entity);
-            fullstop.setLastTick(entity.tickCount);
+        if (player.tickCount != fullstop.getLastTick()) {
+            fullstop.tick(player);
+            fullstop.setLastTick(player.tickCount);
         }
 
-        // Optimization: Only process collision if moving fast enough or if it's the player
-        // This mirrors the server-side optimization we want to add, but for client visuals
-        if (entity instanceof LivingEntity || fullstop.getPreviousScaledVelocity().lengthSqr() > 0.01) {
-             Collision collision = ClientCollisionDetector.detect(entity, fullstop);
-
-            // We only care about bounce logic on the client for the camera rotation
-            // The server handles the actual velocity change and damage
-            if (FullStopConfig.CLIENT.rotateCamera.get()) {
-                BounceHandler.apply(entity, fullstop, collision, false);
-            }
+        // Camera-only bounce reaction; the server owns actual motion.
+        if (FullStopConfig.CLIENT.rotateCamera.get()) {
+            Collision collision = CommonCollisionDetector.detectBlocks(player, fullstop);
+            CameraBounceHandler.apply(player, fullstop, collision);
         }
     }
 }

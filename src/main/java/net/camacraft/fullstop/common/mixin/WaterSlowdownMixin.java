@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.common.mixin;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.physics.rules.EquipmentRules;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -27,11 +28,16 @@ public class WaterSlowdownMixin {
         LivingEntity entity = (LivingEntity) (Object) this;
         if (entity.isDeadOrDying() || entity.isRemoved() || entity.isSpectator()) return;
 
+        FullStopCapability cap = FullStopCapability.grabCapability(entity);
+        if (cap != null && cap.getWaterSkipCooldown() > 0) {
+            return;
+        }
+
         if (!entity.isInWater()
                 || entity.isAutoSpinAttack()
                 || entity.getMobType() == MobType.WATER
-                || FullStopCapability.hasDolphinsGrace(entity)
-                || FullStopCapability.hasDepthStrider(entity)) {
+                || EquipmentRules.hasDolphinsGrace(entity)
+                || EquipmentRules.hasDepthStrider(entity)) {
             return;
         }
 
@@ -43,8 +49,6 @@ public class WaterSlowdownMixin {
 
         Vec3 direction = v.normalize();
         double c = 0.2;
-        // Use a stable approximation for quadratic drag: v_new = v / (1 + c * v)
-        // This prevents high speeds (like knockback) from being cancelled or reversed.
         double newSpeed = oldSpeed / (1.0 + oldSpeed * c);
 
         entity.setDeltaMovement(direction.scale(newSpeed));

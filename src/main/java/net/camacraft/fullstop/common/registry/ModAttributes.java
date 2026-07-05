@@ -1,4 +1,4 @@
-package net.camacraft.fullstop.common.attribute;
+package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
 import net.minecraft.world.entity.ai.attributes.Attribute;

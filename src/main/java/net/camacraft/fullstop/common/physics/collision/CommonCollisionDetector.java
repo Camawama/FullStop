@@ -16,16 +16,19 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.phys.shapes.VoxelShape;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
+/**
+ * Ray-based block collision classifier. Note: this identifies WHAT was hit; whether
+ * an impact deals damage is decided by the measured stopping force plus the entity's
+ * own collision flags (see KineticDamageCalculator).
+ */
 public class CommonCollisionDetector {
 
     public static Collision detectBlocks(Entity entity, FullStopCapability fullstop) {
-        Vec3 velocity = fullstop.getPreviousScaledVelocity().scale(0.05);
+        Vec3 velocity = fullstop.getPreviousNativeVelocity();
         if (velocity.lengthSqr() == 0) {
             return Collision.NONE;
         }
@@ -37,87 +40,83 @@ public class CommonCollisionDetector {
 
         Level level = entity.level();
         double rayLength = RaycastUtil.getRayLength(entity, fullstop);
-        
+        if (rayLength <= 0) {
+            return Collision.NONE;
+        }
+
         FullStopConfig.RaycastMode mode = FullStopConfig.SERVER.raycastMode.get();
         List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode);
 
-        ArrayList<BlockState> collidedBlockStates = new ArrayList<>();
-        ArrayList<BlockPos> collidedBlockPositions = new ArrayList<>();
-        ArrayList<BlockHitResult> collidedBlockHits = new ArrayList<>();
-        double highestY = -64;
-        double lowestY = 320;
+        List<BlockState> collidedBlockStates = new ArrayList<>();
+        List<BlockPos> collidedBlockPositions = new ArrayList<>();
+        List<BlockHitResult> collidedBlockHits = new ArrayList<>();
         Collision.CollisionType impactType = Collision.CollisionType.NONE;
-
-        ClipContext.Fluid fluidContext = entity.isInWater() ? ClipContext.Fluid.NONE : ClipContext.Fluid.SOURCE_ONLY;
 
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));
 
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, fluidContext, entity);
+            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity);
             BlockHitResult blockHit = level.clip(ctx);
 
-            if (blockHit.getType() == HitResult.Type.BLOCK) {
-                BlockPos hitPos = blockHit.getBlockPos();
-                BlockState hitState = level.getBlockState(hitPos);
-                Direction hitFace = blockHit.getDirection();
-                Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
+            if (blockHit.getType() != HitResult.Type.BLOCK) continue;
 
-                boolean isWater = hitState.getCollisionShape(level, hitPos).isEmpty() && !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
-                boolean isOpposing;
+            BlockPos hitPos = blockHit.getBlockPos();
+            BlockState hitState = level.getBlockState(hitPos);
+            Direction hitFace = blockHit.getDirection();
+            Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
 
-                if (isWater) {
-                    if (hitFace != Direction.UP || !fullstop.isMostlyHorizontal()) {
-                        continue;
-                    }
-                    isOpposing = true;
+            boolean isWater = !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
+            boolean isOpposing;
+
+            if (isWater) {
+                if (hitFace != Direction.UP || !fullstop.isMostlyHorizontal()) {
+                    continue;
+                }
+                isOpposing = true;
+            } else {
+                isOpposing = direction.dot(hitNormal) < -0.1;
+
+                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
+                    isOpposing = false;
+                }
+
+                // Ignore floor hits unless actually falling with some speed (velocity here
+                // is native blocks/tick; -0.5 ≈ falling faster than 10 m/s).
+                if (hitFace == Direction.UP && velocity.y > -0.5) {
+                    isOpposing = false;
+                }
+            }
+
+            if (!isOpposing || collidedBlockPositions.contains(hitPos)) continue;
+
+            collidedBlockStates.add(hitState);
+            collidedBlockPositions.add(hitPos);
+            collidedBlockHits.add(blockHit);
+
+            Collision.CollisionType typeHere;
+            if (isWater) {
+                typeHere = Collision.CollisionType.WATER;
+            } else if (hitState.isStickyBlock()) {
+                if (hitState.is(Blocks.SLIME_BLOCK)) {
+                    typeHere = Collision.CollisionType.SLIME;
                 } else {
-                    isOpposing = direction.dot(hitNormal) < -0.1;
-
-                    // JUMPING FIX: If moving mostly upwards, ignore collisions with vertical faces.
-                    // This prevents "scraping" the side of a block while jumping from causing a collision.
-                    if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
-                        isOpposing = false;
-                    }
-
-                    // Fix for running on flat ground: Ignore floor collisions if not falling significantly
-                    if (hitFace == Direction.UP && velocity.y > -0.5) {
-                        isOpposing = false;
-                    }
+                    typeHere = Collision.CollisionType.HONEY;
                 }
+            } else if (hitState.getBlock() instanceof BedBlock) {
+                typeHere = Collision.CollisionType.BED;
+            } else {
+                typeHere = Collision.CollisionType.SOLID;
+            }
 
-                if (isOpposing && !collidedBlockPositions.contains(hitPos)) {
-                    VoxelShape shape = hitState.getCollisionShape(level, hitPos);
-                    if (!shape.isEmpty() && shape.bounds().move(hitPos.getX(), hitPos.getY(), hitPos.getZ()).intersects(entity.getBoundingBox().inflate(0.01))) {
-                        continue;
-                    }
-
-                    collidedBlockStates.add(hitState);
-                    collidedBlockPositions.add(hitPos);
-                    collidedBlockHits.add(blockHit);
-
-                    highestY = Math.max(highestY, hitPos.getY() + 1);
-                    lowestY = Math.min(lowestY, hitPos.getY());
-
-                    Collision.CollisionType typeHere;
-                    if (hitState.isStickyBlock()) {
-                        if (hitState.is(Blocks.SLIME_BLOCK)) {
-                            typeHere = Collision.CollisionType.SLIME;
-                        } else {
-                            typeHere = Collision.CollisionType.HONEY;
-                        }
-                    } else if (hitState.getBlock() instanceof BedBlock) {
-                        typeHere = Collision.CollisionType.BED;
-                    } else {
-                        typeHere = Collision.CollisionType.SOLID;
-                    }
-
-                    if (impactType.ordinal() < typeHere.ordinal()) {
-                        impactType = typeHere;
-                    }
-                }
+            if (impactType.priority < typeHere.priority) {
+                impactType = typeHere;
             }
         }
 
-        return new Collision(impactType, highestY, lowestY, collidedBlockStates, Collections.emptyList(), collidedBlockPositions, collidedBlockHits);
+        if (impactType == Collision.CollisionType.NONE) {
+            return Collision.NONE;
+        }
+
+        return new Collision(impactType, collidedBlockStates, List.of(), collidedBlockPositions, collidedBlockHits);
     }
 }

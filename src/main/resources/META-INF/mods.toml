@@ -28,10 +28,3 @@ mandatory=true
 versionRange="${minecraft_version_range}"
 ordering="NONE"
 side="BOTH"
-
-[[dependencies.fullstop]]
-modId="valkyrienskies"
-mandatory=false
-versionRange="[2.4.9,)"
-ordering="NONE"
-side="BOTH"

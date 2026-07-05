@@ -1,0 +1,14 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:wither",
+    "minecraft:ender_dragon",
+    "minecraft:ghast",
+    "minecraft:vex",
+    "minecraft:allay",
+    "minecraft:cat",
+    "minecraft:ocelot",
+    "minecraft:slime",
+    "minecraft:magma_cube"
+  ]
+}

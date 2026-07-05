@@ -3,7 +3,7 @@ package net.camacraft.fullstop.common.physics.math;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.projectile.Arrow;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
@@ -14,23 +14,22 @@ public class RaycastUtil {
 
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
         Vec3 velocity = fullstop.getPreviousScaledVelocity();
-        if (velocity != null && velocity.lengthSqr() > 0.0001) {
+        if (velocity.lengthSqr() > 0.0001) {
             return velocity.normalize();
         }
 
         Vec3 acc = fullstop.getAcceleration();
-        if (acc == null) return Vec3.ZERO;
+        if (acc == null || acc.lengthSqr() == 0) return Vec3.ZERO;
         return acc.normalize();
     }
 
+    /** Ray length in blocks: how far the entity travelled last tick, plus a contact margin. */
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
-        Vec3 previousVelocity = fullstop.getPreviousScaledVelocity().scale(0.05);
-        if (entity instanceof Arrow) {
-            return Math.min(previousVelocity.length(), 0.00);
-        } else {
-            // TODO: Implement proper shape intersection to avoid this band-aid
-            return previousVelocity.length() + 0.01;
+        // Projectiles have their own impact handling; FullStop does not raycast for them.
+        if (entity instanceof Projectile) {
+            return 0;
         }
+        return fullstop.getPreviousNativeVelocity().length() + 0.01;
     }
 
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode) {
@@ -92,10 +91,5 @@ public class RaycastUtil {
         points.add(new Vec3(maxX, cenY, maxZ)); // East South Edge
 
         return points;
-    }
-    
-    // Backward compatibility method
-    public static List<Vec3> getRayStarts(Entity entity) {
-        return getRayStarts(entity, FullStopConfig.RaycastMode.CORNERS_AND_CENTERS);
     }
 }

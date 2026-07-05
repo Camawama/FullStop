@@ -1,29 +1,36 @@
-package net.camacraft.fullstop.server.handler.events;
+package net.camacraft.fullstop.server.events;
 
-import net.camacraft.fullstop.common.attribute.ModAttributes;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
-import net.camacraft.fullstop.common.enchantment.ModEnchantments;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
+import net.camacraft.fullstop.common.registry.ModAttributes;
+import net.camacraft.fullstop.common.registry.ModEnchantments;
+import net.camacraft.fullstop.common.util.EnchantmentUtils;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArmorMaterials;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.sounds.SoundEvents;
-import net.minecraft.sounds.SoundSource;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability;
 
+/**
+ * Scales attack damage by attacker/victim approach velocity and applies FullStop's
+ * damage-mitigation layers (Kinetic Dampening attribute, leather dampening,
+ * Kinetic Protection and Reflective enchantments).
+ */
 @Mod.EventBusSubscriber
 public class KineticDamageEventHandler {
 
@@ -45,7 +52,7 @@ public class KineticDamageEventHandler {
             newDamage *= (1.0 - dampeningAttr.getValue());
         }
 
-        // Apply Leather Armor Dampening
+        // Leather armor dampens kinetic hits: 5% per piece, up to 20%
         int leatherPieces = 0;
         for (ItemStack stack : event.getEntity().getArmorSlots()) {
             if (stack.getItem() instanceof ArmorItem armor && armor.getMaterial() == ArmorMaterials.LEATHER) {
@@ -53,15 +60,11 @@ public class KineticDamageEventHandler {
             }
         }
         if (leatherPieces > 0) {
-            // 5% reduction per piece, up to 20%
             newDamage *= (1.0 - (leatherPieces * 0.05));
         }
 
-        // Apply Kinetic Protection Enchantment
         newDamage = applyKineticProtection(event.getEntity(), newDamage);
-
-        // Apply Reflective Enchantment
-        newDamage = applyReflective(event.getEntity(), event.getSource().getDirectEntity(), newDamage);
+        newDamage = applyReflective(event.getEntity(), newDamage);
 
         event.setAmount(newDamage);
     }
@@ -112,32 +115,16 @@ public class KineticDamageEventHandler {
         return damage * (float) (1.0 - reduction);
     }
 
-    private static float applyReflective(LivingEntity entity, Entity attacker, float damage) {
-        int reflectiveLevel = 0;
-        for (ItemStack stack : entity.getArmorSlots()) {
-            reflectiveLevel += EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.REFLECTIVE.get(), stack);
-        }
-
+    /**
+     * Reflective's damage absorption. The physical "reflection" (keeping/returning
+     * momentum) is owned by EntityCollisionHandler — applying it here too was
+     * double-dipping, and pushing projectile "attackers" after impact did nothing.
+     */
+    private static float applyReflective(LivingEntity entity, float damage) {
+        int reflectiveLevel = EnchantmentUtils.totalArmorLevel(entity, ModEnchantments.REFLECTIVE.get());
         if (reflectiveLevel == 0) return damage;
 
-        // Reflect velocity
-        // The logic for velocity transfer is in EntityCollisionHandler, but we can add an extra bounce here or modify the attacker's velocity
-        // However, the prompt says: "it will absorb a small amount of the incoming damage and also reflect the incoming velocity from the entity"
-        
-        // Damage absorption: 5% per total level?
-        float absorption = reflectiveLevel * 0.05f;
-        absorption = Math.min(absorption, 0.5f); // Cap at 50%
-
-        // Velocity reflection
-        // We push the attacker back
-        if (attacker != null) {
-            double reflectionStrength = reflectiveLevel * 0.15;
-            // Vector from entity to attacker
-            var pushDir = attacker.position().subtract(entity.position()).normalize();
-            attacker.push(pushDir.x * reflectionStrength, pushDir.y * reflectionStrength, pushDir.z * reflectionStrength);
-            attacker.hurtMarked = true;
-        }
-
+        float absorption = Math.min(reflectiveLevel * 0.05f, 0.5f);
         return damage * (1.0f - absorption);
     }
 
@@ -161,24 +148,29 @@ public class KineticDamageEventHandler {
 
     public static float calcNewDamage(LivingHurtEvent event) {
         Entity entity = event.getEntity();
-
         Entity attacker = event.getSource().getDirectEntity();
 
         float originalDamage = event.getAmount();
 
         double approachVelocity = VelocityMath.calculateApproachVelocity(attacker, event.getEntity());
         float newDamage = calculateNewDamage((float) approachVelocity, originalDamage);
-        int damageRatio = Math.round(newDamage / originalDamage);
 
-        if (attacker instanceof LivingEntity living) {
-            ItemStack item = living.getItemInHand(InteractionHand.MAIN_HAND);
-            if (item.isDamageableItem()) {
-                int currentValue = item.getDamageValue();
-                item.setDamageValue(currentValue + damageRatio - 1);
+        // Velocity-boosted melee hits cost extra weapon durability.
+        if (attacker instanceof LivingEntity living && !(attacker instanceof Projectile) && originalDamage > 0) {
+            int extraWear = Math.round(newDamage / originalDamage) - 1;
+            if (extraWear > 0) {
+                ItemStack item = living.getItemInHand(InteractionHand.MAIN_HAND);
+                if (item.isDamageableItem()) {
+                    // hurtAndBreak respects Unbreaking and handles item breaking properly.
+                    item.hurtAndBreak(extraWear, living, e -> e.broadcastBreakEvent(EquipmentSlot.MAINHAND));
+                }
             }
         }
 
-        if (newDamage > originalDamage) {
+        // Only bother nearby players with the crit sound when a player is involved.
+        boolean playerInvolved = entity instanceof Player || attacker instanceof Player
+                || event.getSource().getEntity() instanceof Player;
+        if (newDamage > originalDamage && playerInvolved) {
             entity.level().playSound(null, entity.blockPosition(),
                     SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.PLAYERS, 0.6F, 0.9F);
         }

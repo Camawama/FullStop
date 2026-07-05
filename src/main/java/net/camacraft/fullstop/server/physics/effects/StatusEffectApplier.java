@@ -1,8 +1,8 @@
 package net.camacraft.fullstop.server.physics.effects;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
-import net.camacraft.fullstop.common.effect.ModEffects;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.registry.ModEffects;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
@@ -27,30 +27,23 @@ public class StatusEffectApplier {
         }
     }
 
+    /** Hard landings sprain the legs and slow the entity down for a while. */
     public static void applyDamageEffects(Entity entity, FullStopCapability fullstop, double damage) {
         if (damage <= 0) return;
+        if (!fullstop.isMostlyDownward()) return;
 
-        if (fullstop.isMostlyHorizontal() || fullstop.isMostlyUpward()) return;
-
-        if (entity instanceof LivingEntity living && DamageImmunityRules.isDamageImmune(living)) {
-            return;
-        }
-
+        if (!(entity instanceof LivingEntity livingEntity)) return;
+        if (DamageImmunityRules.isDamageImmune(livingEntity)) return;
         if (fullstop.getIsDamageImmune()) return;
         if (entity.isInvulnerable()) return;
 
-        if (entity instanceof LivingEntity livingEntity) {
-            int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+        int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
+        double scale = 1.0 - fallProtLevel * 0.2;
+        if (scale <= 0) return;
 
-            if (fullstop.isMostlyDownward()) {
-                livingEntity.addEffect(new MobEffectInstance(ModEffects.SPRAIN.get(),
-                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), 0, false, false));
-            } else {
-                livingEntity.addEffect(new MobEffectInstance(MobEffects.BLINDNESS,
-                        (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
-            }
-            livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
-                    (int) (damage * 5 * (1.0 - fallProtLevel * 0.2)), (int) ((damage / 2) * (1.0 - fallProtLevel * 0.2)), false, false));
-        }
+        livingEntity.addEffect(new MobEffectInstance(ModEffects.SPRAIN.get(),
+                (int) (damage * 5 * scale), 0, false, false));
+        livingEntity.addEffect(new MobEffectInstance(MobEffects.MOVEMENT_SLOWDOWN,
+                (int) (damage * 5 * scale), (int) ((damage / 2) * scale), false, false));
     }
 }

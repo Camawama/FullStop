@@ -29,18 +29,15 @@ public class PullbackEnchantment extends Enchantment {
 
     @Override
     public void doPostAttack(LivingEntity attacker, Entity target, int level) {
+        // Server only: doPostAttack fires on both logical sides in singleplayer.
+        if (attacker.level().isClientSide) return;
+
         if (target instanceof LivingEntity) {
             Vec3 pullDirection = attacker.position().subtract(target.position()).normalize();
-            double pullStrength = level * 0.5; // Adjust strength as needed
-            
-            // We want to pull them towards us, but maybe not lift them up too much
-            // Or maybe we do? Knockback lifts slightly.
-            
-            // Vanilla knockback adds to velocity. We should do the same but towards attacker.
-            // However, we need to be careful not to just cancel out their movement if they are running away.
-            // We want to apply an impulse towards the attacker.
-            
+            double pullStrength = level * 0.5;
+
             target.push(pullDirection.x * pullStrength, 0.1, pullDirection.z * pullStrength);
+            target.hurtMarked = true;
         }
     }
 }

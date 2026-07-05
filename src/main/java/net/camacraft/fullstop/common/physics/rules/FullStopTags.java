@@ -1,0 +1,37 @@
+package net.camacraft.fullstop.common.physics.rules;
+
+import net.camacraft.fullstop.FullStop;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.TagKey;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.level.block.Block;
+
+/**
+ * Data-driven rule tags so packs and other mods can extend FullStop's block/entity
+ * lists without code changes. Definitions live under data/fullstop/tags/.
+ */
+public final class FullStopTags {
+    private FullStopTags() {
+    }
+
+    /** Blocks that shatter easily and count as nearly zero hardness on impact (glass, ice, snow). */
+    public static final TagKey<Block> FRAGILE = blockTag("fragile");
+
+    /** Blocks that absorb most of an impact (hay). Damage is multiplied by 0.3. */
+    public static final TagKey<Block> SOFT_LANDING = blockTag("soft_landing");
+
+    /** Blocks that soften an impact (wool, leaves, moss...). Damage is multiplied by 0.7. */
+    public static final TagKey<Block> CUSHIONING = blockTag("cushioning");
+
+    /** Entities that never take kinetic damage (bosses, flying/agile/soft-bodied mobs). */
+    public static final TagKey<EntityType<?>> KINETIC_IMMUNE = entityTag("kinetic_immune");
+
+    private static TagKey<Block> blockTag(String name) {
+        return TagKey.create(Registries.BLOCK, new ResourceLocation(FullStop.MODID, name));
+    }
+
+    private static TagKey<EntityType<?>> entityTag(String name) {
+        return TagKey.create(Registries.ENTITY_TYPE, new ResourceLocation(FullStop.MODID, name));
+    }
+}

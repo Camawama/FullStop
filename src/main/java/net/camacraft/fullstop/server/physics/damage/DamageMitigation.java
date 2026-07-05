@@ -1,4 +1,4 @@
-package net.camacraft.fullstop.common.physics.damage;
+package net.camacraft.fullstop.server.physics.damage;
 
 import net.minecraft.world.damagesource.CombatRules;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -18,11 +18,14 @@ public class DamageMitigation {
 
         rawDamage *= (float) toughnessReduction;
 
+        // Durability loss scales with the hit instead of a flat point per piece per tick.
+        int durabilityCost = rawDamage >= 1.0f ? Math.max(1, (int) (rawDamage / 4.0f)) : 0;
+
         if (mostlyDownward) {
             ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET);
             if (!boots.isEmpty()) {
                 rawDamage *= 0.9f;
-                damageArmor(entity, boots, 1);
+                damageArmor(entity, boots, durabilityCost);
             }
 
             int featherFallingLevel = boots.getEnchantmentLevel(Enchantments.FALL_PROTECTION);
@@ -42,21 +45,21 @@ public class DamageMitigation {
             ItemStack helmet = entity.getItemBySlot(EquipmentSlot.HEAD);
             if (!helmet.isEmpty()) {
                 rawDamage *= 0.85f;
-                damageArmor(entity, helmet, 1);
+                damageArmor(entity, helmet, durabilityCost);
             }
             return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
         } else {
-            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.HEAD), 1);
-            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.CHEST), 1);
-            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.LEGS), 1);
-            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.FEET), 1);
+            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.HEAD), durabilityCost);
+            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.CHEST), durabilityCost);
+            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.LEGS), durabilityCost);
+            damageArmor(entity, entity.getItemBySlot(EquipmentSlot.FEET), durabilityCost);
 
             return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
         }
     }
 
     private static void damageArmor(LivingEntity entity, ItemStack stack, int amount) {
-        if (stack.isEmpty() || !stack.isDamageableItem()) return;
+        if (amount <= 0 || stack.isEmpty() || !stack.isDamageableItem()) return;
 
         if (stack.getItem() instanceof ArmorItem armorItem) {
             if (armorItem.getMaterial().getKnockbackResistance() > 0) return;

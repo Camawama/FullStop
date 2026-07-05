@@ -27,12 +27,12 @@ public final class ClientRenderEvents {
                 for (Entity entity : mc.level.entitiesForRendering()) {
                     RaycastLineRenderer.updateDebugRays(entity);
                 }
-                
+
                 // Explicitly render for the local player (who is often not in entitiesForRendering)
                 if (mc.player != null) {
                     RaycastLineRenderer.updateDebugRays(mc.player);
                 }
-                
+
                 PoseStack poseStack = event.getPoseStack();
                 RaycastLineRenderer.render(poseStack, event.getPartialTick());
             } else {

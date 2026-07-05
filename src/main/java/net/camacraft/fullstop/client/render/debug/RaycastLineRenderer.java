@@ -78,14 +78,12 @@ public final class RaycastLineRenderer {
         FullStopCapability fullstop = FullStopCapability.grabCapability(entity);
         if (fullstop == null) return;
 
-        // Only tick the capability on the client if it's the local player,
-        // because other entities have their data synced from the server.
-        // Ticking them here might overwrite the synced data with incorrect client-side calculations.
-        if (entity == Minecraft.getInstance().player) {
-            if (entity.tickCount != fullstop.getLastTick()) {
-                fullstop.tick(entity);
-                fullstop.setLastTick(entity.tickCount);
-            }
+        // Client-side capabilities of non-player entities are only consumed by this
+        // debug view (gameplay is server-side), so ticking them here is safe and
+        // keeps the debug rays moving for mobs.
+        if (entity.tickCount != fullstop.getLastTick()) {
+            fullstop.tick(entity);
+            fullstop.setLastTick(entity.tickCount);
         }
 
         // Calculate opacity based on speed
@@ -94,7 +92,8 @@ public final class RaycastLineRenderer {
 
         Vec3 direction = RaycastUtil.getRayDirection(fullstop);
         double rayLength = RaycastUtil.getRayLength(entity, fullstop);
-        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity);
+        // Same ray layout the server uses, so the debug view matches reality.
+        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, net.camacraft.fullstop.FullStopConfig.SERVER.raycastMode.get());
         Level level = entity.level();
 
         int index = 0;

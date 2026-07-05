@@ -1,12 +1,10 @@
-package net.camacraft.fullstop.common.potion;
+package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
-import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.potion.BetterBrewingRecipe;
 import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.alchemy.Potion;
-import net.minecraft.world.item.alchemy.PotionBrewing;
 import net.minecraft.world.item.alchemy.Potions;
 import net.minecraftforge.common.brewing.BrewingRecipeRegistry;
 import net.minecraftforge.eventbus.api.IEventBus;
@@ -18,32 +16,32 @@ public class ModPotions {
     public static final DeferredRegister<Potion> POTIONS =
             DeferredRegister.create(ForgeRegistries.POTIONS, FullStop.MODID);
 
-    // Clarity Potions
+    // The shared base name ("clarity"/"vertigo") makes all duration/strength variants
+    // use one display-name lang key: item.minecraft.potion.effect.clarity etc.
+
     public static final RegistryObject<Potion> CLARITY_POTION = POTIONS.register("clarity_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.CLARITY.get(), 3600, 0))); // 3:00
+            () -> new Potion("clarity", new MobEffectInstance(ModEffects.CLARITY.get(), 3600, 0))); // 3:00
 
     public static final RegistryObject<Potion> LONG_CLARITY_POTION = POTIONS.register("long_clarity_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.CLARITY.get(), 9600, 0))); // 8:00
+            () -> new Potion("clarity", new MobEffectInstance(ModEffects.CLARITY.get(), 9600, 0))); // 8:00
 
     public static final RegistryObject<Potion> STRONG_CLARITY_POTION = POTIONS.register("strong_clarity_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.CLARITY.get(), 1800, 1))); // 1:30, Level II
+            () -> new Potion("clarity", new MobEffectInstance(ModEffects.CLARITY.get(), 1800, 1))); // 1:30, Level II
 
     public static final RegistryObject<Potion> EXTREME_CLARITY_POTION = POTIONS.register("extreme_clarity_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.CLARITY.get(), 900, 2))); // 0:45, Level III
+            () -> new Potion("clarity", new MobEffectInstance(ModEffects.CLARITY.get(), 900, 2))); // 0:45, Level III
 
-    // Vertigo Potions
     public static final RegistryObject<Potion> VERTIGO_POTION = POTIONS.register("vertigo_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.VERTIGO.get(), 3600, 0))); // 3:00
+            () -> new Potion("vertigo", new MobEffectInstance(ModEffects.VERTIGO.get(), 3600, 0))); // 3:00
 
     public static final RegistryObject<Potion> LONG_VERTIGO_POTION = POTIONS.register("long_vertigo_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.VERTIGO.get(), 9600, 0))); // 8:00
+            () -> new Potion("vertigo", new MobEffectInstance(ModEffects.VERTIGO.get(), 9600, 0))); // 8:00
 
     public static final RegistryObject<Potion> STRONG_VERTIGO_POTION = POTIONS.register("strong_vertigo_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.VERTIGO.get(), 1800, 1))); // 1:30, Level II
+            () -> new Potion("vertigo", new MobEffectInstance(ModEffects.VERTIGO.get(), 1800, 1))); // 1:30, Level II
 
     public static final RegistryObject<Potion> EXTREME_VERTIGO_POTION = POTIONS.register("extreme_vertigo_potion",
-            () -> new Potion(new MobEffectInstance(ModEffects.VERTIGO.get(), 900, 2))); // 0:45, Level III
-
+            () -> new Potion("vertigo", new MobEffectInstance(ModEffects.VERTIGO.get(), 900, 2))); // 0:45, Level III
 
     public static void register(IEventBus eventBus) {
         POTIONS.register(eventBus);

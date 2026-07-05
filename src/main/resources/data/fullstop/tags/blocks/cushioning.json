@@ -1,0 +1,12 @@
+{
+  "replace": false,
+  "values": [
+    "#minecraft:wool",
+    "#minecraft:leaves",
+    "minecraft:big_dripleaf",
+    "minecraft:small_dripleaf",
+    "minecraft:moss_block",
+    "minecraft:sponge",
+    "minecraft:wet_sponge"
+  ]
+}

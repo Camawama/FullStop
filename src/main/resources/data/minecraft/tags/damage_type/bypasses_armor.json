@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "fullstop:kinetic",
+    "fullstop:kinetic_fall",
+    "fullstop:pressure",
+    "fullstop:atmosphere"
+  ]
+}

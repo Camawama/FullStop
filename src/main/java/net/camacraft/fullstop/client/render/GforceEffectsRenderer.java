@@ -7,21 +7,25 @@ import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
-import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
 import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.client.renderer.GameRenderer;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderGuiOverlayEvent;
+import net.minecraftforge.client.event.RenderGuiEvent;
 import net.minecraftforge.client.event.ViewportEvent;
-import net.minecraftforge.client.gui.overlay.VanillaGuiOverlay;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
+/**
+ * Tunnel-vision/blackout overlay driven by sustained g-force and low air supply.
+ * Hooks RenderGuiEvent.Post (not the vignette overlay) so it also renders when the
+ * vignette is skipped, e.g. on Fast graphics.
+ */
 @Mod.EventBusSubscriber(value = Dist.CLIENT)
 public class GforceEffectsRenderer {
 
@@ -29,78 +33,64 @@ public class GforceEffectsRenderer {
     private static float currentIntensity = 0.0f;
     private static float currentFovModifier = 1.0f;
 
+    /** True when the effect should run: in a world, config loaded, not creative/spectator. */
+    private static LocalPlayer effectTarget() {
+        LocalPlayer player = Minecraft.getInstance().player;
+        if (player == null) return null;
+        if (player.isCreative() || player.isSpectator()) return null;
+        if (!FullStopConfig.SERVER_SPEC.isLoaded()) return null;
+        return player;
+    }
+
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onComputeFov(ViewportEvent.ComputeFov event) {
-        if (!FullStopConfig.SERVER.enableGForceEffects.get()) return;
-
-        Minecraft minecraft = Minecraft.getInstance();
-        if (minecraft.player == null || minecraft.player.isCreative()) {
+        LocalPlayer player = effectTarget();
+        if (player == null || !FullStopConfig.SERVER.enableGForceEffects.get()) {
             currentFovModifier = 1.0f;
             return;
         }
 
         float targetFovModifier = 1.0f;
-        
-        FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+
+        FullStopCapability cap = FullStopCapability.grabCapability(player);
         if (cap != null) {
             double gForce = cap.getRawRunningAverageDelta();
             targetFovModifier = 1.0f + (float) Math.pow(gForce / 15.0, 2);
         }
 
         currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.05f;
-        
+
         if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
             event.setFOV(event.getFOV() * currentFovModifier);
         }
     }
 
     @SubscribeEvent
-    public static void onRenderGuiOverlayPost(RenderGuiOverlayEvent.Post event) {
-        if (event.getOverlay() != VanillaGuiOverlay.VIGNETTE.type()) {
-            return;
-        }
-
+    public static void onRenderGuiPost(RenderGuiEvent.Post event) {
         float gForceIntensity = 0.0f;
         float drowningIntensity = 0.0f;
-        Minecraft minecraft = Minecraft.getInstance();
 
-        if (minecraft.player != null && !minecraft.player.isCreative()) {
+        LocalPlayer player = effectTarget();
+        if (player != null) {
             if (FullStopConfig.SERVER.enableGForceEffects.get()) {
-                FullStopCapability cap = FullStopCapability.grabCapability(minecraft.player);
+                FullStopCapability cap = FullStopCapability.grabCapability(player);
                 if (cap != null) {
                     double gForce = cap.getRunningAverageDelta();
-                    double minGforce = FullStopConfig.CLIENT.minGForceThreshold.get();
-                    double maxGforce = FullStopConfig.CLIENT.maxGForceThreshold.get();
+                    GForceThresholds.Range thresholds = GForceThresholds.effective(player,
+                            FullStopConfig.CLIENT.minGForceThreshold.get(),
+                            FullStopConfig.CLIENT.maxGForceThreshold.get());
 
-                    int clarityLevel = 0;
-                    int vertigoLevel = 0;
-                    MobEffectInstance clarity = minecraft.player.getEffect(ModEffects.CLARITY.get());
-                    if (clarity != null) clarityLevel = clarity.getAmplifier() + 1;
-                    MobEffectInstance vertigo = minecraft.player.getEffect(ModEffects.VERTIGO.get());
-                    if (vertigo != null) vertigoLevel = vertigo.getAmplifier() + 1;
-
-                    int netLevel = vertigoLevel - clarityLevel;
-                    if (netLevel > 0) {
-                        double multiplier = Math.pow(0.8, netLevel);
-                        minGforce *= multiplier;
-                        maxGforce *= multiplier;
-                    } else if (netLevel < 0) {
-                        double multiplier = Math.pow(1.25, -netLevel);
-                        minGforce *= multiplier;
-                        maxGforce *= multiplier;
-                    }
-
-                    if (gForce > minGforce) {
-                        gForceIntensity = (float) ((gForce - minGforce) / (maxGforce - minGforce));
+                    if (gForce > thresholds.min()) {
+                        gForceIntensity = (float) ((gForce - thresholds.min()) / (thresholds.max() - thresholds.min()));
                         gForceIntensity = Math.min(gForceIntensity, 1.0f);
                     }
                 }
             }
 
-            int airSupply = minecraft.player.getAirSupply();
-            int maxAir = minecraft.player.getMaxAirSupply();
+            int airSupply = player.getAirSupply();
+            int maxAir = player.getMaxAirSupply();
             if (airSupply < maxAir) {
-                float intensity = 1.0f - ((float)airSupply / (float)maxAir);
+                float intensity = 1.0f - ((float) airSupply / (float) maxAir);
                 drowningIntensity = intensity * intensity * intensity;
             }
         }
@@ -127,7 +117,7 @@ public class GforceEffectsRenderer {
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             RenderSystem.setShader(GameRenderer::getPositionColorShader);
-            
+
             Tesselator tesselator = Tesselator.getInstance();
             BufferBuilder bufferbuilder = tesselator.getBuilder();
             bufferbuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
@@ -146,23 +136,23 @@ public class GforceEffectsRenderer {
         RenderSystem.depthMask(false);
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
-        
+
         RenderSystem.setShader(GameRenderer::getPositionTexColorShader);
         RenderSystem.setShaderTexture(0, POWDER_SNOW_OUTLINE_LOCATION);
-        
+
         Tesselator tesselator = Tesselator.getInstance();
         BufferBuilder bufferbuilder = tesselator.getBuilder();
         bufferbuilder.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_TEX_COLOR);
-        
+
         float alpha = intensity;
-        
+
         bufferbuilder.vertex(0.0D, screenHeight, -90.0D).uv(0.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
         bufferbuilder.vertex(screenWidth, screenHeight, -90.0D).uv(1.0F, 1.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
         bufferbuilder.vertex(screenWidth, 0.0D, -90.0D).uv(1.0F, 0.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
         bufferbuilder.vertex(0.0D, 0.0D, -90.0D).uv(0.0F, 0.0F).color(0.0F, 0.0F, 0.0F, alpha).endVertex();
-        
+
         tesselator.end();
-        
+
         RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);

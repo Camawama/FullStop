@@ -12,7 +12,6 @@ public class FullStopConfig {
     public static final float DEFAULT_MINIMUM_DMG = 0.30F;
     public static final float DEFAULT_MAXIMUM_DMG = Float.MAX_VALUE;
     public static final float DEFAULT_PROJECTILE_MULTIPLIER = 1.00F;
-    public static final float DEFAULT_VELOCITY_THRESHOLD = 6.3F;
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77f;
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
@@ -49,6 +48,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
         public final ForgeConfigSpec.BooleanValue enablePressureSimulation;
+        public final ForgeConfigSpec.BooleanValue altitudePressureAffectsMobs;
         public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
         public final ForgeConfigSpec.DoubleValue highAltitudeAirLossRate;
         public final ForgeConfigSpec.IntValue deepWaterStartLevel;
@@ -154,9 +154,7 @@ public class FullStopConfig {
                             "minecraft:iron_golem,8.0",
                             "minecraft:skeleton,0.333",
                             "minecraft:skeleton_horse,0.333",
-                            "minecraft:item,0.0",
-                            "minecraft:ghast,0.125",
-                            "minecraft:arrow,1000000.0"
+                            "minecraft:ghast,0.125"
                     ), o -> o instanceof String);
 
             this.raycastMode = builder
@@ -171,9 +169,13 @@ public class FullStopConfig {
                     .comment("Enables atmospheric and underwater pressure effects.")
                     .define("enablePressureSimulation", true);
 
+            this.altitudePressureAffectsMobs = builder
+                    .comment("When true, non-player mobs also lose air at high altitudes. Beware: ordinary mountain mobs can suffocate if the start level is low.")
+                    .define("altitudePressureAffectsMobs", false);
+
             this.highAltitudeStartLevel = builder
-                    .comment("The Y-level where players start losing air due to thin atmosphere.")
-                    .defineInRange("highAltitudeStartLevel", 128, -64, 320);
+                    .comment("The Y-level where players start losing air due to thin atmosphere. Note that vanilla terrain can exceed Y=128.")
+                    .defineInRange("highAltitudeStartLevel", 200, -64, 320);
 
             this.highAltitudeAirLossRate = builder
                     .comment("Multiplier for air loss rate at high altitudes. Higher is faster.")
@@ -203,7 +205,7 @@ public class FullStopConfig {
         }
 
         private static String key(String valueName) {
-            return "config.velocitydamage." + valueName;
+            return "config.fullstop." + valueName;
         }
     }
 

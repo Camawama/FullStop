@@ -1,16 +1,17 @@
 package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
-import net.camacraft.fullstop.common.attribute.ModAttributes;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
-import net.camacraft.fullstop.common.effect.ModEffects;
-import net.camacraft.fullstop.common.enchantment.ModEnchantments;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.EntityWeight;
-import net.camacraft.fullstop.common.potion.ModPotions;
+import net.camacraft.fullstop.common.registry.ModAttributes;
+import net.camacraft.fullstop.common.registry.ModEffects;
+import net.camacraft.fullstop.common.registry.ModEnchantments;
+import net.camacraft.fullstop.common.registry.ModPotions;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
+import net.camacraft.fullstop.server.physics.pressure.PressureHandler;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -53,7 +54,7 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
-        MinecraftForge.EVENT_BUS.register(FullStopConfig.class);
+        MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
 

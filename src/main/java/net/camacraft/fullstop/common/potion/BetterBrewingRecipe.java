@@ -34,7 +34,10 @@ public class BetterBrewingRecipe implements IBrewingRecipe {
         }
 
         ItemStack itemStack = new ItemStack(input.getItem());
-        itemStack.setTag(new ItemStack(input.getItem()).getTag());
+        // Preserve the input's custom NBT (names, etc.) before stamping the new potion.
+        if (input.getTag() != null) {
+            itemStack.setTag(input.getTag().copy());
+        }
         PotionUtils.setPotion(itemStack, output);
         return itemStack;
     }

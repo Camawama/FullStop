@@ -14,6 +14,7 @@ import java.util.Map;
 public class EntityWeight {
 
     private static final Map<String, Double> CACHED_WEIGHTS = new HashMap<>();
+    private static boolean loaded = false;
 
     public static double getEntityMass(Entity entity) {
         AABB box = entity.getBoundingBox();
@@ -32,8 +33,8 @@ public class EntityWeight {
         if (registryName == null) return 1.0;
         
         String key = registryName.toString();
-        
-        if (CACHED_WEIGHTS.isEmpty()) {
+
+        if (!loaded) {
             loadConfigWeights();
         }
 
@@ -42,6 +43,7 @@ public class EntityWeight {
 
     public static void loadConfigWeights() {
         CACHED_WEIGHTS.clear();
+        loaded = true;
         List<? extends String> weights = FullStopConfig.SERVER.entityWeights.get();
         for (String entry : weights) {
             String[] parts = entry.split(",");

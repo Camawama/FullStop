@@ -1,8 +1,10 @@
-package net.camacraft.fullstop.common.effect;
+package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.effect.ClarityEffect;
+import net.camacraft.fullstop.common.effect.SprainEffect;
+import net.camacraft.fullstop.common.effect.VertigoEffect;
 import net.minecraft.world.effect.MobEffect;
-import net.minecraft.world.effect.MobEffectCategory;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.registries.DeferredRegister;
 import net.minecraftforge.registries.ForgeRegistries;

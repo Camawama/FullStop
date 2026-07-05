@@ -1,30 +1,19 @@
 package net.camacraft.fullstop.common.capability;
 
 import net.camacraft.fullstop.FullStop;
-import net.camacraft.fullstop.common.effect.ModEffects;
+import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
 import net.camacraft.fullstop.common.util.MathUtils;
-import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.entity.vehicle.Boat;
-import net.minecraft.world.item.ElytraItem;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.enchantment.EnchantmentHelper;
-import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.CapabilityManager;
 import net.minecraftforge.common.capabilities.CapabilityToken;
 import net.minecraftforge.common.capabilities.ICapabilityProvider;
-import net.minecraftforge.common.util.INBTSerializable;
 import net.minecraftforge.common.util.LazyOptional;
 import net.minecraftforge.event.AttachCapabilitiesEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -33,14 +22,26 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.Objects;
 
-public class FullStopCapability implements INBTSerializable<CompoundTag> {
+/**
+ * Per-entity velocity/impact state.
+ *
+ * <h3>Unit convention</h3>
+ * Everything suffixed {@code Mps} is in meters per second (= blocks/second).
+ * "Native" values are Minecraft's blocks-per-tick. Conversion factor is 20
+ * (native → m/s: {@code scale(20)}; m/s → native: {@code scale(0.05)}).
+ *
+ * <h3>Source of truth</h3>
+ * The velocity for a tick is the measured position delta. For players, the
+ * client-reported delta may <em>refine</em> that measurement (it captures
+ * intent the server position hasn't integrated yet) but is never allowed to
+ * exceed it — see {@link #tickVelocity}.
+ */
+public class FullStopCapability {
 
     public static final ResourceLocation DELTA_VELOCITY = new ResourceLocation(FullStop.MODID, "delta_velocity");
 
     private final Entity entity;
 
-    @NotNull
-    private Vec3 prevPrevVelocityMps = Vec3.ZERO;
     @NotNull
     private Vec3 prevVelocityMps = Vec3.ZERO;
     @NotNull
@@ -48,26 +49,28 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     private Vec3 clientVelocityMps = null;
     private Vec3 currentPosition = Vec3.ZERO;
     private Vec3 previousPosition = Vec3.ZERO;
-    private Vec3 acceleration;
+    private Vec3 acceleration = Vec3.ZERO;
+
+    // Stopping force = speed lost this tick (m/s), decomposed for per-axis damage thresholds.
     private double decelerationForce = 0.0;
-    private double accelMagnitude = 0.0;
+    private double decelerationForceHorizontal = 0.0;
+    private double decelerationForceVertical = 0.0;
+
     private double avgAccel = 0.0;
-    private double rawAvgAccel = 0.0; // Unaffected by potions
+    private double rawAvgAccel = 0.0; // Unaffected by clarity/vertigo potions
 
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
     private boolean hasDismounted = false;
-    private boolean joinedForFirstTime = false;
     private boolean firstTick = true;
-    private double teleportCooldown = 0.0;
-    private double dismountCooldown = 0.0;
+    private int teleportCooldown = 0;
+    private int dismountCooldown = 0;
     private int soundCooldown = 0;
     private int sonicBoomCooldown = 0;
+    private int waterSkipCooldown = 0;
     private long lastTick = -1;
 
-    private long lastCollisionTick = -1000;
-    private BlockPos lastCollisionBlockPos = null;
-    private int lastCollisionEntityId = -1;
+    private long damageCooldownUntilTick = Long.MIN_VALUE;
 
     private double targetAngle = Double.NaN;
     private double targetPitch = Double.NaN;
@@ -87,102 +90,80 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
         tickVelocity(entity);
         tickSpeed();
-        tickRotation(entity);
         tickImmunity();
         tickRiding();
 
         if (soundCooldown > 0) {
             soundCooldown--;
         }
-        
+
         if (sonicBoomCooldown > 0) {
             sonicBoomCooldown--;
+        }
+
+        if (waterSkipCooldown > 0) {
+            waterSkipCooldown--;
         }
 
         if (Double.isNaN(avgAccel)) avgAccel = 0;
         if (Double.isNaN(rawAvgAccel)) rawAvgAccel = 0;
 
         if (entity instanceof LivingEntity living) {
-            double gravity = 0.08;
-            if (!living.isNoGravity()) {
-                var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
-                if (gravityAttr != null) {
-                    gravity = gravityAttr.getValue();
-                }
-            } else {
-                gravity = 0.0;
+            tickGForce(living);
+        }
+    }
+
+    /** Smooths the felt acceleration (g-force) that drives blackout/vignette/audio effects. */
+    private void tickGForce(LivingEntity living) {
+        double gravity = 0.08;
+        if (!living.isNoGravity()) {
+            var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
+            if (gravityAttr != null) {
+                gravity = gravityAttr.getValue();
             }
-            
-            // Ensure gravity is treated as a downward force magnitude
-            gravity = Math.abs(gravity);
+        } else {
+            gravity = 0.0;
+        }
 
-            // Calculate proper acceleration (G-force) by subtracting gravity vector.
-            // Acceleration is in m/s/tick. Gravity attribute is blocks/tick^2.
-            // 1 block/tick^2 = 20 m/s/tick.
-            Vec3 gravityVector = new Vec3(0, -gravity * 20, 0);
-            Vec3 gForceVec = acceleration.subtract(gravityVector);
+        gravity = Math.abs(gravity);
 
-            // When on ground, ignore positive Y acceleration to prevent stair-climbing G-force spikes.
-            if (entity.onGround() && gForceVec.y > 0) {
-                gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+        // acceleration is m/s per tick; gravity attr is blocks/tick², so ×20 puts both in the same units.
+        Vec3 gravityVector = new Vec3(0, -gravity * 20, 0);
+        Vec3 gForceVec = acceleration.subtract(gravityVector);
+
+        if (entity.onGround() && gForceVec.y > 0) {
+            gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+        }
+
+        if (velocityMps.y < 0 && gForceVec.y > 0) {
+            gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+        }
+
+        double gForceMagnitude = gForceVec.length();
+
+        if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
+            avgAccel = 0.0;
+            rawAvgAccel = 0.0;
+        } else {
+            double clampedInput = Math.min(gForceMagnitude, 20.0);
+
+            if (justBounced) {
+                clampedInput = 0;
+                justBounced = false;
             }
 
-            // When falling, the "drag" force acts upwards (positive Y).
-            // To simulate weightlessness during freefall, we ignore this upward component.
-            // This ensures that falling at terminal velocity (where drag = gravity) results in 0 G-force.
-            if (velocityMps.y < 0 && gForceVec.y > 0) {
-                gForceVec = new Vec3(gForceVec.x, 0, gForceVec.z);
+            rawAvgAccel = (rawAvgAccel * 19 + clampedInput) / 20;
+
+            double smoothingFactor = 20.0;
+            int netLevel = GForceThresholds.netEffectLevel(living);
+
+            if (netLevel > 0) {
+                smoothingFactor = Math.max(5.0, smoothingFactor * Math.pow(0.7, netLevel));
+            } else if (netLevel < 0) {
+                smoothingFactor = smoothingFactor * Math.pow(1.5, -netLevel);
             }
 
-            double gForceMagnitude = gForceVec.length();
-
-            // Fix drift: if both current and average are negligible, snap to 0
-            if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
-                avgAccel = 0.0;
-                rawAvgAccel = 0.0;
-            } else {
-                // Clamp input acceleration to prevent massive single-tick spikes (e.g. teleportation artifacts)
-                // 20.0 m/s/tick is ~400 m/s^2 (40g), which is a reasonable upper bound for "valid" movement.
-                double clampedInput = Math.min(gForceMagnitude, 20.0);
-                
-                // If we just bounced, we don't want to count the sudden change in velocity as G-force
-                if (justBounced) {
-                    clampedInput = 0;
-                    justBounced = false;
-                }
-
-                // Calculate Raw Average (Standard smoothing, unaffected by potions)
-                rawAvgAccel = (rawAvgAccel * 19 + clampedInput) / 20;
-
-                // Apply Potion Modifiers to the running average calculation
-                // This affects how quickly the G-force builds up or decays
-                double smoothingFactor = 20.0; // Default smoothing (higher = slower change)
-
-                int clarityLevel = 0;
-                int vertigoLevel = 0;
-
-                MobEffectInstance clarity = living.getEffect(ModEffects.CLARITY.get());
-                if (clarity != null) {
-                    clarityLevel = clarity.getAmplifier() + 1;
-                }
-
-                MobEffectInstance vertigo = living.getEffect(ModEffects.VERTIGO.get());
-                if (vertigo != null) {
-                    vertigoLevel = vertigo.getAmplifier() + 1;
-                }
-
-                int netLevel = vertigoLevel - clarityLevel;
-
-                if (netLevel > 0) {
-                    // Vertigo: Faster buildup (lower smoothing factor)
-                    smoothingFactor = Math.max(5.0, smoothingFactor * Math.pow(0.7, netLevel));
-                } else if (netLevel < 0) {
-                    // Clarity: Slower buildup (higher smoothing factor)
-                    smoothingFactor = smoothingFactor * Math.pow(1.5, -netLevel);
-                }
-                
-                avgAccel = (avgAccel * (smoothingFactor - 1) + clampedInput) / smoothingFactor;
-            }
+            avgAccel = (avgAccel * (smoothingFactor - 1) + clampedInput) / smoothingFactor;
         }
     }
 
@@ -200,34 +181,28 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
             previousPosition = currentPosition;
             velocityMps = Vec3.ZERO;
             prevVelocityMps = Vec3.ZERO;
-            prevPrevVelocityMps = Vec3.ZERO;
             return;
         }
 
-        prevPrevVelocityMps = prevVelocityMps;
         prevVelocityMps = velocityMps;
 
         currentPosition = entity.position();
 
         Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
-        // We only use client velocity for players to ensure responsive controls
-        // For everything else, we trust the server's calculation
         if (entity instanceof Player && clientVelocityMps != null) {
             double actualSpeedSqr = actualVelocity.lengthSqr();
             double clientSpeedSqr = clientVelocityMps.lengthSqr();
 
-            // FIX: Completely override client velocity if actual velocity is significantly lower,
-            // or if we are actively colliding with a block.
+            // The client value may refine the measurement, never inflate it: when the entity
+            // is colliding or the client claims to be faster than it actually moved, trust
+            // the measured position delta.
             if (entity.horizontalCollision || entity.verticalCollision || (clientSpeedSqr > actualSpeedSqr + 0.1)) {
-                // If there is a huge mismatch or a hard collision, the client is probably pressing against a wall/floor.
-                // We should completely trust the server's actual movement calculation to avoid velocity buildup.
                 velocityMps = actualVelocity;
             } else {
-                // If moving normally and no collision, trust the client for responsiveness
                 velocityMps = clientVelocityMps;
             }
-            clientVelocityMps = null; // Consume the value
+            clientVelocityMps = null;
         } else {
             velocityMps = actualVelocity;
         }
@@ -235,8 +210,8 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         if (entity instanceof LivingEntity living) {
             double gravity = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue();
 
-            // Only zero out Y velocity if we are actually on the ground AND not moving downwards significantly
-            // This prevents "accumulating" downward velocity while standing on a ledge or hugging a wall
+            // Standing still on the ground still "falls" by one gravity step each tick;
+            // treat that as zero vertical velocity.
             if (velocityMps.y >= gravity * -20 && velocityMps.y < 0 && entity.onGround()) {
                 velocityMps = new Vec3(velocityMps.x, 0, velocityMps.z);
             }
@@ -244,27 +219,21 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     }
 
     private void tickSpeed() {
-        // This is the definitive, server-authoritative velocity for the tick that just occurred.
         Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20);
 
-        // The "stopping force" is the difference between the velocity we had at the start of the tick
-        // and the velocity we actually ended up with. This is the most direct way to measure deceleration.
         double stoppingForceX = calculateStoppingForceComponent(actualVelocity.x, prevVelocityMps.x);
         double stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, prevVelocityMps.y);
         double stoppingForceZ = calculateStoppingForceComponent(actualVelocity.z, prevVelocityMps.z);
 
+        decelerationForceHorizontal = Math.sqrt(stoppingForceX * stoppingForceX + stoppingForceZ * stoppingForceZ);
+        decelerationForceVertical = stoppingForceY;
         decelerationForce = Math.sqrt(
                 stoppingForceX * stoppingForceX +
                         stoppingForceY * stoppingForceY +
                         stoppingForceZ * stoppingForceZ
         );
 
-        // The acceleration is the change in velocity over the last tick.
-        // We use the "velocityMps" which has been sanity-checked against client input.
         acceleration = velocityMps.subtract(prevVelocityMps);
-
-        // Calculate full 3D acceleration magnitude (including Y)
-        accelMagnitude = acceleration.length();
     }
 
     private double calculateStoppingForceComponent(double current, double old) {
@@ -284,22 +253,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         }
 
         return Math.signum(v1) != Math.signum(v2);
-    }
-
-    private void tickRotation(Entity entity) {
-        if (entity instanceof Player || entity.isControlledByLocalInstance()) return;
-        if (Double.isNaN(targetAngle)) return;
-
-        if (entity instanceof Boat) return;
-
-        double rot = entity.getYRot();
-        float newYRot = (float) (rotationCorrection(1) + rot);
-
-        entity.setYRot(newYRot);
-        entity.setYHeadRot(newYRot);
-        entity.setYBodyRot(newYRot);
-
-        entity.yRotO = newYRot;
     }
 
     public double rotationCorrection(double delta) {
@@ -355,30 +308,47 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         }
     }
 
+    /** Current velocity in blocks/tick. */
     public Vec3 getCurrentNativeVelocity() {
         return velocityMps.scale(0.05);
     }
 
-    public void setCurrentNativeVelocity(Vec3 velocityMps) {
-        this.clientVelocityMps = velocityMps.scale(20);
+    /** Stores the client-reported velocity (blocks/tick) for the next tick's refinement. */
+    public void setCurrentNativeVelocity(Vec3 nativeVelocity) {
+        this.clientVelocityMps = nativeVelocity.scale(20);
     }
 
+    /** Previous tick's velocity in blocks/tick. */
     public Vec3 getPreviousNativeVelocity() {
         return prevVelocityMps.scale(0.05);
     }
 
+    /** Current velocity in m/s. */
     public Vec3 getCurrentScaledVelocity() {
         return velocityMps;
     }
 
+    /** Previous tick's velocity in m/s. */
     public Vec3 getPreviousScaledVelocity() {
         return prevVelocityMps;
     }
 
+    /** Total speed lost this tick, m/s. */
     public double getStoppingForce() {
         return decelerationForce;
     }
 
+    /** Horizontal speed lost this tick, m/s. */
+    public double getHorizontalStoppingForce() {
+        return decelerationForceHorizontal;
+    }
+
+    /** Vertical speed lost this tick, m/s. */
+    public double getVerticalStoppingForce() {
+        return decelerationForceVertical;
+    }
+
+    /** Velocity change this tick (m/s per tick). */
     public Vec3 getAcceleration() {
         return acceleration;
     }
@@ -399,10 +369,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         this.hasTeleported = value;
     }
 
-    public double getTeleportCooldown() {
-        return teleportCooldown;
-    }
-
     public void justDismounted() {
         setCurrentNativeVelocity(Vec3.ZERO);
         this.hasDismounted = true;
@@ -410,14 +376,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
 
     public double getDismountCooldown() {
         return dismountCooldown;
-    }
-
-    public boolean getJoinedForFirstTime() {
-        return joinedForFirstTime;
-    }
-
-    public void setJoinedForFirstTime(boolean value) {
-        this.joinedForFirstTime = value;
     }
 
     public long getLastTick() {
@@ -439,27 +397,29 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
     public void setSonicBoomCooldown(int ticks) {
         this.sonicBoomCooldown = ticks;
     }
-    
+
     public boolean canSonicBoom() {
         return sonicBoomCooldown <= 0;
     }
 
-    public boolean isCollisionOnCooldown(long currentTick, BlockPos blockPos, int entityId, int cooldownTicks) {
-        if (currentTick - lastCollisionTick > cooldownTicks) {
-            return false;
-        }
-
-        if (blockPos != null && blockPos.equals(lastCollisionBlockPos)) {
-            return true;
-        }
-
-        return entityId != -1 && entityId == lastCollisionEntityId;
+    public int getWaterSkipCooldown() {
+        return waterSkipCooldown;
     }
 
-    public void recordCollision(long currentTick, BlockPos blockPos, int entityId) {
-        lastCollisionTick = currentTick;
-        lastCollisionBlockPos = blockPos;
-        lastCollisionEntityId = entityId;
+    public void setWaterSkipCooldown(int ticks) {
+        this.waterSkipCooldown = ticks;
+    }
+
+    /**
+     * Kinetic-damage cooldown. Time-based rather than per-block so sliding along a
+     * wall (a new BlockPos every tick) can't re-trigger damage each tick.
+     */
+    public boolean isDamageOnCooldown(long currentTick) {
+        return currentTick < damageCooldownUntilTick;
+    }
+
+    public void markDamageApplied(long currentTick, int cooldownTicks) {
+        this.damageCooldownUntilTick = currentTick + cooldownTicks;
     }
 
     public void setTargetAngle(double targetAngle) {
@@ -485,32 +445,9 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         return Math.sqrt(v.x * v.x + v.z * v.z) > Math.abs(v.y);
     }
 
-    public static boolean hasDolphinsGrace(LivingEntity entity) {
-        return entity instanceof Player player && player.hasEffect(MobEffects.DOLPHINS_GRACE);
-    }
-
-    public static boolean hasElytraEquipped(LivingEntity entity) {
-        ItemStack chestStack = entity.getItemBySlot(EquipmentSlot.CHEST);
-
-        if (chestStack.getItem() instanceof ElytraItem) {
-            int remainingDurability = chestStack.getMaxDamage() - chestStack.getDamageValue();
-            return remainingDurability > 1;
-        }
-
-        return false;
-    }
-
-    public static boolean hasDepthStrider(LivingEntity entity) {
-        ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET);
-
-        return !boots.isEmpty() &&
-                EnchantmentHelper.getItemEnchantmentLevel(Enchantments.DEPTH_STRIDER, boots) > 0;
-    }
-
     public void resetVelocity() {
         this.velocityMps = Vec3.ZERO;
         this.prevVelocityMps = Vec3.ZERO;
-        this.prevPrevVelocityMps = Vec3.ZERO;
         this.clientVelocityMps = null;
     }
 
@@ -518,20 +455,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         this.justBounced = justBounced;
     }
 
-    // --- NBT Serialization ---
-    @Override
-    public CompoundTag serializeNBT() {
-        CompoundTag tag = new CompoundTag();
-        tag.putBoolean("JoinedForFirstTime", joinedForFirstTime);
-        return tag;
-    }
-
-    @Override
-    public void deserializeNBT(CompoundTag nbt) {
-        joinedForFirstTime = nbt.getBoolean("JoinedForFirstTime");
-    }
-
-    // --- Capability Management ---
     public static @Nullable FullStopCapability grabCapability(Entity entity) {
         return entity.getCapability(Provider.DELTAV_CAP).orElse(null);
     }
@@ -543,8 +466,7 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
         event.addCapability(DELTA_VELOCITY, new Provider(event.getObject()));
     }
 
-    // --- Inner Class: Provider ---
-    public static class Provider implements ICapabilityProvider, INBTSerializable<CompoundTag> {
+    public static class Provider implements ICapabilityProvider {
         public static final Capability<FullStopCapability> DELTAV_CAP = CapabilityManager.get(new CapabilityToken<>() {});
         private final Entity entity;
 
@@ -568,16 +490,6 @@ public class FullStopCapability implements INBTSerializable<CompoundTag> {
                 return lazyHandler.cast();
             }
             return LazyOptional.empty();
-        }
-
-        @Override
-        public CompoundTag serializeNBT() {
-            return createCapability().serializeNBT();
-        }
-
-        @Override
-        public void deserializeNBT(CompoundTag nbt) {
-            createCapability().deserializeNBT(nbt);
         }
     }
 }

@@ -12,7 +12,6 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
-import java.util.Collections;
 import java.util.List;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
@@ -21,9 +20,9 @@ public class ServerCollisionDetector {
 
     public static Collision detect(Entity entity, FullStopCapability fullstop) {
         Collision blockCollision = CommonCollisionDetector.detectBlocks(entity, fullstop);
-        
+
         Collision.CollisionType impactType = blockCollision.collisionType;
-        List<Entity> collidingEntities = Collections.emptyList();
+        List<Entity> collidingEntities = List.of();
 
         if (SERVER.entityCollisionDamage.get()) {
             Level level = entity.level();
@@ -40,13 +39,16 @@ public class ServerCollisionDetector {
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
             );
 
-            if (!collidingEntities.isEmpty()) {
-                if (impactType.ordinal() < Collision.CollisionType.ENTITY.ordinal()) {
-                    impactType = Collision.CollisionType.ENTITY;
-                }
+            if (!collidingEntities.isEmpty() && impactType.priority < Collision.CollisionType.ENTITY.priority) {
+                impactType = Collision.CollisionType.ENTITY;
             }
         }
 
-        return new Collision(impactType, blockCollision.highestYLevel, blockCollision.lowestYLevel, blockCollision.blockStates, collidingEntities, blockCollision.impactedPositions, blockCollision.impactedHits);
+        if (impactType == Collision.CollisionType.NONE) {
+            return Collision.NONE;
+        }
+
+        return new Collision(impactType, blockCollision.blockStates, collidingEntities,
+                blockCollision.impactedPositions, blockCollision.impactedHits);
     }
 }
