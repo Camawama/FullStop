@@ -42,6 +42,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
+        public final ForgeConfigSpec.DoubleValue phaseMinimumSpeed;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
@@ -143,6 +144,13 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+
+            this.phaseMinimumSpeed = builder
+                    .comment("Speed in m/s a living entity must be moving to phase into blocks tagged fullstop:phaseable.",
+                            "Fast movers pass through leaves without breaking them and get embedded in engulfing blocks (sand, gravel, snow).")
+                    .translation(key("phaseMinimumSpeed"))
+                    .comment("Default: 15.0")
+                    .defineInRange("phaseMinimumSpeed", 15.0, 1.0, 1000.0);
             
             this.dripstoneDamageMultiplier = builder
                     .comment("Multiplier for damage when falling on pointed dripstone.")

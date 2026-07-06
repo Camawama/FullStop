@@ -2,6 +2,7 @@ package net.camacraft.fullstop;
 
 import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.physics.BlockPhasing;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.EntityWeight;
@@ -54,7 +55,8 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
-    MinecraftForge.EVENT_BUS.register(PressureHandler.class);
+        MinecraftForge.EVENT_BUS.register(PressureHandler.class);
+        MinecraftForge.EVENT_BUS.register(BlockPhasing.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
 

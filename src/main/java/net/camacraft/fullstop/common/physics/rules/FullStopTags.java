@@ -24,6 +24,20 @@ public final class FullStopTags {
     /** Blocks that soften an impact (wool, leaves, moss...). Damage is multiplied by 0.7. */
     public static final TagKey<Block> CUSHIONING = blockTag("cushioning");
 
+    /**
+     * Blocks that living entities moving faster than the configured
+     * phaseMinimumSpeed pass through instead of colliding with (leaves, plus
+     * everything in {@link #ENGULFING}). No impact damage, no breaking.
+     */
+    public static final TagKey<Block> PHASEABLE = blockTag("phaseable");
+
+    /**
+     * Phaseable blocks that swallow fast movers (sand, gravel, snow): heavy drag
+     * bleeds their speed off within a few blocks, and once below phase speed they
+     * are embedded and must dig their way out. Included in {@link #PHASEABLE}.
+     */
+    public static final TagKey<Block> ENGULFING = blockTag("engulfing");
+
     /** Entities that never take kinetic damage (bosses, flying/agile/soft-bodied mobs). */
     public static final TagKey<EntityType<?>> KINETIC_IMMUNE = entityTag("kinetic_immune");
 

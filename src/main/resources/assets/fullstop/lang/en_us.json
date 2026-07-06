@@ -11,6 +11,7 @@
   "config.fullstop.velocityDamageThresholdVertical": "Vertical Damage Threshold (m/s)",
   "config.fullstop.entityCollisionDamage": "Entity Collision Damage",
   "config.fullstop.kineticBlockBreaking": "Kinetic Block Breaking",
+  "config.fullstop.phaseMinimumSpeed": "Block Phasing Minimum Speed (m/s)",
   "config.fullstop.raycastMode": "Raycast Mode",
   "config.fullstop.server.enableGForceEffects": "Enable G-Force Effects",
   "config.fullstop.client.rotateCamera": "Rotate Camera On Bounce",
