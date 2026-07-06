@@ -7,6 +7,7 @@ import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
@@ -30,8 +31,14 @@ public final class EntityCollisionHandler {
 
     /** Bounciness of body-on-body collisions. 1.0 would be perfectly elastic. */
     private static final double RESTITUTION = 0.3;
+    /** A falling slime/honey block makes any collision it is part of springy. */
+    private static final double SLIME_CARRIER_RESTITUTION = 0.85;
 
     private EntityCollisionHandler() {
+    }
+
+    private static boolean isStickyCarrier(Entity entity) {
+        return entity instanceof FallingBlockEntity fallingBlock && fallingBlock.getBlockState().isStickyBlock();
     }
 
     public static void handle(Entity entity, FullStopCapability fullstop, Collision collision) {
@@ -181,7 +188,12 @@ public final class EntityCollisionHandler {
             double m2 = EntityStackUtils.getEntityMass(other);
             if (m2 <= 0) continue;
 
-            double j = -(1 + RESTITUTION) * velAlongNormal;
+            double restitution = RESTITUTION;
+            if (isStickyCarrier(entity) || isStickyCarrier(other)) {
+                restitution = SLIME_CARRIER_RESTITUTION;
+            }
+
+            double j = -(1 + restitution) * velAlongNormal;
             j /= (1 / m1 + 1 / m2);
 
             Vec3 impulse = normal.scale(j);
@@ -196,7 +208,10 @@ public final class EntityCollisionHandler {
             if (other instanceof LivingEntity livingOther) {
                 int otherReflective = EnchantmentUtils.totalArmorLevel(livingOther, ModEnchantments.REFLECTIVE.get());
                 if (otherReflective > 0) {
+                    // The wearer soaks less of the transfer and throws it back:
+                    // whatever rams a reflective target rebounds harder.
                     impulseOnOther = impulseOnOther.scale(1.0 - (otherReflective * 0.1));
+                    impulseOnSelf = impulseOnSelf.scale(1.0 + (otherReflective * 0.15));
                 }
             }
 

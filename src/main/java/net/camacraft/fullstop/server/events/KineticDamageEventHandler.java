@@ -5,12 +5,14 @@ import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
+import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -18,58 +20,88 @@ import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArmorMaterials;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraftforge.event.ItemAttributeModifierEvent;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
+
+import java.util.UUID;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability;
 
 /**
  * Scales attack damage by attacker/victim approach velocity and applies FullStop's
- * damage-mitigation layers (Kinetic Dampening attribute, leather dampening,
- * Kinetic Protection and Reflective enchantments).
+ * damage-mitigation layers (Kinetic Dampening attribute, Kinetic Protection and
+ * Reflective enchantments).
+ *
+ * FullStop's own collision damage ({@link FullStopDamageSources.KineticSource})
+ * gets the mitigation layers but NOT the approach-velocity scaling — it is already
+ * velocity-derived, so re-scaling would double-dip.
  */
 @Mod.EventBusSubscriber
 public class KineticDamageEventHandler {
+
+    /** Kinetic Dampening granted per leather armor piece (fraction of damage removed). */
+    private static final double LEATHER_DAMPENING_PER_PIECE = 0.05;
+
+    private static final UUID[] LEATHER_DAMPENING_UUIDS = {
+            UUID.fromString("0d6890a5-3ac4-43f5-b273-2ffa4bbc8c1a"), // FEET
+            UUID.fromString("70a02f1e-6dd6-4bdf-92a7-1a4c53bcd9b6"), // LEGS
+            UUID.fromString("2d4a9a20-52bb-45f5-a3b0-9df01e9f0c4d"), // CHEST
+            UUID.fromString("b3a706e3-3a52-4cd8-8f31-5a3312cf62d7"), // HEAD
+    };
+
+    /** Leather armor automatically grants a bit of Kinetic Dampening. */
+    @SubscribeEvent
+    public static void onItemAttributeModifiers(ItemAttributeModifierEvent event) {
+        if (!(event.getItemStack().getItem() instanceof ArmorItem armor)) return;
+        if (armor.getMaterial() != ArmorMaterials.LEATHER) return;
+        if (event.getSlotType() != armor.getEquipmentSlot()) return;
+
+        event.addModifier(ModAttributes.KINETIC_DAMPENING.get(), new AttributeModifier(
+                LEATHER_DAMPENING_UUIDS[event.getSlotType().getIndex()],
+                "fullstop.leather_dampening",
+                LEATHER_DAMPENING_PER_PIECE,
+                AttributeModifier.Operation.ADDITION));
+    }
 
     // Lowest priority so other mods have a chance to change the damage prior to this
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onLivingHurt(LivingHurtEvent event) {
         if (event.isCanceled()) return;
-        if (event.getSource().getDirectEntity() == null) return;
         if (event.getEntity().level().isClientSide) return;
 
-        if (event.getSource().getDirectEntity() instanceof Projectile && SERVER.projectileMultiplier.get() == 0) return;
-        if (event.getSource().getDirectEntity() instanceof AbstractArrow && !(SERVER.wildMode.get())) return;
+        boolean fullstopKinetic = event.getSource() instanceof FullStopDamageSources.KineticSource;
+        Entity direct = event.getSource().getDirectEntity();
 
-        float newDamage = calcNewDamage(event);
+        if (direct == null && !fullstopKinetic) return;
 
-        // Apply Kinetic Dampening Attribute
+        if (direct instanceof Projectile && SERVER.projectileMultiplier.get() == 0) return;
+        if (direct instanceof AbstractArrow && !(SERVER.wildMode.get())) return;
+
+        float newDamage = fullstopKinetic ? event.getAmount() : calcNewDamage(event);
+
+        // Apply Kinetic Dampening Attribute (leather armor grants it; see above)
         var dampeningAttr = event.getEntity().getAttribute(ModAttributes.KINETIC_DAMPENING.get());
         if (dampeningAttr != null && dampeningAttr.getValue() > 0) {
-            newDamage *= (1.0 - dampeningAttr.getValue());
+            newDamage *= (float) (1.0 - dampeningAttr.getValue());
         }
 
-        // Leather armor dampens kinetic hits: 5% per piece, up to 20%
-        int leatherPieces = 0;
-        for (ItemStack stack : event.getEntity().getArmorSlots()) {
-            if (stack.getItem() instanceof ArmorItem armor && armor.getMaterial() == ArmorMaterials.LEATHER) {
-                leatherPieces++;
-            }
-        }
-        if (leatherPieces > 0) {
-            newDamage *= (1.0 - (leatherPieces * 0.05));
-        }
+        newDamage = applyKineticProtection(event.getEntity(), event.getSource(), fullstopKinetic, newDamage);
 
-        newDamage = applyKineticProtection(event.getEntity(), newDamage);
-        newDamage = applyReflective(event.getEntity(), newDamage);
+        // Reflective absorbs hits delivered BY another entity (velocity-transfer
+        // collisions and attacks) — plain wall/ground impacts are not reflected.
+        if (event.getSource().getEntity() != null && event.getSource().getEntity() != event.getEntity()) {
+            newDamage = applyReflective(event.getEntity(), newDamage);
+        }
 
         event.setAmount(newDamage);
     }
 
-    private static float applyKineticProtection(LivingEntity entity, float damage) {
+    private static float applyKineticProtection(LivingEntity entity, net.minecraft.world.damagesource.DamageSource source,
+                                                boolean fullstopKinetic, float damage) {
         int protectionLevel = 0;
         boolean hasHelmet = false;
         boolean hasChest = false;
@@ -93,19 +125,38 @@ public class KineticDamageEventHandler {
 
         if (protectionLevel == 0) return damage;
 
-        FullStopCapability cap = grabCapability(entity);
-        if (cap == null) return damage;
+        boolean mostlyDownward;
+        boolean mostlyUpward;
+        boolean mostlyHorizontal;
+
+        Entity attacker = source.getEntity();
+        if (fullstopKinetic && attacker != null && attacker != entity) {
+            // Rammed by a mover: the hit direction is the attacker's motion, seen
+            // from the victim's frame — something falling ON you strikes your head
+            // (helmet), something rising from below strikes your feet (boots).
+            FullStopCapability attackerCap = grabCapability(attacker);
+            if (attackerCap == null) return damage;
+            mostlyDownward = attackerCap.isMostlyUpward();
+            mostlyUpward = attackerCap.isMostlyDownward();
+            mostlyHorizontal = attackerCap.isMostlyHorizontal();
+        } else {
+            FullStopCapability cap = grabCapability(entity);
+            if (cap == null) return damage;
+            mostlyDownward = cap.isMostlyDownward();
+            mostlyUpward = cap.isMostlyUpward();
+            mostlyHorizontal = cap.isMostlyHorizontal();
+        }
 
         double reduction = 0.0;
         double reductionPerLevel = 0.04; // 4% per level
 
-        if (hasBoots && cap.isMostlyDownward()) {
+        if (hasBoots && mostlyDownward) {
             reduction += protectionLevel * reductionPerLevel;
         }
-        if (hasHelmet && cap.isMostlyUpward()) {
+        if (hasHelmet && mostlyUpward) {
             reduction += protectionLevel * reductionPerLevel;
         }
-        if (hasHelmet && hasChest && hasLegs && hasBoots && cap.isMostlyHorizontal()) {
+        if (hasHelmet && hasChest && hasLegs && hasBoots && mostlyHorizontal) {
             reduction += protectionLevel * reductionPerLevel;
         }
 

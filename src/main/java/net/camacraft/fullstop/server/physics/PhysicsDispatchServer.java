@@ -180,7 +180,7 @@ public class PhysicsDispatchServer {
         if (damage >= 1) {
             impactDamageSound(entity, damage, collision);
             KineticDamageApplier.apply(entity, fullstop, collision, damage);
-            StatusEffectApplier.applyDamageEffects(entity, fullstop, damage);
+            StatusEffectApplier.applyDamageEffects(entity, fullstop, collision, damage);
         }
     }
 

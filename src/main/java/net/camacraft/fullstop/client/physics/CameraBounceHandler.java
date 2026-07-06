@@ -28,13 +28,17 @@ public final class CameraBounceHandler {
         BlockHitResult hit = collision.impactedHits.get(0);
         Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
 
-        // Same rubbing-vs-impact gate as the server BounceHandler: brushing a slime
-        // wall while walking must not swing the camera.
+        // Same rubbing-vs-impact and refractory gates as the server BounceHandler:
+        // brushing a slime wall while walking must not swing the camera, and a
+        // corner-seam ping-pong must not re-aim it every tick.
+        if (!fullstop.canBounce()) return;
         if (-preV.dot(normal) < BounceMath.MIN_IMPACT_SPEED_MPS) return;
+        if (fullstop.getCurrentScaledVelocity().dot(normal) > 0.5) return;
 
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);
         if (newV == null || newV.length() < 3.0) return;
 
+        fullstop.setBounceCooldown(6);
         fullstop.setJustBounced(true);
 
         double newAngle = Math.atan2(-newV.x, newV.z);

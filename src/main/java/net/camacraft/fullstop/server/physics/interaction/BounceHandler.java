@@ -6,7 +6,10 @@ import net.camacraft.fullstop.common.physics.math.BounceMath;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.vehicle.Minecart;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
@@ -22,7 +25,21 @@ import net.minecraft.world.phys.Vec3;
  * wall/ceiling damage.
  */
 public final class BounceHandler {
+
+    /** Refractory period between bounces; breaks corner-seam ping-pong loops. */
+    private static final int BOUNCE_COOLDOWN_TICKS = 6;
+
     private BounceHandler() {
+    }
+
+    /** SLIME/HONEY when the entity is a falling sticky block, else null. */
+    private static Collision.CollisionType stickyCarrierType(Entity entity) {
+        if (entity instanceof FallingBlockEntity fallingBlock) {
+            BlockState state = fallingBlock.getBlockState();
+            if (state.is(Blocks.SLIME_BLOCK)) return Collision.CollisionType.SLIME;
+            if (state.isStickyBlock()) return Collision.CollisionType.HONEY;
+        }
+        return null;
     }
 
     public static void apply(Entity entity, FullStopCapability fullstop, Collision collision, boolean hasBrokenBlock) {
@@ -35,8 +52,14 @@ public final class BounceHandler {
             return;
         }
 
-        if (!collision.bouncy() && collision.collisionType != Collision.CollisionType.HONEY) return;
+        // A sticky falling block (slime/honey) bounces off ANY surface it hits.
+        Collision.CollisionType carrierType = stickyCarrierType(entity);
+
+        if (!collision.bouncy() && collision.collisionType != Collision.CollisionType.HONEY
+                && carrierType == null) return;
         if (entity instanceof Minecart) return;
+
+        if (!fullstop.canBounce()) return;
 
         Vec3 preV = fullstop.getPreviousScaledVelocity();
         Vec3 normal = firstHitNormal(collision);
@@ -46,13 +69,23 @@ public final class BounceHandler {
         // surface, walking through a slime tunnel bounced the player around.
         if (-preV.dot(normal) < BounceMath.MIN_IMPACT_SPEED_MPS) return;
 
-        Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);
+        // Already rebounding (e.g. last tick's bounce): re-applying a bounce from
+        // the stale pre-impact velocity would pin the entity to the wall.
+        if (fullstop.getCurrentScaledVelocity().dot(normal) > 0.5) return;
+
+        Collision.CollisionType bounceType = carrierType != null ? carrierType : collision.collisionType;
+        Vec3 newV = BounceMath.bounceVelocity(preV, normal, bounceType);
         if (newV == null) return;
+
+        if (carrierType != null) {
+            newV = newV.scale(0.8); // carriers lose energy so they eventually settle and place
+        }
 
         entity.setDeltaMovement(newV.scale(0.05));
         entity.hurtMarked = true;
+        fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
 
-        if (collision.bouncy()) {
+        if (collision.bouncy() || carrierType == Collision.CollisionType.SLIME) {
             fullstop.setJustBounced(true);
         }
 

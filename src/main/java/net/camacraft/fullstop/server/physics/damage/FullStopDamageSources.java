@@ -40,6 +40,22 @@ public final class FullStopDamageSources {
     private FullStopDamageSources() {
     }
 
+    /**
+     * Base class for FullStop's collision damage. The LivingHurtEvent mitigation
+     * layer (Kinetic Dampening, Kinetic Protection, Reflective) keys on this type:
+     * these damages are already velocity-derived, so unlike vanilla attacks they
+     * must NOT be re-scaled by approach velocity.
+     */
+    public static abstract class KineticSource extends DamageSource {
+        protected KineticSource(Holder<DamageType> type) {
+            super(type);
+        }
+
+        protected KineticSource(Holder<DamageType> type, Entity attacker) {
+            super(type, attacker);
+        }
+    }
+
     private static Holder<DamageType> holder(Entity entity, ResourceKey<DamageType> key) {
         return entity.level().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolderOrThrow(key);
     }
@@ -105,7 +121,7 @@ public final class FullStopDamageSources {
                 ? entity.damageSources().stalagmite().typeHolder()
                 : holder(entity, mostlyDownward ? KINETIC_FALL : KINETIC);
 
-        return new DamageSource(type) {
+        return new KineticSource(type) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
@@ -149,7 +165,10 @@ public final class FullStopDamageSources {
                 ? sources.playerAttack(p)
                 : sources.mobAttack(attacker);
 
-        return new DamageSource(base.typeHolder()) {
+        // Passing the attacker through the real constructor (not a getEntity()
+        // override) sets the direct entity, so kill credit, knockback attribution
+        // and the mitigation event all see the attacker.
+        return new KineticSource(base.typeHolder(), attacker) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
@@ -161,12 +180,6 @@ public final class FullStopDamageSources {
                 return Component.translatable(key, victim.getDisplayName(), attackerName)
                         .append(velocitySuffix(velocity));
             }
-
-            @Override
-            @NotNull
-            public Entity getEntity() {
-                return attacker;
-            }
         };
     }
 
@@ -176,7 +189,7 @@ public final class FullStopDamageSources {
                                                    VelocityDisplay velocity,
                                                    boolean mostlyDownward,
                                                    boolean mostlyUpward) {
-        return new DamageSource(holder(entity, KINETIC)) {
+        return new KineticSource(holder(entity, KINETIC)) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
@@ -204,7 +217,7 @@ public final class FullStopDamageSources {
     public static DamageSource entityMutualCollision(Entity entity,
                                                      LivingEntity collided,
                                                      VelocityDisplay velocity) {
-        return new DamageSource(holder(entity, KINETIC)) {
+        return new KineticSource(holder(entity, KINETIC)) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {

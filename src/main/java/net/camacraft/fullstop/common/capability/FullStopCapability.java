@@ -68,6 +68,7 @@ public class FullStopCapability {
     private int soundCooldown = 0;
     private int sonicBoomCooldown = 0;
     private int waterSkipCooldown = 0;
+    private int bounceCooldown = 0;
     private double lastMeasuredSpeed = 0.0;
     private long lastTick = -1;
 
@@ -104,6 +105,10 @@ public class FullStopCapability {
 
         if (waterSkipCooldown > 0) {
             waterSkipCooldown--;
+        }
+
+        if (bounceCooldown > 0) {
+            bounceCooldown--;
         }
 
         if (Double.isNaN(avgAccel)) avgAccel = 0;
@@ -420,6 +425,19 @@ public class FullStopCapability {
 
     public void setWaterSkipCooldown(int ticks) {
         this.waterSkipCooldown = ticks;
+    }
+
+    /**
+     * Bounce rate limit. Adjacent slime faces (e.g. a corner seam) can produce
+     * alternating hit normals that mirror the velocity back and forth every tick,
+     * pinning the entity to the wall; a short refractory period breaks the loop.
+     */
+    public boolean canBounce() {
+        return bounceCooldown <= 0;
+    }
+
+    public void setBounceCooldown(int ticks) {
+        this.bounceCooldown = ticks;
     }
 
     /**

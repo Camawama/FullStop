@@ -6,6 +6,7 @@ import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.EntityCollisionRules;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.level.Level;
@@ -33,7 +34,8 @@ public class ServerCollisionDetector {
             collidingEntities = level.getEntities(
                     entity,
                     entityCheckBox,
-                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart)
+                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart
+                            || e instanceof FallingBlockEntity)
                             && e != entity
                             && !(e.isPassengerOfSameVehicle(entity))
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)

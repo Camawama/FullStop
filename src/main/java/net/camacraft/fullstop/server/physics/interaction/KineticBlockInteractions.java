@@ -370,6 +370,11 @@ public class KineticBlockInteractions {
     private static boolean handleFallingBlockInteraction(ServerLevel level, BlockPos pos, BlockState state, BlockHitResult hitResult, FakePlayer fakePlayer, FallingBlockEntity fallingBlock) {
         BlockState fallingState = fallingBlock.getBlockState();
 
+        // Sticky carriers (slime/honey) bounce instead of shattering — BounceHandler owns them.
+        if (fallingState.isStickyBlock()) {
+            return false;
+        }
+
         if (fallingState.getBlock() instanceof PointedDripstoneBlock) {
             level.destroyBlock(pos, true);
             level.levelEvent(PARTICLES_DESTROY_BLOCK, pos, Block.getId(state));

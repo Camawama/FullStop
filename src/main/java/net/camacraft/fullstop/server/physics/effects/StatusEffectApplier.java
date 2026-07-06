@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.server.physics.effects;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -27,10 +28,26 @@ public class StatusEffectApplier {
         }
     }
 
-    /** Hard landings sprain the legs and slow the entity down for a while. */
-    public static void applyDamageEffects(Entity entity, FullStopCapability fullstop, double damage) {
+    /**
+     * Hard landings sprain the legs and slow the entity down for a while.
+     * Landing-only by design: ramming something sideways (walls or entities) is
+     * not a sprain, and for entity collisions the faller must actually have come
+     * down on top of the other entity.
+     */
+    public static void applyDamageEffects(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
         if (damage <= 0) return;
         if (!fullstop.isMostlyDownward()) return;
+
+        if (collision.collisionType == Collision.CollisionType.ENTITY) {
+            boolean landedOnSomeone = false;
+            for (Entity other : collision.collidingEntities) {
+                if (entity.getY() >= other.getY() + other.getBbHeight() * 0.5) {
+                    landedOnSomeone = true;
+                    break;
+                }
+            }
+            if (!landedOnSomeone) return;
+        }
 
         if (!(entity instanceof LivingEntity livingEntity)) return;
         if (DamageImmunityRules.isDamageImmune(livingEntity)) return;
