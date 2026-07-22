@@ -39,7 +39,11 @@ public class ServerCollisionDetector {
                             && e != entity
                             && !e.isSpectator()
                             && !e.noPhysics // spectators/no-clip entities must never be shoved
-                            && !(e.isPassengerOfSameVehicle(entity))
+                            // Same ride stack (vehicle↔rider, co-passengers) never collides
+                            // with itself: a piston-launched boat overlapped its own rider
+                            // (whose deltaMovement reads ~0 as a passenger), and the impulse
+                            // exchange dead-stopped the boat a few blocks out.
+                            && e.getRootVehicle() != entity.getRootVehicle()
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
             );
 

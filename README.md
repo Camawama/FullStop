@@ -15,40 +15,50 @@
 NOTICE: This mod is in Beta. There will be many bugs! Please report all bugs on the issue tracker!
 
 ## Overview
-Full Stop! introduces a new level of challenge to your Minecraft experience by simulating the dangers of velocity and impact. With every sprint, jump, and fall, you'll face realistic consequences that will keep you on your toes. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and was a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
+Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is measured, and the world pushes back: walls hurt at speed, blocks crack and shatter under hard impacts, boats skip across water, sand swallows divers whole, and the sky itself runs out of air if you climb too high. This mod is inspired by [Collision Damage by fonnymunkey](https://www.curseforge.com/minecraft/mc-mods/collision-damage) and started as a fork of [Velocity Based Damage Deluxe by kawaiicakes](https://www.curseforge.com/minecraft/mc-mods/velocity-based-damage-deluxe).
 
 ## Features
-- 💥 **Dynamic Kinetic Damage System:** Damage is no longer just a number. It is dynamically calculated based on mass, velocity, impact force, block hardness, and armor toughness.
-- 🏃 **Velocity-Based Damage Scaling:** Speed is power. Attacks deal significantly more damage when moving towards your target, and less when retreating.
-- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Entities can shatter blocks upon impact if they possess enough mass and velocity.
-- 🚪 **Kinetic Interactions:** The world reacts to your impact. Slam into doors to fling them open, crash into Note Blocks to play them, or use falling sand to scrape oxidation off copper blocks.
-- 😵 **G-Force Effects (G-LOC):** Push the limits of human endurance. High-acceleration maneuvers trigger visual and auditory cues, leading to tunnel vision (blackout/redout) if you aren't careful.
-- 🧪 **New Status Effects:**
-  - **Clarity:** Focus your mind to reduce the negative effects of G-force.
-  - **Vertigo:** A disorienting effect that amplifies G-force penalties—deadly in elytra combat.
-  - **Sprain:** Land too hard on your feet? You'll be slowed and unable to jump for a while.
-- 🟢 **Slime Bounce Overhaul:** Physics unleashed. Bounce off slime blocks in *any* direction—walls, ceilings, or floors—complete with smooth camera rotation for total immersion.
-- 🤕 **Fall Damage Overhaul:** Vanilla fall damage is gone. It has been replaced by the kinetic damage system, meaning *any* collision at speed hurts, not just hitting the ground.
-- 🤼 **Entity-on-Entity Collisions:** No more phasing through mobs. Collide with entities using realistic physics, transfer momentum, and even "scoop up" smaller entities to ride them.
-- 🌊 **Realistic Water Drag:** Feel the resistance with overhauled water physics and sound effects.
-- ✨ **New Enchantments:**
-  - **Pullback:** The opposite of Knockback—pull your enemies closer.
-  - **Reflective:** Armor enchantment that reflects kinetic energy back at the attacker.
+
+### Kinetic Physics
+- 💥 **Dynamic Kinetic Damage:** Impact damage is calculated from real measured stopping force, factoring in mass, velocity, impact direction, block hardness, and armor. Fall damage, wall crashes, and ceiling hits all use the same system. Vanilla fall damage is replaced entirely.
+- 🏃 **Velocity-Based Attack Scaling:** Speed is power. Attacks deal more damage when moving toward your target and less when retreating.
+- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Fast, heavy entities crack and shatter blocks on impact. Fragile blocks like glass and ice give way easily, but only to impacts that actually drive into them.
+- 🕳️ **Block Phasing and Engulfment:** At high speed you punch through leaves, and dive straight into sand, gravel, or snow. Engulfing blocks bleed off your speed and bury you inside. Dig or jump your way back out.
+- 🪨 **Gravity-Affected Blocks:** Slime and honey blocks fall like sand when nothing supports them, and sticky blocks cling to neighbors on any face.
+- 🤼 **Entity Collisions:** Collide with entities using momentum transfer, and even land on a mob or boat to ride it. (Experimental, off by default.)
+
+### The World Reacts
+- 🚪 **Kinetic Interactions:** Sprint into doors and fence gates to fling them open (only from the side they swing toward), crash into note blocks to play them, ring bells, press buttons by running into them, and turn grass to path by landing hard on it. Each interaction has its own config toggle.
+- 🌪️ **Sand Blasting:** Falling sand strips logs and scrapes oxidation and wax off copper.
+- 🟢 **Slime Bounce Overhaul:** Bounce off slime in *any* direction, walls and ceilings included, with optional camera rotation to match. Beds and honey have their own impact behavior.
+- 🌊 **Water Physics:** Skim across water at a shallow angle like a thrown stone (minecarts too), dive clean to survive, or belly flop and regret it. Underwater movement has extra drag and sound.
+- 🍯 **Viscous Blocks:** Honey and the soul sand family slow you down while you move beside them, not just on top.
+
+### The Body Reacts
+- 😵 **G-Force Effects (G-LOC):** Sustained high-G maneuvers bring tunnel vision, muffled audio, and full blackout if you keep pushing. FOV stretches with acceleration.
+- 🫁 **Atmosphere and Pressure:** Air thins out at high altitude. Climb (or teleport) too high and your air supply drains, slowly at first, faster the higher and longer you stay. Deep water crushes and drowns you faster below configurable depths.
+- 🧪 **Status Effects:**
+  - **Clarity:** Focus your mind to resist G-force effects.
+  - **Vertigo:** Amplifies G-force penalties. Deadly in elytra combat.
+  - **Sprain:** Land too hard and you'll limp for a while.
+  - **Acclimation:** The high-altitude Water Breathing. Brew it with a Phantom Membrane and breathe easy in thin air.
+- ⚖️ **Attributes:** Kinetic Dampening reduces impact damage (leather armor grants some naturally). Lung Capacity controls how long your breath lasts in thin air.
+- ✨ **Enchantments:**
+  - **Pullback:** The opposite of Knockback. Pull your enemies closer.
+  - **Reflective:** Armor that throws kinetic energy back at whatever hits you.
   - **Kinetic Protection:** Specialized armor protection against high-velocity impacts.
-- 💀 **Detailed Death Messages:** Humiliation in detail. Death messages now display the exact speed at which the entity met its demise.
-- 🛠️ **Debug Mode:** Press `F3 + V` to visualize velocity vectors and raycast lines.
 
-## Planned Features
-- Implement pressure damage deep underwater
+### Quality of Life
+- 💀 **Detailed Death Messages:** Death messages report the exact speed of the fatal impact.
+- 🚢 **Valkyrien Skies Compatibility:** Riding a moving ship doesn't count as your own velocity, and impacts against ship blocks are recognized.
+- 📦 **Data-Driven Tags:** Block behaviors (fragile, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code.
+- 🛠️ **Debug Mode:** Press `F3 + V` to visualize collision raycasts in real time. Red rays are collision-grade hits, yellow means touching, green is clear.
 
-## Known Bugs (to be fixed)
-- Certain types of projectile attacks may scale their damage unintentionally
-  (please report bugs!)
+## Configuration
+Nearly everything is tunable in the server config: damage thresholds, block breaking, each kinetic interaction (doors, buttons, note blocks, bells, sand blasting), pressure simulation, phasing speed, entity weights, and Valkyrien Skies compat. Client config covers the bounce camera (including an elytra-only mode) and G-force effect thresholds.
 
 ## Known Incompatibilities
 - CustomNPCs (NPCs will not look at players)
-
-
 
 🚧 Warning:
 Speed is your enemy!

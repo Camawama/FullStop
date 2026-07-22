@@ -6,6 +6,7 @@ import net.camacraft.fullstop.common.physics.math.FastRaycast;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
@@ -42,6 +43,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.minecraftforge.common.ToolActions;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
@@ -192,6 +194,7 @@ public class KineticBlockInteractions {
                 // Wrong side / too slow / already open: no toggle. A fast enough
                 // impact can still smash the door via the generic break check below.
             } else if (block instanceof NoteBlock) {
+                if (!FullStopConfig.SERVER.kineticNoteBlocks.get()) continue;
                 CrackEntry noteKey = new CrackEntry(level.dimension(), pos.immutable());
                 long now = level.getGameTime();
                 Long mutedUntil = NOTE_BLOCK_COOLDOWN.get(noteKey);
@@ -205,12 +208,14 @@ public class KineticBlockInteractions {
                 }
                 continue;
             } else if (block instanceof ButtonBlock button) {
-                if (!state.getValue(BlockStateProperties.POWERED)) {
+                if (FullStopConfig.SERVER.kineticButtonPressing.get() && !state.getValue(BlockStateProperties.POWERED)) {
                     button.press(state, level, pos);
                 }
                 continue;
             } else if (block instanceof BellBlock bell) {
-                bell.attemptToRing(level, pos, hitResult.getDirection());
+                if (FullStopConfig.SERVER.kineticBellRinging.get()) {
+                    bell.attemptToRing(level, pos, hitResult.getDirection());
+                }
                 continue;
             }
 
@@ -226,6 +231,13 @@ public class KineticBlockInteractions {
 
             if (!level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING) && !isPlayer) continue;
             if (velocityMag < MIN_VELOCITY_REQUIRED) continue;
+
+            // Only speed INTO the hit face can smash or crack a block. Total
+            // speed alone let a boat gliding across packed ice shatter it — huge
+            // tangential velocity, almost none into the surface. Head-on impacts
+            // are unaffected (their normal component ≈ the full speed).
+            Vec3 faceNormal = Vec3.atLowerCornerOf(hitResult.getDirection().getNormal());
+            if (-impactVelocity.dot(faceNormal) < MIN_VELOCITY_REQUIRED) continue;
 
             float hardness = state.getDestroySpeed(level, pos);
             boolean isFragile = state.is(FullStopTags.FRAGILE);
@@ -307,6 +319,9 @@ public class KineticBlockInteractions {
      * away from whoever opens them, so they open from both broad sides.
      */
     private static boolean shouldKineticOpen(BlockState state, Vec3 impactVelocityNative) {
+        // Config kill-switch — covers both the impact path and openDoorsAhead.
+        if (!FullStopConfig.SERVER.kineticDoorOpening.get()) return false;
+
         if (state.hasProperty(BlockStateProperties.OPEN) && state.getValue(BlockStateProperties.OPEN)) {
             return false;
         }
@@ -336,6 +351,7 @@ public class KineticBlockInteractions {
      * the still-closed panel. Looking three ticks of travel ahead hides both.
      */
     public static void openDoorsAhead(Entity entity, Vec3 nativeVelocity) {
+        if (!FullStopConfig.SERVER.kineticDoorOpening.get()) return;
         if (!(entity.level() instanceof ServerLevel level) || !entity.isAlive()) return;
         if (entity instanceof Player player && player.isSpectator()) return;
 
@@ -399,24 +415,44 @@ public class KineticBlockInteractions {
     }
 
     /**
-     * Presses buttons a fast mover runs through. Buttons have no collision shape,
-     * so the COLLIDER raycasts (and therefore the impact allowlist) can never see
-     * one — the entity's swept volume is scanned directly instead. POWERED acts
-     * as the natural rate limit.
+     * Presses buttons a fast mover actually runs INTO. Buttons have no collision
+     * shape, so the COLLIDER raycasts (and therefore the impact allowlist) can
+     * never see one — the entity's swept volume is scanned directly instead.
+     * Three precision gates keep it from being hair-triggered: the sweep is one
+     * tick of travel (no early full-block activation), the entity must overlap
+     * the button's actual outline shape (not just its block space), and it must
+     * be moving into the button's face — brushing along the wall a button sits
+     * on doesn't press it, and floor buttons need something falling onto them.
+     * POWERED acts as the natural rate limit.
      */
     public static void pressButtonsInPath(Entity entity, Vec3 nativeVelocity) {
+        if (!FullStopConfig.SERVER.kineticButtonPressing.get()) return;
         if (!(entity.level() instanceof ServerLevel level) || !entity.isAlive()) return;
         if (entity instanceof Player player && player.isSpectator()) return;
         if (nativeVelocity.lengthSqr() < MIN_INTERACTION_VELOCITY * MIN_INTERACTION_VELOCITY) return;
 
-        AABB swept = entity.getBoundingBox().expandTowards(nativeVelocity.scale(2)).inflate(0.01);
+        Vec3 moveDir = nativeVelocity.normalize();
+        AABB swept = entity.getBoundingBox().expandTowards(nativeVelocity);
         for (BlockPos pos : BlockPos.betweenClosed(
                 (int) Math.floor(swept.minX), (int) Math.floor(swept.minY), (int) Math.floor(swept.minZ),
                 (int) Math.floor(swept.maxX), (int) Math.floor(swept.maxY), (int) Math.floor(swept.maxZ))) {
             BlockState state = level.getBlockState(pos);
-            if (state.getBlock() instanceof ButtonBlock button && !state.getValue(BlockStateProperties.POWERED)) {
-                button.press(state, level, pos.immutable());
-            }
+            if (!(state.getBlock() instanceof ButtonBlock button)) continue;
+            if (state.getValue(BlockStateProperties.POWERED)) continue;
+
+            Direction outward = switch (state.getValue(BlockStateProperties.ATTACH_FACE)) {
+                case FLOOR -> Direction.UP;
+                case CEILING -> Direction.DOWN;
+                case WALL -> state.getValue(BlockStateProperties.HORIZONTAL_FACING);
+            };
+            if (moveDir.dot(Vec3.atLowerCornerOf(outward.getNormal())) > -0.3) continue;
+
+            VoxelShape shape = state.getShape(level, pos);
+            if (shape.isEmpty()) continue;
+            AABB buttonBox = shape.bounds().move(pos);
+            if (!swept.intersects(buttonBox)) continue;
+
+            button.press(state, level, pos.immutable());
         }
     }
 
@@ -492,7 +528,7 @@ public class KineticBlockInteractions {
         float fallingHardness = fallingState.getDestroySpeed(level, fallingBlock.blockPosition());
         float hitHardness = state.getDestroySpeed(level, pos);
 
-        if (fallingState.is(BlockTags.SAND)) {
+        if (fallingState.is(BlockTags.SAND) && FullStopConfig.SERVER.sandBlasting.get()) {
             boolean blasted = false;
             if (state.getBlock() instanceof WeatheringCopper) {
                 Optional<BlockState> previous = WeatheringCopper.getPrevious(state);

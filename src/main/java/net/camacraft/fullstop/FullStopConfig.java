@@ -42,6 +42,11 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
+        public final ForgeConfigSpec.BooleanValue kineticDoorOpening;
+        public final ForgeConfigSpec.BooleanValue kineticButtonPressing;
+        public final ForgeConfigSpec.BooleanValue kineticNoteBlocks;
+        public final ForgeConfigSpec.BooleanValue kineticBellRinging;
+        public final ForgeConfigSpec.BooleanValue sandBlasting;
         public final ForgeConfigSpec.BooleanValue enableGravityBlocks;
         public final ForgeConfigSpec.BooleanValue enableValkyrienSkiesCompat;
         public final ForgeConfigSpec.DoubleValue phaseMinimumSpeed;
@@ -162,6 +167,36 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+
+            this.kineticDoorOpening = builder
+                    .comment("When enabled, sprinting into doors, trapdoors and fence gates flings them open.")
+                    .translation(key("kineticDoorOpening"))
+                    .comment("Default: true")
+                    .define("kineticDoorOpening", true);
+
+            this.kineticButtonPressing = builder
+                    .comment("When enabled, running into a button (or falling onto a floor button) presses it.")
+                    .translation(key("kineticButtonPressing"))
+                    .comment("Default: true")
+                    .define("kineticButtonPressing", true);
+
+            this.kineticNoteBlocks = builder
+                    .comment("When enabled, colliding with a note block plays its note.")
+                    .translation(key("kineticNoteBlocks"))
+                    .comment("Default: true")
+                    .define("kineticNoteBlocks", true);
+
+            this.kineticBellRinging = builder
+                    .comment("When enabled, colliding with a bell rings it.")
+                    .translation(key("kineticBellRinging"))
+                    .comment("Default: true")
+                    .define("kineticBellRinging", true);
+
+            this.sandBlasting = builder
+                    .comment("When enabled, falling sand strips logs and deoxidizes/dewaxes copper it lands on (sand blasting).")
+                    .translation(key("sandBlasting"))
+                    .comment("Default: true")
+                    .define("sandBlasting", true);
 
             this.phaseMinimumSpeed = builder
                     .comment("Speed in m/s a living entity must be moving to phase into blocks tagged fullstop:phaseable.",
