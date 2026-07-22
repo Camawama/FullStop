@@ -42,7 +42,17 @@ public class WaterSlowdownMixin {
         }
 
         Vec3 v = entity.getDeltaMovement();
-        double horizontalSpeed = v.horizontalDistance();
+
+        // Server-side players never write move packets back into deltaMovement,
+        // so gate/scale the slosh SOUND by the capability's measured velocity —
+        // otherwise observers essentially never heard other players slosh. The
+        // slowdown itself stays on deltaMovement (players get it client-side).
+        Vec3 soundV = v;
+        if (entity instanceof Player && !entity.level().isClientSide() && cap != null) {
+            Vec3 capV = cap.getCurrentNativeVelocity();
+            if (capV.lengthSqr() > soundV.lengthSqr()) soundV = capV;
+        }
+        double horizontalSpeed = soundV.horizontalDistance();
         if (horizontalSpeed < 0.01) return;
 
         double oldSpeed = v.length();
@@ -53,9 +63,13 @@ public class WaterSlowdownMixin {
 
         entity.setDeltaMovement(direction.scale(newSpeed));
 
-        int cd = entity.getPersistentData().getInt(SLOSH_CD_TAG);
+        int cd = cap != null ? cap.getSloshCooldown() : entity.getPersistentData().getInt(SLOSH_CD_TAG);
         if (cd > 0) {
-            entity.getPersistentData().putInt(SLOSH_CD_TAG, cd - 1);
+            if (cap != null) {
+                cap.setSloshCooldown(cd - 1);
+            } else {
+                entity.getPersistentData().putInt(SLOSH_CD_TAG, cd - 1);
+            }
             return;
         }
 
@@ -89,7 +103,14 @@ public class WaterSlowdownMixin {
             }
         }
 
-        int nextCd = (int) Math.round(12 - impact * 10);
-        entity.getPersistentData().putInt(SLOSH_CD_TAG, Mth.clamp(nextCd, 2, 14));
+        // Capability-held cooldown (transient); persistentData is only the
+        // fallback — it gets written to the entity's saved NBT, which junked
+        // world saves with a bookkeeping int.
+        int nextCd = Mth.clamp((int) Math.round(12 - impact * 10), 2, 14);
+        if (cap != null) {
+            cap.setSloshCooldown(nextCd);
+        } else {
+            entity.getPersistentData().putInt(SLOSH_CD_TAG, nextCd);
+        }
     }
 }

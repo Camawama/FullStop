@@ -22,12 +22,14 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
+import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
 import net.minecraftforge.event.entity.EntityMountEvent;
 import net.minecraftforge.event.entity.EntityTeleportEvent;
 import net.minecraftforge.event.entity.EntityTravelToDimensionEvent;
@@ -93,6 +95,14 @@ public class PhysicsDispatchServer {
         markTeleported(event.getEntity());
     }
 
+    /** Clears any lingering block-crack overlay when an entity dies, unloads, or changes dimension. */
+    @SubscribeEvent
+    public static void onEntityLeaveLevel(EntityLeaveLevelEvent event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel) {
+            KineticBlockInteractions.onEntityLeave(event.getEntity(), serverLevel);
+        }
+    }
+
     /** Runs on both logical sides so the dismount grace period also works on dedicated servers. */
     @SubscribeEvent
     public static void onMount(EntityMountEvent event) {
@@ -100,6 +110,12 @@ public class PhysicsDispatchServer {
             FullStopCapability cap = grabCapability(living);
             if (cap != null) {
                 cap.justDismounted();
+                // Mounting/dismounting snaps the rider's position (right-clicking
+                // a minecart from several blocks away teleports the player onto
+                // it) — far below the 60 m/s discontinuity guard, so unmarked it
+                // read as a violent move that smashed the blocks around the cart
+                // and killed the rider.
+                cap.setHasTeleported(true);
             }
         }
     }
@@ -125,10 +141,16 @@ public class PhysicsDispatchServer {
     }
 
     private static void onEntityTick(Entity entity) {
-        if (DamageImmunityRules.unphysable(entity)) return;
+        // Cheap type/field exclusions first, so drop-like entities never even
+        // resolve (and on first touch, allocate) a capability. The NoAI check
+        // runs after the grab so it can use the capability's once-a-second cache
+        // instead of a locked SynchedEntityData read per mob per tick.
+        if (DamageImmunityRules.unphysableIgnoringAi(entity)) return;
 
         FullStopCapability fullstop = grabCapability(entity);
         if (fullstop == null) return;
+
+        if (entity instanceof Mob mob && fullstop.isNoAiCached(mob)) return;
 
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);
@@ -146,12 +168,17 @@ public class PhysicsDispatchServer {
 
         sonicBoom(entity, fullstop);
 
-        if (fullstop.getPreviousScaledVelocity().lengthSqr() < MIN_PROCESS_SPEED_SQR) {
+        // Pre-impact speed, not last tick's: the damage tick of a two-tick impact
+        // arrives with only the small post-contact velocity remaining.
+        if (fullstop.getPreImpactScaledVelocity().lengthSqr() < MIN_PROCESS_SPEED_SQR) {
             return;
         }
 
         // Doors ahead open before they ever become collisions (no speed scrub).
         KineticBlockInteractions.openDoorsAhead(entity, fullstop.getCurrentNativeVelocity());
+
+        // Buttons are shapeless, invisible to the collision rays — swept separately.
+        KineticBlockInteractions.pressButtonsInPath(entity, fullstop.getCurrentNativeVelocity());
 
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
@@ -178,17 +205,24 @@ public class PhysicsDispatchServer {
         BounceHandler.apply(entity, fullstop, collision, brokeBlock);
 
         if (damage >= 1) {
-            impactDamageSound(entity, damage, collision);
-            KineticDamageApplier.apply(entity, fullstop, collision, damage);
-            StatusEffectApplier.applyDamageEffects(entity, fullstop, collision, damage);
+            // Sound and sprain only when the applier actually hurt something —
+            // it can bail on its cooldown or mitigate everything to zero, and a
+            // big-fall thud with no damage reads as a bug.
+            if (KineticDamageApplier.apply(entity, fullstop, collision, damage)) {
+                impactDamageSound(entity, damage, collision);
+                StatusEffectApplier.applyDamageEffects(entity, fullstop, collision, damage);
+            }
         }
     }
+
+    /** 343 m/s (speed of sound), squared for allocation- and sqrt-free comparison. */
+    private static final double SONIC_BOOM_SPEED_SQR = 343.0 * 343.0;
 
     private static void sonicBoom(Entity entity, FullStopCapability fullstop) {
         // Supersonic on two consecutive ticks: a real supersonic entity sustains its
         // speed, while a respawn/teleport position jump reads as huge for one tick only.
-        if (fullstop.getCurrentScaledVelocity().length() >= 343.0
-                && fullstop.getPreviousScaledVelocity().length() >= 343.0
+        if (fullstop.getCurrentScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR
+                && fullstop.getPreviousScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR
                 && fullstop.canSonicBoom()) {
             if (entity.level() instanceof ServerLevel serverLevel) {
                 serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);

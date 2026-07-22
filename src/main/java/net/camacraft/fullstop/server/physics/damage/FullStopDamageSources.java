@@ -116,7 +116,8 @@ public final class FullStopDamageSources {
                                            VelocityDisplay velocity,
                                            boolean mostlyDownward,
                                            boolean mostlyUpward,
-                                           boolean stalagmite) {
+                                           boolean stalagmite,
+                                           boolean waterFlop) {
         Holder<DamageType> type = stalagmite
                 ? entity.damageSources().stalagmite().typeHolder()
                 : holder(entity, mostlyDownward ? KINETIC_FALL : KINETIC);
@@ -129,6 +130,10 @@ public final class FullStopDamageSources {
 
                 if (stalagmite) {
                     return Component.translatable("death.attack.stalagmite", victim.getDisplayName()).append(suffix);
+                }
+
+                if (waterFlop) {
+                    return Component.translatable("death.fullstop.water_flop", victim.getDisplayName()).append(suffix);
                 }
 
                 boolean hasElytra = EquipmentRules.hasElytraEquipped(victim);

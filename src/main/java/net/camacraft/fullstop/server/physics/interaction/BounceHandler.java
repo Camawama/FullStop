@@ -47,6 +47,8 @@ public final class BounceHandler {
 
         if (entity.isCrouching() || collision.fake()) return;
 
+        // Deliberately before the Minecart early-out: minecarts skipping across
+        // water like thrown stones is intended behavior.
         if (collision.collisionType == Collision.CollisionType.WATER) {
             handleWaterSkip(entity, fullstop, collision);
             return;
@@ -62,12 +64,13 @@ public final class BounceHandler {
         if (!fullstop.canBounce()) return;
 
         Vec3 preV = fullstop.getPreviousScaledVelocity();
-        Vec3 normal = firstHitNormal(collision);
+        Vec3 normal = mostOpposedNormal(collision, preV);
         if (normal == null) return;
 
-        // Rubbing along a surface is not an impact: without real speed INTO the
-        // surface, walking through a slime tunnel bounced the player around.
-        if (-preV.dot(normal) < BounceMath.MIN_IMPACT_SPEED_MPS) return;
+        // Rubbing along a surface is not an impact: without real, mostly-direct
+        // speed INTO the surface, walking through a slime tunnel (or diagonally
+        // beside a slime/honey wall) bounced or dead-stopped the player around.
+        if (!BounceMath.isDirectImpact(preV, normal)) return;
 
         // Already rebounding (e.g. last tick's bounce): re-applying a bounce from
         // the stale pre-impact velocity would pin the entity to the wall.
@@ -104,16 +107,46 @@ public final class BounceHandler {
         return Vec3.atLowerCornerOf(hit.getDirection().getNormal());
     }
 
+    /**
+     * The hit face most opposed to the incoming velocity. Corner impacts record
+     * several faces in ray order; bouncing off whichever landed first made the
+     * rebound direction arbitrary.
+     */
+    static Vec3 mostOpposedNormal(Collision collision, Vec3 preV) {
+        Vec3 best = null;
+        double bestOpposition = 0;
+        for (BlockHitResult hit : collision.impactedHits) {
+            Vec3 n = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+            double opposition = -preV.dot(n);
+            if (opposition > bestOpposition) {
+                bestOpposition = opposition;
+                best = n;
+            }
+        }
+        return best;
+    }
+
     private static void handleWaterSkip(Entity entity, FullStopCapability fullstop, Collision collision) {
         Vec3 preV = fullstop.getPreviousScaledVelocity();
-        if (preV.lengthSqr() < 10 * 10) return; // Need a minimum speed (10 m/s) to skip
+        // Minimum speed to skip. Minecarts get a lower bar: their vanilla top
+        // speed is 8 m/s, so the general 10 m/s floor made cart skipping
+        // (explicitly intended, see the caller) unreachable in practice.
+        double minSkipSpeed = entity instanceof Minecart ? 6.0 : 10.0;
+        if (preV.lengthSqr() < minSkipSpeed * minSkipSpeed) return;
 
-        Vec3 normal = firstHitNormal(collision);
-        if (normal == null) return;
+        if (collision.impactedHits.isEmpty()) return;
+        // Water surfaces are only ever detected on their UP face, but a mixed
+        // shore collision (WATER outranks SOLID in type priority) can put a wall
+        // hit first in the list — the skip must always reflect off the surface.
+        Vec3 normal = new Vec3(0, 1, 0);
 
-        // Angle of incidence: 90° is a direct hit, 0° is parallel to the surface.
+        // Water normals are always UP, so this angle is measured from VERTICAL:
+        // 0° is a straight-down dive, 90° is skimming parallel to the surface.
+        // Skip only shallow grazes (within 25° of the surface); steep entries
+        // plunge. The old `angle > 25` return had this exactly inverted — divers
+        // trampolined off the surface and skimmers plunged.
         double angle = Math.toDegrees(Math.acos(preV.normalize().dot(normal.scale(-1))));
-        if (angle > 25) return; // Only skip at shallow angles
+        if (angle < 65) return;
 
         double vDotN = preV.dot(normal);
         if (vDotN >= 0) return;

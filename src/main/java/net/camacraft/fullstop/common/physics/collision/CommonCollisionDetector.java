@@ -2,7 +2,9 @@ package net.camacraft.fullstop.common.physics.collision;
 
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.math.FastRaycast;
 import net.camacraft.fullstop.common.physics.math.RaycastUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -13,9 +15,11 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -27,8 +31,21 @@ import java.util.List;
  */
 public class CommonCollisionDetector {
 
+    /**
+     * Minimum speed (m/s) INTO a block face for the hit to count as a collision.
+     * The rays have a 0.15 minimum length, so an entity standing flush against a
+     * wall "hits" it every tick with near-zero velocity — those touches spammed
+     * the impact sound/particles on every small deceleration (walking back and
+     * forth beside a wall, brushing along honey) and lit the debug rays red while
+     * merely hugging a wall. Also shared with the debug renderer's coloring.
+     */
+    public static final double MIN_APPROACH_SPEED_MPS = 2.0;
+
     public static Collision detectBlocks(Entity entity, FullStopCapability fullstop) {
-        Vec3 velocity = fullstop.getPreviousNativeVelocity();
+        // Pre-impact velocity (faster of the last two ticks): the damage tick of a
+        // two-tick impact must still see the block, even though last tick's travel
+        // was only the small post-contact remnant.
+        Vec3 velocity = fullstop.getPreImpactNativeVelocity();
         if (velocity.lengthSqr() == 0) {
             return Collision.NONE;
         }
@@ -44,8 +61,29 @@ public class CommonCollisionDetector {
             return Collision.NONE;
         }
 
+        // Every ray lies inside the ray-start envelope swept along the travel
+        // direction. If that volume is provably all air — and no VS ship (whose
+        // blocks live outside the world grid) is near it — no clip can hit
+        // anything, so the rays are skipped wholesale. The envelope floor is
+        // minY + 0.1 (where the bottom rays actually start, see RaycastUtil),
+        // NOT the box floor: using the box floor would pull the block layer a
+        // grounded entity stands on into the scan and defeat the skip for every
+        // sprinting player and galloping horse on flat ground.
+        AABB box = entity.getBoundingBox();
+        AABB rayEnvelope = new AABB(box.minX, Math.min(box.minY + 0.1, box.maxY), box.minZ,
+                box.maxX, box.maxY, box.maxZ);
+        AABB swept = rayEnvelope.expandTowards(direction.scale(rayLength)).inflate(0.001);
+        boolean worldBlocksNearby = FastRaycast.mayHitAnything(level, swept);
+        boolean shipsNearby = ShipCompat.anyShipsNearby(level, swept);
+        if (!worldBlocksNearby && !shipsNearby) {
+            return Collision.NONE;
+        }
+
         FullStopConfig.RaycastMode mode = FullStopConfig.SERVER.raycastMode.get();
         List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode);
+        // One shape context for all rays; each ClipContext would otherwise build
+        // its own EntityCollisionContext (SynchedEntityData reads) per ray.
+        CollisionContext shapeContext = CollisionContext.of(entity);
 
         List<BlockState> collidedBlockStates = new ArrayList<>();
         List<BlockPos> collidedBlockPositions = new ArrayList<>();
@@ -55,8 +93,11 @@ public class CommonCollisionDetector {
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));
 
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity);
-            BlockHitResult blockHit = level.clip(ctx);
+            // Ship blocks are only reachable through the (expensive, VS-wrapped)
+            // Level.clip; far from ships the vanilla-equivalent fast path is used.
+            BlockHitResult blockHit = shipsNearby
+                    ? level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity))
+                    : FastRaycast.clip(level, start, end, shapeContext);
 
             if (blockHit.getType() != HitResult.Type.BLOCK) continue;
 
@@ -69,14 +110,35 @@ public class CommonCollisionDetector {
             boolean isOpposing;
 
             if (isWater) {
-                if (hitFace != Direction.UP || !fullstop.isMostlyHorizontal()) {
+                // A water surface counts when skimming across it (water-skip) or
+                // plunging into it fast (-0.35 blocks/tick ≈ 7 m/s downward —
+                // stepping off a 2-block ledge into a pond must stay silent).
+                // The old mostly-horizontal-only rule made vertical dives
+                // undetectable, which killed the belly-flop feature outright.
+                boolean skimming = fullstop.isMostlyHorizontal();
+                boolean plunging = velocity.y < -0.35;
+                if (hitFace != Direction.UP || (!skimming && !plunging)) {
                     continue;
                 }
                 isOpposing = true;
             } else {
                 isOpposing = direction.dot(hitNormal) < -0.1;
 
-                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()) {
+                // A face only counts when actually approached with some speed —
+                // the 0.15 minimum ray reach otherwise reports a "collision" with
+                // the wall the entity is standing flush against every single tick.
+                if (-fullstop.getPreImpactScaledVelocity().dot(hitNormal) < MIN_APPROACH_SPEED_MPS) {
+                    isOpposing = false;
+                }
+
+                // Wall faces are ignored while mostly ascending so jumping flush
+                // against a wall never reads as a wall impact — but ONLY below the
+                // horizontal damage threshold. Unconditional, this blinded the
+                // detector to genuine high-speed climbing impacts (elytra swooping
+                // up into a cliff face dealt zero damage).
+                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()
+                        && fullstop.getPreImpactScaledVelocity().horizontalDistance()
+                                < FullStopConfig.SERVER.velocityDamageThresholdHorizontal.get()) {
                     isOpposing = false;
                 }
 

@@ -5,6 +5,7 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
@@ -26,7 +27,7 @@ import net.minecraftforge.fml.common.Mod;
  * Hooks RenderGuiEvent.Post (not the vignette overlay) so it also renders when the
  * vignette is skipped, e.g. on Fast graphics.
  */
-@Mod.EventBusSubscriber(value = Dist.CLIENT)
+@Mod.EventBusSubscriber(modid = FullStop.MODID, value = Dist.CLIENT)
 public class GforceEffectsRenderer {
 
     private static final ResourceLocation POWDER_SNOW_OUTLINE_LOCATION = new ResourceLocation("textures/misc/powder_snow_outline.png");
@@ -55,13 +56,22 @@ public class GforceEffectsRenderer {
         FullStopCapability cap = FullStopCapability.grabCapability(player);
         if (cap != null) {
             double gForce = cap.getRawRunningAverageDelta();
-            targetFovModifier = 1.0f + (float) Math.pow(gForce / 15.0, 2);
+            // Capped: sustained g-force (spinning fast in circles) used to grow
+            // this unbounded until the FOV crossed 180° and the view flipped
+            // upside down.
+            targetFovModifier = Math.min(1.0f + (float) Math.pow(gForce / 15.0, 2), 1.8f);
         }
 
-        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * 0.05f;
+        // Frame-time-scaled so the ramp speed doesn't depend on FPS
+        // (0.15/tick ≈ the old 0.05/frame at 60 fps).
+        float fovStep = Math.min(1.0f, 0.15f * Minecraft.getInstance().getDeltaFrameTime());
+        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * fovStep;
 
         if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
-            event.setFOV(event.getFOV() * currentFovModifier);
+            // Hard ceiling well below 180°: other FOV modifiers (speed effect,
+            // sprinting) stack on top of ours, and past 180° the projection
+            // renders the world mirrored/upside down.
+            event.setFOV(Math.min(event.getFOV() * currentFovModifier, 160.0));
         }
     }
 
@@ -81,7 +91,10 @@ public class GforceEffectsRenderer {
                             FullStopConfig.CLIENT.maxGForceThreshold.get());
 
                     if (gForce > thresholds.min()) {
-                        gForceIntensity = (float) ((gForce - thresholds.min()) / (thresholds.max() - thresholds.min()));
+                        // max(…, 0.001): min == max in the config would be 0/0 = NaN,
+                        // which enters the intensity lerp and never leaves.
+                        gForceIntensity = (float) ((gForce - thresholds.min())
+                                / Math.max(thresholds.max() - thresholds.min(), 0.001));
                         gForceIntensity = Math.min(gForceIntensity, 1.0f);
                     }
                 }
@@ -97,7 +110,18 @@ public class GforceEffectsRenderer {
 
         float targetIntensity = Math.max(gForceIntensity, drowningIntensity);
 
-        currentIntensity = currentIntensity + (targetIntensity - currentIntensity) * 0.1f;
+        // Frame-time-scaled (0.3/tick ≈ the old 0.1/frame at 60 fps) so the
+        // blackout ramps at the same speed at any FPS. The RISE is additionally
+        // rate-capped per frame: a lag spike hands the next frame several ticks
+        // of delta at once, and an uncapped step snapped the overlay straight to
+        // full black instead of fading in. Capped, a catch-up still darkens fast
+        // (~5 frames to full) but visibly fades. Fade-OUT keeps the uncapped
+        // step so recovery is never slowed down.
+        float step = Math.min(1.0f, 0.3f * Minecraft.getInstance().getDeltaFrameTime());
+        if (targetIntensity > currentIntensity) {
+            step = Math.min(step, 0.2f);
+        }
+        currentIntensity = currentIntensity + (targetIntensity - currentIntensity) * step;
 
         if (currentIntensity > 0.001f) {
             GuiGraphics guiGraphics = event.getGuiGraphics();

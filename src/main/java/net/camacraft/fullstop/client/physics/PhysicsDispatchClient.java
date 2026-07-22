@@ -37,13 +37,18 @@ public class PhysicsDispatchClient {
         Vec3 playerDelta = event.player.getDeltaMovement();
         cap.setCurrentNativeVelocity(playerDelta);
 
+        // Collision flags ride along: the server can't measure them for players
+        // (move packets arrive pre-clipped), and without them the kinetic-damage
+        // evidence gate can never pass horizontally.
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
             if (vehicle != null) {
-                PacketHandler.sendToServer(new PlayerDeltaPacket(vehicle.getDeltaMovement(), true));
+                PacketHandler.sendToServer(new PlayerDeltaPacket(vehicle.getDeltaMovement(), true,
+                        vehicle.horizontalCollision, vehicle.verticalCollision));
             }
         } else {
-            PacketHandler.sendToServer(new PlayerDeltaPacket(playerDelta, false));
+            PacketHandler.sendToServer(new PlayerDeltaPacket(playerDelta, false,
+                    event.player.horizontalCollision, event.player.verticalCollision));
         }
     }
 
@@ -65,7 +70,10 @@ public class PhysicsDispatchClient {
         }
 
         // Camera-only bounce reaction; the server owns actual motion.
-        if (FullStopConfig.CLIENT.rotateCamera.get()) {
+        // (detectBlocks reads SERVER config values, hence the isLoaded guard.)
+        boolean cameraAllowed = FullStopConfig.CLIENT.rotateCamera.get()
+                && (!FullStopConfig.CLIENT.rotateCameraOnlyWhenFlying.get() || player.isFallFlying());
+        if (cameraAllowed && FullStopConfig.SERVER_SPEC.isLoaded()) {
             Collision collision = CommonCollisionDetector.detectBlocks(player, fullstop);
             CameraBounceHandler.apply(player, fullstop, collision);
         }

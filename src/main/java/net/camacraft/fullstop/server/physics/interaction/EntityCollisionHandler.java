@@ -147,7 +147,9 @@ public final class EntityCollisionHandler {
             }
         }
 
-        if (closest.passedThrough) {
+        // Never silently setPos a player: the server sends no teleport packet for
+        // it, so the next client move packet triggers a "moved wrongly" rubber-band.
+        if (closest.passedThrough && !(entity instanceof Player)) {
             Vec3 newPos = closest.hitPos.subtract(entityCenterOffset);
             entity.setPos(newPos);
         }
@@ -251,6 +253,12 @@ public final class EntityCollisionHandler {
         if (!vehicle.getPassengers().isEmpty()) return false;
         if (rider.isPassengerOfSameVehicle(vehicle)) return false;
         if (rider instanceof ItemEntity) return false;
+        // Only things that are meaningfully rideable — without this, landing on a
+        // falling sand block auto-mounted it.
+        if (!(vehicle instanceof LivingEntity || vehicle instanceof net.minecraft.world.entity.vehicle.Boat
+                || vehicle instanceof net.minecraft.world.entity.vehicle.AbstractMinecart)) {
+            return false;
+        }
 
         double riderMass = EntityStackUtils.getEntityMass(rider);
         double vehicleMass = EntityStackUtils.getEntityMass(vehicle);

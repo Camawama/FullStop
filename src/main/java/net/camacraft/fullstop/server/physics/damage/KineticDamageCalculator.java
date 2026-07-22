@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.server.physics.damage;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
@@ -48,24 +49,52 @@ public class KineticDamageCalculator {
         boolean isDownwardImpact = fullstop.isMostlyDownward();
 
         // Block impacts must be corroborated by the entity actually having collided;
-        // the raycast alone (e.g. a near-miss past a corner) is not enough.
+        // the raycast alone (e.g. a near-miss past a corner) is not enough. The
+        // grace window (not the raw flags) is used because a fast impact's real
+        // deceleration lands a tick after contact, by which point the flag can
+        // already have cleared — see FullStopCapability.HIT_GRACE_TICKS.
+        // Ship blocks are the exception: Valkyrien Skies resolves ship contact in
+        // its own solver and never sets the vanilla flags, so a shipyard raycast
+        // hit is accepted as its own evidence (the stopping-force thresholds still
+        // gate whether it deals anything).
         boolean blockImpact = collision.collisionType != Collision.CollisionType.ENTITY
                 && collision.collisionType != Collision.CollisionType.WATER;
-        if (blockImpact && !(entity.horizontalCollision || entity.verticalCollision || entity.onGround())) {
+        boolean shipEvidence = blockImpact && ShipCompat.anyShipBlock(entity.level(), collision.impactedPositions);
+        // Evidence is per axis: onGround corroborates only VERTICAL deceleration.
+        // Letting it stand in for horizontal evidence billed "wall damage" to any
+        // grounded stop with no wall at all (ice runway into soul sand, boat
+        // dismounts, cobwebs).
+        boolean verticalEvidence = fullstop.hadRecentVerticalHit() || entity.onGround() || shipEvidence;
+        boolean horizontalEvidence = fullstop.hadRecentHorizontalHit() || shipEvidence;
+        if (blockImpact && !verticalEvidence && !horizontalEvidence) {
             return 0;
         }
 
-        double horizontalExceedance = Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0);
-        double verticalExceedance = Math.max(fullstop.getVerticalStoppingForce() - SERVER.velocityDamageThresholdVertical.get(), 0);
+        double horizontalExceedance = (!blockImpact || horizontalEvidence)
+                ? Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0)
+                : 0;
+        double verticalExceedance = (!blockImpact || verticalEvidence)
+                ? Math.max(fullstop.getVerticalStoppingForce() - SERVER.velocityDamageThresholdVertical.get(), 0)
+                : 0;
 
-        // Dripstone is special: landing on an upward spike hurts from the first block of exceedance.
+        // Dripstone is special: an upward spike hurts from the first block of
+        // exceedance — but only on real contact with real deceleration. The
+        // one-tick-lookahead ray sees spikes BEFORE contact, and without a
+        // stopping-force requirement merely walking toward a column dealt damage.
         for (BlockState state : collision.blockStates) {
             if (state.is(Blocks.POINTED_DRIPSTONE)) {
                 Direction tipDirection = state.getValue(PointedDripstoneBlock.TIP_DIRECTION);
                 if (isDownwardImpact && tipDirection == Direction.UP) {
-                    return 1.0 + (verticalExceedance * SERVER.dripstoneDamageMultiplier.get());
+                    // ~a one-block drop's landing speed; below that it's a step, not a fall.
+                    if (verticalEvidence && fullstop.getVerticalStoppingForce() > 4.0) {
+                        return 1.0 + (verticalExceedance * SERVER.dripstoneDamageMultiplier.get());
+                    }
                 } else if (!isDownwardImpact) {
-                    return 2.0;
+                    // Ramming a spike sideways: needs an actual horizontal hit + a real
+                    // (walking-speed) deceleration, not just proximity.
+                    if (horizontalEvidence && fullstop.getHorizontalStoppingForce() > 2.0) {
+                        return 2.0;
+                    }
                 }
             }
         }
@@ -73,6 +102,16 @@ public class KineticDamageCalculator {
         double damage;
         if (collision.collisionType == Collision.CollisionType.ENTITY) {
             if (!SERVER.entityCollisionDamage.get()) {
+                return 0;
+            }
+            // Relative speed alone would bill two fast movers that merely pass
+            // close by; require the mover to have lost some speed OR to carry a
+            // fresh impulse from EntityCollisionHandler (which runs just before
+            // this in the dispatch). The impulse check matters on the overlap
+            // tick itself: the position-delta stopping force only shows the
+            // momentum transfer one tick later, by which point the knocked-back
+            // target may already be outside the detection box.
+            if (fullstop.getStoppingForce() < 1.0 && !entity.hasImpulse) {
                 return 0;
             }
             double averageRelativeSpeed = collision.collidingEntities.stream()
@@ -97,8 +136,10 @@ public class KineticDamageCalculator {
             }
         }
 
+        // Hitting water flat in the prone/swim pose is a belly flop — the water
+        // may as well be pavement. A clean feet-first dive keeps almost nothing.
         if (hitWater && isDownwardImpact) {
-            damage *= entity.isSwimming() ? 1.2 : 0.05;
+            damage *= isBellyFlop(entity) ? 1.2 : 0.05;
         }
 
         for (BlockState state : collision.blockStates) {
@@ -117,6 +158,10 @@ public class KineticDamageCalculator {
             double totalHardness = 0;
             int count = 0;
             for (BlockState state : collision.blockStates) {
+                // Water's block hardness is 100 (bedrock-tier) — meaningless for an
+                // impact; its softness is already handled by the dive/flop factor.
+                if (state.is(Blocks.WATER)) continue;
+
                 float hardness = state.getDestroySpeed(entity.level(), entity.blockPosition());
                 if (state.is(FullStopTags.FRAGILE)) {
                     hardness = 0.05f;
@@ -137,6 +182,26 @@ public class KineticDamageCalculator {
         hardnessMultiplier = Mth.clamp(hardnessMultiplier, 0.2, 2.0);
         damage *= hardnessMultiplier;
 
-        return damage * 1.07;
+        damage *= 1.07;
+
+        // Crossing the speed threshold on a solid impact always costs at least one
+        // heart, even when soft/weak blocks would shrink it to a scratch — landing
+        // spot choice should matter, but a real overspeed landing is never free.
+        if (collision.collisionType == Collision.CollisionType.SOLID && damage > 0) {
+            damage = Math.max(damage, 2.0);
+        }
+
+        return damage;
+    }
+
+    /**
+     * A prone (swim-pose) body hitting water flat. isSwimming covers the common
+     * case — the player holding sprint into the water is already sprint-swimming
+     * on the tick the impact damage lands; isVisuallySwimming also catches the
+     * crawl pose carried into the fall.
+     */
+    public static boolean isBellyFlop(Entity entity) {
+        if (!(entity instanceof LivingEntity living)) return false;
+        return living.isSwimming() || living.isVisuallySwimming();
     }
 }

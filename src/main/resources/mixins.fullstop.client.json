@@ -9,7 +9,8 @@
     "SoundEngineAccessor",
     "SoundManagerAccessor",
     "KeyboardHandlerMixin",
-    "PlayerTurnHook"
+    "PlayerTurnHook",
+    "LocalPlayerPushOutMixin"
   ],
   "injectors": {
     "defaultRequire": 1

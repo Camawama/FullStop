@@ -8,6 +8,7 @@ import net.minecraft.client.MouseHandler;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -27,11 +28,25 @@ public class PlayerTurnHook {
     @Shadow
     private Minecraft minecraft;
 
+    /**
+     * Effective per-frame correction fraction is delta × 0.005 (capability) ×
+     * 0.15 (Entity.turn's hidden multiplier) = 0.00075 × delta. Cap delta so the
+     * fraction stays below ~0.9 — uncapped, any frame slower than ~15 FPS (or a
+     * single >133 ms stall) overshot the target and the camera flailed
+     * divergently instead of easing in.
+     */
+    @Unique
+    private static final double FULLSTOP$MAX_DELTA = 1200.0;
+
     @Inject(method = "turnPlayer", at = @At("HEAD"))
     private void turningPlayer(CallbackInfo ci) {
+        // No corrections while the mouse is ungrabbed (inventory/pause): mouse
+        // motion can't cancel them there, so the camera would swing behind the screen.
+        if (!((MouseHandler) (Object) this).isMouseGrabbed()) return;
+
         double time = Blaze3D.getTime();
-        double delta = (time - lastMouseEventTime) * 1000 * 20;
-        
+        double delta = Math.min((time - lastMouseEventTime) * 1000 * 20, FULLSTOP$MAX_DELTA);
+
         if (minecraft.player == null || DamageImmunityRules.unphysable(minecraft.player)) return;
 
         FullStopCapability fullstop = FullStopCapability.grabCapability(minecraft.player);

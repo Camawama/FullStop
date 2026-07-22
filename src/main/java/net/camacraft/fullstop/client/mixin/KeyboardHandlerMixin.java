@@ -55,8 +55,7 @@ public class KeyboardHandlerMixin {
         // If the line was the "reload resource packs" help entry, print our extra line right after it.
         if (message != null && message.getContents() instanceof TranslatableContents tc) {
             if (RESOURCEPACKS_HELP_KEY.equals(tc.getKey())) {
-                // Use literal for a quick addition; swap to translatable if you want localization.
-                original.call(chat, Component.literal("F3 + V = Show velocity debug lines"));
+                original.call(chat, Component.translatable("fullstop.debug.raycast_help"));
             }
         }
     }

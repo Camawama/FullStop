@@ -43,6 +43,12 @@ public class ModPotions {
     public static final RegistryObject<Potion> EXTREME_VERTIGO_POTION = POTIONS.register("extreme_vertigo_potion",
             () -> new Potion("vertigo", new MobEffectInstance(ModEffects.VERTIGO.get(), 900, 2))); // 0:45, Level III
 
+    public static final RegistryObject<Potion> ACCLIMATION_POTION = POTIONS.register("acclimation_potion",
+            () -> new Potion("acclimation", new MobEffectInstance(ModEffects.ACCLIMATION.get(), 3600, 0))); // 3:00
+
+    public static final RegistryObject<Potion> LONG_ACCLIMATION_POTION = POTIONS.register("long_acclimation_potion",
+            () -> new Potion("acclimation", new MobEffectInstance(ModEffects.ACCLIMATION.get(), 9600, 0))); // 8:00
+
     public static void register(IEventBus eventBus) {
         POTIONS.register(eventBus);
     }
@@ -71,5 +77,15 @@ public class ModPotions {
 
         // Long Vertigo (Redstone)
         BrewingRecipeRegistry.addRecipe(new BetterBrewingRecipe(VERTIGO_POTION.get(), Items.REDSTONE, LONG_VERTIGO_POTION.get()));
+
+        // Long Clarity corrupts to Long Vertigo, matching vanilla's long↔long pattern
+        BrewingRecipeRegistry.addRecipe(new BetterBrewingRecipe(LONG_CLARITY_POTION.get(), Items.FERMENTED_SPIDER_EYE, LONG_VERTIGO_POTION.get()));
+
+        // Acclimation: Awkward + Phantom Membrane (the sky-dweller's drop —
+        // Water Breathing's high-altitude sibling)
+        BrewingRecipeRegistry.addRecipe(new BetterBrewingRecipe(Potions.AWKWARD, Items.PHANTOM_MEMBRANE, ACCLIMATION_POTION.get()));
+
+        // Long Acclimation (Redstone)
+        BrewingRecipeRegistry.addRecipe(new BetterBrewingRecipe(ACCLIMATION_POTION.get(), Items.REDSTONE, LONG_ACCLIMATION_POTION.get()));
     }
 }

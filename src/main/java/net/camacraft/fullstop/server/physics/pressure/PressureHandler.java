@@ -1,7 +1,11 @@
 package net.camacraft.fullstop.server.physics.pressure;
 
 import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.registry.ModAttributes;
+import net.camacraft.fullstop.common.registry.ModEffects;
 import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.player.Player;
@@ -28,15 +32,63 @@ public class PressureHandler {
         handleDepth(living);
     }
 
+    /** Ticks of thin-air exposure until the drain reaches the altitude's full rate (5 s). */
+    private static final int EXPOSURE_RAMP_TICKS = 100;
+
+    /** Blocks above the start level at which the drain rate stops growing. */
+    private static final double ALTITUDE_FULL_SEVERITY_RANGE = 150.0;
+
+    /**
+     * Hard cap on net air lost per tick (beyond the regen compensation) at the
+     * default config rate. 300 air / 6 per tick = 2.5 s from full bubbles to
+     * suffocation even at the ramp's top — so a teleport 5000 blocks up still
+     * leaves a few seconds of grace instead of popping every bubble instantly
+     * (the old formula scaled with raw altitude, unbounded).
+     */
+    private static final double MAX_EXTRA_AIR_LOSS_PER_TICK = 6.0;
+
     private static void handleAltitude(LivingEntity living) {
         if (!(living instanceof Player) && !FullStopConfig.SERVER.altitudePressureAffectsMobs.get()) return;
 
         int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
-        if (living.getY() <= altitudeStart || living.isUnderWater()) return;
+        boolean inThinAir = living.getY() > altitudeStart && !living.isUnderWater();
 
-        int y = (int) living.getY();
-        double rate = FullStopConfig.SERVER.highAltitudeAirLossRate.get();
-        int airLoss = (int) (1 + (y - altitudeStart) * rate / 10);
+        // Acclimation is to thin air what Water Breathing is to water: no drain,
+        // and no exposure build-up while it holds.
+        boolean acclimated = living.hasEffect(ModEffects.ACCLIMATION.get());
+        boolean suffering = inThinAir && !acclimated;
+
+        // The exposure clock (in the capability) ramps the drain in over several
+        // seconds: entering thin air pops bubbles slowly at first — reduced
+        // oxygen, not zero oxygen — then faster the longer/higher the exposure.
+        FullStopCapability cap = FullStopCapability.grabCapability(living);
+        int exposure = cap != null ? cap.tickThinAirExposure(suffering) : EXPOSURE_RAMP_TICKS;
+
+        if (!suffering) return;
+
+        // Respiration slows the thin-air drain the same way it slows drowning:
+        // skip this tick's loss with probability level/(level+1).
+        if (respirationSpares(living)) return;
+
+        double altitudeFactor = Math.min(1.0, (living.getY() - altitudeStart) / ALTITUDE_FULL_SEVERITY_RANGE);
+        double rampFactor = Math.min(1.0, exposure / (double) EXPOSURE_RAMP_TICKS);
+
+        // Lung Capacity attribute: the base for how long breath can be held.
+        // 2.0 pops bubbles half as fast, 0.5 twice as fast.
+        double lungCapacity = 1.0;
+        var lungAttr = living.getAttribute(ModAttributes.LUNG_CAPACITY.get());
+        if (lungAttr != null) lungCapacity = Math.max(lungAttr.getValue(), 0.1);
+
+        // Config rate scales the cap around its 0.5 default so existing configs
+        // keep meaning "higher is faster".
+        double maxExtraLoss = MAX_EXTRA_AIR_LOSS_PER_TICK
+                * (FullStopConfig.SERVER.highAltitudeAirLossRate.get() / 0.5);
+        double extraLoss = Math.max(1.0, maxExtraLoss * altitudeFactor * rampFactor) / lungCapacity;
+
+        // +4 compensates vanilla's out-of-water air regen (+4/tick, LivingEntity
+        // baseTick) — without it any loss below 4 was silently regenerated and
+        // the whole system was inert until far above the start level.
+        int airLoss = 4 + Math.max(1, (int) Math.round(extraLoss));
 
         // Clamp to -20 so damage cadence doesn't depend on how far past the
         // threshold a single tick overshoots.
@@ -52,11 +104,18 @@ public class PressureHandler {
     private static void handleDepth(LivingEntity living) {
         if (!living.isUnderWater()) return;
 
+        // The extra deep-water drain must honor the same protections as vanilla
+        // drowning — Water Breathing, Conduit Power, and Respiration previously
+        // bypassed it entirely because setAirSupply is written directly.
+        if (living.hasEffect(MobEffects.WATER_BREATHING) || living.hasEffect(MobEffects.CONDUIT_POWER)) return;
+        if (respirationSpares(living)) return;
+
         int deepWaterStart = FullStopConfig.SERVER.deepWaterStartLevel.get();
         if (living.getY() < deepWaterStart) {
-            double multiplier = FullStopConfig.SERVER.deepWaterAirLossMultiplier.get();
-            int airLoss = (int) multiplier;
-            living.setAirSupply(Math.max(living.getAirSupply() - airLoss, -20));
+            // Config-named "multiplier" but applied as extra air lost per tick on
+            // top of vanilla drowning below the start level.
+            int extraAirLossPerTick = (int) (double) FullStopConfig.SERVER.deepWaterAirLossMultiplier.get();
+            living.setAirSupply(Math.max(living.getAirSupply() - extraAirLossPerTick, -20));
         }
 
         int damageDepth = FullStopConfig.SERVER.pressureDamageStartDepth.get();
@@ -67,5 +126,11 @@ public class PressureHandler {
                 living.hurt(FullStopDamageSources.pressure(living), damage);
             }
         }
+    }
+
+    /** Vanilla-style Respiration roll: level N spares the air loss N out of N+1 ticks. */
+    private static boolean respirationSpares(LivingEntity living) {
+        int respiration = net.minecraft.world.item.enchantment.EnchantmentHelper.getRespiration(living);
+        return respiration > 0 && living.getRandom().nextInt(respiration + 1) > 0;
     }
 }

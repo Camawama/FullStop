@@ -78,10 +78,12 @@ public class KineticDamageEventHandler {
 
         if (direct == null && !fullstopKinetic) return;
 
-        if (direct instanceof Projectile && SERVER.projectileMultiplier.get() == 0) return;
-        if (direct instanceof AbstractArrow && !(SERVER.wildMode.get())) return;
+        // Arrows outside wild mode keep their vanilla damage (no velocity
+        // re-scaling) but still pass through the mitigation layers below — the
+        // old early return skipped dampening/protection/reflective entirely.
+        boolean skipVelocityScaling = direct instanceof AbstractArrow && !SERVER.wildMode.get();
 
-        float newDamage = fullstopKinetic ? event.getAmount() : calcNewDamage(event);
+        float newDamage = (fullstopKinetic || skipVelocityScaling) ? event.getAmount() : calcNewDamage(event);
 
         // Apply Kinetic Dampening Attribute (leather armor grants it; see above)
         var dampeningAttr = event.getEntity().getAttribute(ModAttributes.KINETIC_DAMPENING.get());
@@ -207,7 +209,7 @@ public class KineticDamageEventHandler {
         float newDamage = calculateNewDamage((float) approachVelocity, originalDamage);
 
         // Velocity-boosted melee hits cost extra weapon durability.
-        if (attacker instanceof LivingEntity living && !(attacker instanceof Projectile) && originalDamage > 0) {
+        if (attacker instanceof LivingEntity living && originalDamage > 0) {
             int extraWear = Math.round(newDamage / originalDamage) - 1;
             if (extraWear > 0) {
                 ItemStack item = living.getItemInHand(InteractionHand.MAIN_HAND);
@@ -218,10 +220,12 @@ public class KineticDamageEventHandler {
             }
         }
 
-        // Only bother nearby players with the crit sound when a player is involved.
+        // Only bother nearby players with the crit sound when a player is involved
+        // AND the velocity bonus is meaningful — any forward-moving swing has a
+        // tiny bonus, and dinging on every hit was noise.
         boolean playerInvolved = entity instanceof Player || attacker instanceof Player
                 || event.getSource().getEntity() instanceof Player;
-        if (newDamage > originalDamage && playerInvolved) {
+        if (newDamage > originalDamage * 1.15f && playerInvolved) {
             entity.level().playSound(null, entity.blockPosition(),
                     SoundEvents.PLAYER_ATTACK_CRIT, SoundSource.PLAYERS, 0.6F, 0.9F);
         }

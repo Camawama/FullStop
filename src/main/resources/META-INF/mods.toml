@@ -28,3 +28,12 @@ mandatory=true
 versionRange="${minecraft_version_range}"
 ordering="NONE"
 side="BOTH"
+
+# Soft dependency: FullStop ships ship-motion compensation and ship-block impact
+# support that only activates when Valkyrien Skies is present.
+[[dependencies.fullstop]]
+modId="valkyrienskies"
+mandatory=false
+versionRange="[2.4,)"
+ordering="AFTER"
+side="BOTH"

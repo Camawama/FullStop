@@ -37,6 +37,8 @@ public class ServerCollisionDetector {
                     e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart
                             || e instanceof FallingBlockEntity)
                             && e != entity
+                            && !e.isSpectator()
+                            && !e.noPhysics // spectators/no-clip entities must never be shoved
                             && !(e.isPassengerOfSameVehicle(entity))
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
             );

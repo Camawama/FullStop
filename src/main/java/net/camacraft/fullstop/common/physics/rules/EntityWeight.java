@@ -42,6 +42,11 @@ public class EntityWeight {
     }
 
     public static void loadConfigWeights() {
+        // A mass query can arrive before the server config loads (e.g. via the
+        // water-slowdown mixin); reading the config value then would throw.
+        // Leave `loaded` false so the next query retries.
+        if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;
+
         CACHED_WEIGHTS.clear();
         loaded = true;
         List<? extends String> weights = FullStopConfig.SERVER.entityWeights.get();

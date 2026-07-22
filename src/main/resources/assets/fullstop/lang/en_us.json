@@ -13,8 +13,22 @@
   "config.fullstop.kineticBlockBreaking": "Kinetic Block Breaking",
   "config.fullstop.phaseMinimumSpeed": "Block Phasing Minimum Speed (m/s)",
   "config.fullstop.raycastMode": "Raycast Mode",
+  "config.fullstop.enableGravityBlocks": "Enable Gravity-Affected Blocks",
+  "config.fullstop.enableValkyrienSkiesCompat": "Enable Valkyrien Skies Compatibility",
+  "config.fullstop.dripstoneDamageMultiplier": "Dripstone Damage Multiplier",
+  "config.fullstop.entityWeights": "Entity Weight Multipliers",
+  "config.fullstop.enablePressureSimulation": "Enable Pressure Simulation",
+  "config.fullstop.altitudePressureAffectsMobs": "Altitude Pressure Affects Mobs",
+  "config.fullstop.highAltitudeStartLevel": "High Altitude Start Level (Y)",
+  "config.fullstop.highAltitudeAirLossRate": "High Altitude Air Loss Rate",
+  "config.fullstop.deepWaterStartLevel": "Deep Water Start Level (Y)",
+  "config.fullstop.deepWaterAirLossMultiplier": "Deep Water Extra Air Loss",
+  "config.fullstop.pressureDamageStartDepth": "Pressure Damage Start Depth (Y)",
+  "config.fullstop.pressureDamageAmount": "Pressure Damage Amount",
+  "config.fullstop.pressureDamageTickRate": "Pressure Damage Interval (ticks)",
   "config.fullstop.server.enableGForceEffects": "Enable G-Force Effects",
   "config.fullstop.client.rotateCamera": "Rotate Camera On Bounce",
+  "config.fullstop.client.rotateCameraOnlyWhenFlying": "Rotate Camera Only While Elytra Flying",
   "config.fullstop.client.minGForceThreshold": "G-Force Effect Start Threshold",
   "config.fullstop.client.maxGForceThreshold": "G-Force Effect Max Threshold",
 
@@ -34,6 +48,7 @@
   "death.fullstop.ceiling.elytra": "%1$s hit the ceiling too hard with Elytra",
   "death.fullstop.ceiling.elytra_head": "%1$s hit their head on the ceiling with Elytra",
   "death.fullstop.wall": "%1$s experienced kinetic energy",
+  "death.fullstop.water_flop": "%1$s flopped into the water",
   "death.fullstop.entity.crushed_by": "%1$s was crushed by %2$s",
   "death.fullstop.entity.hit_by": "%1$s was hit by %2$s",
   "death.fullstop.entity.fell_on": "%1$s fell onto %2$s too hard",
@@ -41,16 +56,19 @@
   "death.fullstop.entity.collided": "%1$s collided with %2$s",
   "death.fullstop.entity.slammed": "%1$s slammed into %2$s",
 
-  "death.fell.accident.water": "%1$s flopped into the water",
+  "fullstop.debug.raycast_toggle": "FullStop raycast debug: %s (red = collision-grade hit, yellow = touching, green = clear)",
+  "fullstop.debug.raycast_help": "F3 + V = Toggle FullStop raycast debug view",
 
   "enchantment.fullstop.kinetic_protection": "Kinetic Protection",
   "enchantment.fullstop.reflective": "Reflective",
   "enchantment.fullstop.pullback": "Pullback",
   "attribute.name.fullstop.kinetic_dampening": "Kinetic Dampening",
+  "attribute.name.fullstop.lung_capacity": "Lung Capacity",
 
   "effect.fullstop.sprain": "Sprain",
   "effect.fullstop.clarity": "Clarity",
   "effect.fullstop.vertigo": "Vertigo",
+  "effect.fullstop.acclimation": "Acclimation",
 
   "item.minecraft.potion.effect.clarity": "Potion of Clarity",
   "item.minecraft.splash_potion.effect.clarity": "Splash Potion of Clarity",
@@ -59,5 +77,9 @@
   "item.minecraft.potion.effect.vertigo": "Potion of Vertigo",
   "item.minecraft.splash_potion.effect.vertigo": "Splash Potion of Vertigo",
   "item.minecraft.lingering_potion.effect.vertigo": "Lingering Potion of Vertigo",
-  "item.minecraft.tipped_arrow.effect.vertigo": "Arrow of Vertigo"
+  "item.minecraft.tipped_arrow.effect.vertigo": "Arrow of Vertigo",
+  "item.minecraft.potion.effect.acclimation": "Potion of Acclimation",
+  "item.minecraft.splash_potion.effect.acclimation": "Splash Potion of Acclimation",
+  "item.minecraft.lingering_potion.effect.acclimation": "Lingering Potion of Acclimation",
+  "item.minecraft.tipped_arrow.effect.acclimation": "Arrow of Acclimation"
 }

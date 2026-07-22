@@ -19,7 +19,7 @@ public class PullbackEnchantment extends Enchantment {
 
     @Override
     public int getMaxCost(int level) {
-        return super.getMinCost(level) + 50;
+        return this.getMinCost(level) + 50;
     }
 
     @Override

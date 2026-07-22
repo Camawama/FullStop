@@ -18,7 +18,29 @@ public final class BounceMath {
      */
     public static final double MIN_IMPACT_SPEED_MPS = 2.5;
 
+    /** Above this approach speed (m/s) a hit always counts, however oblique. */
+    private static final double ALWAYS_IMPACT_SPEED_MPS = 8.0;
+
+    /** Below {@link #ALWAYS_IMPACT_SPEED_MPS}, the approach must be this fraction of the total speed. */
+    private static final double MIN_DIRECTNESS = 0.6;
+
     private BounceMath() {
+    }
+
+    /**
+     * Whether a hit is a genuine impact INTO the surface rather than a brush
+     * along it. The absolute floor alone wasn't enough: walking diagonally
+     * beside a slime/honey wall pushes 2–3 m/s into it while mostly sliding
+     * along — enough to clear the floor, so the wall bounced (or, for honey,
+     * dead-stopped) the walker every few ticks and made movement stuttery.
+     * A slow hit now also has to be mostly AT the wall; fast hits (≥8 m/s into
+     * the surface) always count, so high-speed grazes still bounce.
+     */
+    public static boolean isDirectImpact(Vec3 velocityMps, Vec3 normal) {
+        double approach = -velocityMps.dot(normal);
+        if (approach < MIN_IMPACT_SPEED_MPS) return false;
+        return approach >= ALWAYS_IMPACT_SPEED_MPS
+                || approach >= velocityMps.length() * MIN_DIRECTNESS;
     }
 
     /**

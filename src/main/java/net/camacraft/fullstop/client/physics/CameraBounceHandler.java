@@ -32,7 +32,7 @@ public final class CameraBounceHandler {
         // brushing a slime wall while walking must not swing the camera, and a
         // corner-seam ping-pong must not re-aim it every tick.
         if (!fullstop.canBounce()) return;
-        if (-preV.dot(normal) < BounceMath.MIN_IMPACT_SPEED_MPS) return;
+        if (!BounceMath.isDirectImpact(preV, normal)) return;
         if (fullstop.getCurrentScaledVelocity().dot(normal) > 0.5) return;
 
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);

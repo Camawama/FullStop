@@ -23,12 +23,15 @@ public class DamageMitigation {
 
         if (mostlyDownward) {
             ItemStack boots = entity.getItemBySlot(EquipmentSlot.FEET);
+            // Read Feather Falling BEFORE the durability hit: if that hit breaks the
+            // boots, the reduction (and the FF-IV lethal cap) must still apply to
+            // the landing that broke them.
+            int featherFallingLevel = boots.getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             if (!boots.isEmpty()) {
                 rawDamage *= 0.9f;
                 damageArmor(entity, boots, durabilityCost);
             }
 
-            int featherFallingLevel = boots.getEnchantmentLevel(Enchantments.FALL_PROTECTION);
             if (featherFallingLevel > 0) {
                 float reduction = 0.2f * featherFallingLevel;
                 rawDamage *= Math.max(0.0f, 1.0f - reduction);
@@ -61,6 +64,8 @@ public class DamageMitigation {
     private static void damageArmor(LivingEntity entity, ItemStack stack, int amount) {
         if (amount <= 0 || stack.isEmpty() || !stack.isDamageableItem()) return;
 
+        // Deliberate: knockback-resistant materials (netherite and modded
+        // equivalents) are treated as impact-proof and lose no durability here.
         if (stack.getItem() instanceof ArmorItem armorItem) {
             if (armorItem.getMaterial().getKnockbackResistance() > 0) return;
         }

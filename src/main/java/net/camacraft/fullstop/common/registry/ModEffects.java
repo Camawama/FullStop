@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.effect.AcclimationEffect;
 import net.camacraft.fullstop.common.effect.ClarityEffect;
 import net.camacraft.fullstop.common.effect.SprainEffect;
 import net.camacraft.fullstop.common.effect.VertigoEffect;
@@ -22,6 +23,9 @@ public class ModEffects {
 
     public static final RegistryObject<MobEffect> VERTIGO =
             MOB_EFFECTS.register("vertigo", VertigoEffect::new);
+
+    public static final RegistryObject<MobEffect> ACCLIMATION =
+            MOB_EFFECTS.register("acclimation", AcclimationEffect::new);
 
     public static void register(IEventBus eventBus) {
         MOB_EFFECTS.register(eventBus);

@@ -12,8 +12,19 @@ import java.util.List;
 
 public class RaycastUtil {
 
+    /**
+     * Minimum ray reach in blocks. The bottom ray corners start 0.1 above the box
+     * floor, so anything shorter can never touch the block the entity is resting
+     * against — on the late tick of a two-tick impact the previous travel distance
+     * alone can be arbitrarily small even though the entity is flush to the block.
+     */
+    private static final double MIN_RAY_LENGTH = 0.15;
+
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
-        Vec3 velocity = fullstop.getPreviousScaledVelocity();
+        // Pre-impact velocity: on the damage tick of a fast impact the one-tick-old
+        // velocity is only the tiny post-contact remnant and may point along the
+        // wall instead of into it.
+        Vec3 velocity = fullstop.getPreImpactScaledVelocity();
         if (velocity.lengthSqr() > 0.0001) {
             return velocity.normalize();
         }
@@ -23,13 +34,13 @@ public class RaycastUtil {
         return acc.normalize();
     }
 
-    /** Ray length in blocks: how far the entity travelled last tick, plus a contact margin. */
+    /** Ray length in blocks: how far the entity travelled going into the impact, plus a contact margin. */
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
         // Projectiles have their own impact handling; FullStop does not raycast for them.
         if (entity instanceof Projectile) {
             return 0;
         }
-        return fullstop.getPreviousNativeVelocity().length() + 0.01;
+        return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH) + 0.01;
     }
 
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode) {
@@ -44,7 +55,11 @@ public class RaycastUtil {
         double cenY = box.getCenter().y;
         double cenZ = box.getCenter().z;
 
-        List<Vec3> points = new ArrayList<>();
+        List<Vec3> points = new ArrayList<>(switch (mode) {
+            case CORNERS_ONLY -> 8;
+            case CORNERS_AND_CENTERS -> 15;
+            case FULL_SWEEP -> 27;
+        });
 
         // 8 Corners (Always included in all modes)
         points.add(new Vec3(minX, minY, minZ));

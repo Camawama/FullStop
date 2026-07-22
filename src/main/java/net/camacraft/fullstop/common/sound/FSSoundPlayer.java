@@ -23,7 +23,7 @@ public final class FSSoundPlayer {
      * Does nothing if called on the client.
      */
     public static void playSoundServer(Level level, BlockPos pos, SoundEvent sound, SoundSource source, float volume, float pitch) {
-        if (!(level instanceof ServerLevel serverLevel)) return;
+        if (sound == null || !(level instanceof ServerLevel serverLevel)) return;
 
         serverLevel.playSound(
                 null,       // null -> broadcast to all nearby players
@@ -40,7 +40,7 @@ public final class FSSoundPlayer {
      * Does nothing if called on the server.
      */
     public static void playSoundClient(Level level, double x, double y, double z, SoundEvent sound, SoundSource source, float volume, float pitch) {
-        if (!level.isClientSide()) return;
+        if (sound == null || !level.isClientSide()) return;
 
         // playLocalSound is the "local only" version (no networking).
         level.playLocalSound(
@@ -61,7 +61,11 @@ public final class FSSoundPlayer {
         playSoundClient(entity.level(), entity.getX(), entity.getY(), entity.getZ(), sound, source, volume, pitch);
     }
 
-    /** Lookup by ResourceLocation (handy for “vanilla” sounds or config-driven sounds). */
+    /**
+     * Lookup by ResourceLocation (handy for “vanilla” sounds or config-driven
+     * sounds). May return null for unregistered ids — the play methods above
+     * treat a null sound as a no-op.
+     */
     public static SoundEvent sound(ResourceLocation id) {
         return BuiltInRegistries.SOUND_EVENT.get(id);
     }

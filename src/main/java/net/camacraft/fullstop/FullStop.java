@@ -12,6 +12,7 @@ import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.registry.ModPotions;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
+import net.camacraft.fullstop.server.physics.interaction.GravityBlockHandler;
 import net.camacraft.fullstop.server.physics.pressure.PressureHandler;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
@@ -55,6 +56,7 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
+        MinecraftForge.EVENT_BUS.register(GravityBlockHandler.class);
         MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(BlockPhasing.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
@@ -85,6 +87,10 @@ public class FullStop
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
         if (!SERVER_SPEC.isLoaded()) return;
+
+        // Fires for chunk loads too — without this, a persisted arrow re-gained
+        // its owner's current velocity every time its chunk reloaded.
+        if (event.loadedFromDisk()) return;
 
         if (!(SERVER.projectilesHaveMomentum.get())) return;
         if (!(event.getEntity() instanceof Projectile projectile) || projectile.level().isClientSide) return;

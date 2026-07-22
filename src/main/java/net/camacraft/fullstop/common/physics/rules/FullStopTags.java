@@ -38,6 +38,28 @@ public final class FullStopTags {
      */
     public static final TagKey<Block> ENGULFING = blockTag("engulfing");
 
+    /**
+     * Blocks that fall like sand when nothing supports them. Non-sticky entries
+     * need a block below, exactly like sand; entries that are also in
+     * {@link #STICKY} count a touching block on any face as support.
+     */
+    public static final TagKey<Block> GRAVITY_AFFECTED = blockTag("gravity_affected");
+
+    /**
+     * Gravity-affected blocks that cling to any neighboring block (slime, honey),
+     * so they only fall when floating completely free. Included in
+     * {@link #GRAVITY_AFFECTED}.
+     */
+    public static final TagKey<Block> STICKY = blockTag("sticky");
+
+    /**
+     * Blocks that slow entities moving BESIDE them (honey, the soul sand
+     * family): a viscous/clinging field applied by BlockPhasing when the
+     * entity's box brushes such a block at body height. Standing on top is
+     * unaffected (that's the block's own walk-speed factor).
+     */
+    public static final TagKey<Block> SLOWING = blockTag("slowing");
+
     /** Entities that never take kinetic damage (bosses, flying/agile/soft-bodied mobs). */
     public static final TagKey<EntityType<?>> KINETIC_IMMUNE = entityTag("kinetic_immune");
 

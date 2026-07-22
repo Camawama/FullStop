@@ -25,12 +25,12 @@ public final class ClientRenderEvents {
             if (net.camacraft.fullstop.client.hotkey.DebugHotkeyHandler.isVelocityDebugEnabled() && mc.level != null) {
                 // Render for all other entities
                 for (Entity entity : mc.level.entitiesForRendering()) {
-                    RaycastLineRenderer.updateDebugRays(entity);
+                    RaycastLineRenderer.updateDebugRays(entity, event.getPartialTick());
                 }
 
                 // Explicitly render for the local player (who is often not in entitiesForRendering)
                 if (mc.player != null) {
-                    RaycastLineRenderer.updateDebugRays(mc.player);
+                    RaycastLineRenderer.updateDebugRays(mc.player, event.getPartialTick());
                 }
 
                 PoseStack poseStack = event.getPoseStack();

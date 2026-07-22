@@ -1,10 +1,14 @@
 package net.camacraft.fullstop.common.physics.rules;
 
+import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.minecraft.world.entity.AreaEffectCloud;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ExperienceOrb;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
+import org.jetbrains.annotations.Nullable;
 
 public class DamageImmunityRules {
 
@@ -27,17 +31,40 @@ public class DamageImmunityRules {
     }
 
     public static boolean unphysable(Entity entity) {
-        if (entity == null) return true;
+        return unphysable(entity, null);
+    }
 
-        if (entity instanceof ItemEntity) return true;
+    /**
+     * Runs for every entity every tick, so it is ordered cheapest-first: plain
+     * field/type checks, then the SynchedEntityData-backed ones (health, NoAI).
+     * Pass the entity's capability when available so the NoAI flag comes from
+     * its once-a-second cache instead of a locked datawatcher read.
+     */
+    public static boolean unphysable(Entity entity, @Nullable FullStopCapability fullstop) {
+        if (unphysableIgnoringAi(entity)) return true;
 
         // NoAI mobs (maps, farms, displays) are deliberately static; leave them alone.
-        if (entity instanceof Mob mob && mob.isNoAi()) return true;
+        if (entity instanceof Mob mob) {
+            return fullstop != null ? fullstop.isNoAiCached(mob) : mob.isNoAi();
+        }
+        return false;
+    }
 
-        if (entity.noPhysics) return true;
-        if (entity instanceof LivingEntity livingEntity)
-            if (livingEntity.isDeadOrDying())
-                return true;
-        return entity.isRemoved();
+    /**
+     * The type/field checks alone, without the NoAI datawatcher read — cheap
+     * enough to run before a capability is even resolved, so drop-like entities
+     * (items, orbs) never allocate one.
+     */
+    public static boolean unphysableIgnoringAi(Entity entity) {
+        if (entity == null) return true;
+
+        // Inert drop-like entities can never deal or take kinetic damage.
+        if (entity instanceof ItemEntity || entity instanceof ExperienceOrb || entity instanceof AreaEffectCloud) {
+            return true;
+        }
+
+        if (entity.noPhysics || entity.isRemoved()) return true;
+
+        return entity instanceof LivingEntity livingEntity && livingEntity.isDeadOrDying();
     }
 }

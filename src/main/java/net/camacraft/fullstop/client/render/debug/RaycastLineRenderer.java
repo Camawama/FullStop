@@ -38,10 +38,15 @@ public final class RaycastLineRenderer {
     private static final float MISS_B = 0.0f;
     private static final float MISS_A = 0.5f; // Alpha for miss (more transparent)
 
+    // Touching a block without a collision-grade approach speed (e.g. standing
+    // flush against a wall — the rays' 0.15 minimum reach always grazes it).
+    private static final float TOUCH_R = 1.0f;
+    private static final float TOUCH_G = 0.8f;
+    private static final float TOUCH_B = 0.0f;
+    private static final float TOUCH_A = 0.7f;
+
     // Line Properties
-    private static final float LINE_WIDTH = 5.0f; // Still applied (some drivers clamp), but kept for consistency
     private static final int LINE_LIFE_TICKS = 5; // How long a line persists without updates (now truly ticks)
-    private static final float SMOOTHING_FACTOR = 0.5f; // 0.0 = no smoothing, 1.0 = full smoothing (laggy)
 
     // Ray thickness in world units (used for quad rendering). Tweak to taste.
     private static final float RAY_THICKNESS = 0.03f;
@@ -71,10 +76,11 @@ public final class RaycastLineRenderer {
     }
 
     /**
-     * Calculates and queues debug rays for the given entity.
-     * Uses Physics logic to determine ray positions and directions.
+     * Calculates and queues debug rays for the given entity. Recomputed every
+     * FRAME from the interpolated render position — per-tick updates made the
+     * rays visibly stutter (this is a debug view; the extra clips are accepted).
      */
-    public static void updateDebugRays(Entity entity) {
+    public static void updateDebugRays(Entity entity, float partialTick) {
         FullStopCapability fullstop = FullStopCapability.grabCapability(entity);
         if (fullstop == null) return;
 
@@ -96,17 +102,37 @@ public final class RaycastLineRenderer {
         List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, net.camacraft.fullstop.FullStopConfig.SERVER.raycastMode.get());
         Level level = entity.level();
 
+        // Ray starts come from the tick-resolution bounding box; shifting them by
+        // the render-interpolated offset keeps the rays glued to the visual entity.
+        Vec3 renderOffset = entity.getPosition(partialTick).subtract(entity.position());
+        Vec3 preImpactVelocity = fullstop.getPreImpactScaledVelocity();
+
         int index = 0;
-        for (Vec3 start : rayStarts) {
+        for (Vec3 tickStart : rayStarts) {
+            Vec3 start = tickStart.add(renderOffset);
             Vec3 end = start.add(direction.scale(rayLength));
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity);
+            // SOURCE_ONLY to match the gameplay detector (NONE hid water-skip /
+            // belly-flop hits from the debug view).
+            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity);
             BlockHitResult blockHit = level.clip(ctx);
             boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
 
-            float r = hitBlock ? HIT_R : MISS_R;
-            float g = hitBlock ? HIT_G : MISS_G;
-            float b = hitBlock ? HIT_B : MISS_B;
-            float a = (hitBlock ? HIT_A : MISS_A) * speedAlphaMultiplier;
+            // Red only when the gameplay classifier would count this hit — i.e.
+            // the face is opposed AND approached with collision-grade speed.
+            // Standing flush against a wall (the rays' minimum reach always
+            // touches it) shows YELLOW: touching, not colliding.
+            boolean collisionGrade = false;
+            if (hitBlock) {
+                Vec3 normal = Vec3.atLowerCornerOf(blockHit.getDirection().getNormal());
+                collisionGrade = direction.dot(normal) < -0.1
+                        && -preImpactVelocity.dot(normal)
+                                >= net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
+            }
+
+            float r = hitBlock ? (collisionGrade ? HIT_R : TOUCH_R) : MISS_R;
+            float g = hitBlock ? (collisionGrade ? HIT_G : TOUCH_G) : MISS_G;
+            float b = hitBlock ? (collisionGrade ? HIT_B : TOUCH_B) : MISS_B;
+            float a = (hitBlock ? (collisionGrade ? HIT_A : TOUCH_A) : MISS_A) * speedAlphaMultiplier;
 
             // Unique ID per entity per ray to prevent flashing
             String id = "entity_" + entity.getId() + "_ray_" + index;
@@ -123,29 +149,16 @@ public final class RaycastLineRenderer {
         synchronized (PENDING_LINES) {
             if (!PENDING_LINES.isEmpty()) {
                 for (QueuedLine queued : PENDING_LINES) {
-                    Line existing = ACTIVE_LINES.get(queued.id);
-                    if (existing != null) {
-                        // Smooth transition: lerp from existing current position to new target
-                        Vec3 smoothedStart = existing.start.lerp(queued.start, 1.0 - SMOOTHING_FACTOR);
-                        Vec3 smoothedEnd = existing.end.lerp(queued.end, 1.0 - SMOOTHING_FACTOR);
-
-                        ACTIVE_LINES.put(queued.id, new Line(
-                                queued.id,
-                                smoothedStart, smoothedEnd,
-                                existing.start, existing.end, // Keep old "current" as "prev" for frame interpolation
-                                queued.r, queued.g, queued.b, queued.a,
-                                queued.life
-                        ));
-                    } else {
-                        // New line (no previous)
-                        ACTIVE_LINES.put(queued.id, new Line(
-                                queued.id,
-                                queued.start, queued.end,
-                                queued.start, queued.end,
-                                queued.r, queued.g, queued.b, queued.a,
-                                queued.life
-                        ));
-                    }
+                    // Lines are recomputed per frame at their exact interpolated
+                    // positions, so no cross-update smoothing or prev-position
+                    // lerp is wanted — both just made the rays trail the entity.
+                    ACTIVE_LINES.put(queued.id, new Line(
+                            queued.id,
+                            queued.start, queued.end,
+                            queued.start, queued.end,
+                            queued.r, queued.g, queued.b, queued.a,
+                            queued.life
+                    ));
                 }
                 PENDING_LINES.clear();
             }
@@ -192,7 +205,6 @@ public final class RaycastLineRenderer {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        RenderSystem.lineWidth(LINE_WIDTH);
         // RenderSystem.disableDepthTest(); // Uncomment if you want rays visible through blocks
 
         Tesselator tess = Tesselator.getInstance();
@@ -267,7 +279,6 @@ public final class RaycastLineRenderer {
         tess.end();
 
         // RenderSystem.enableDepthTest(); // Re-enable depth test if you disabled it
-        RenderSystem.lineWidth(1.0f); // Reset line width
         RenderSystem.disableBlend();
     }
 

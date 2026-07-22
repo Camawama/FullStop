@@ -16,7 +16,7 @@ import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.animal.IronGolem;
-import net.minecraft.world.entity.animal.horse.Horse;
+import net.minecraft.world.entity.animal.horse.AbstractHorse;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.level.block.Blocks;
@@ -31,31 +31,53 @@ public class KineticDamageApplier {
     /** Ticks after a kinetic hit during which further kinetic damage is suppressed. */
     private static final int DAMAGE_COOLDOWN_TICKS = 5;
 
-    public static void apply(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
-        if (damage < 1) return;
-        if (entity instanceof ItemEntity) return;
+    /** @return whether any damage was actually dealt (drives the cooldown, impact sound, and sprain). */
+    public static boolean apply(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
+        if (damage < 1) return false;
+        if (entity instanceof ItemEntity) return false;
 
         // Time-based rather than per-block, so sliding along a wall (a new block
-        // every tick) can't deal damage every tick.
-        if (fullstop.isDamageOnCooldown(entity.tickCount)) {
-            return;
+        // every tick) can't deal damage every tick. But a two-tick impact can
+        // land a small partial hit on the contact tick and its REAL stopping
+        // force one tick later; hard-blocking on the cooldown made the partial
+        // swallow the real hit (the source of wildly inconsistent fall damage —
+        // some heights dealt one heart because only the contact-tick sliver ever
+        // applied). During the cooldown the damage is topped UP to the larger
+        // value instead: only the difference is dealt.
+        double alreadyApplied = fullstop.getRecentAppliedDamage(entity.tickCount);
+        if (alreadyApplied > 0) {
+            double topUp = damage - alreadyApplied;
+            if (topUp < 1) return false;
+            damage = topUp;
         }
+        double totalThisImpact = alreadyApplied + damage;
 
-        double previousSpeed = fullstop.getPreviousScaledVelocity().length();
+        // Pre-impact speed: on the damage tick of a two-tick impact, last tick's
+        // velocity is just the post-contact remnant — the death message would
+        // claim a near-zero speed for a lethal hit.
+        double previousSpeed = fullstop.getPreImpactScaledVelocity().length();
         VelocityDisplay velocity = FullStopDamageSources.velocityDisplay(previousSpeed);
         DamageSources sources = entity.damageSources();
 
+        boolean anyHurt = false;
         if (collision.collisionType != Collision.CollisionType.ENTITY) {
-            applyBlockCollisionDamage(entity, fullstop, collision, damage, velocity);
+            anyHurt = applyBlockCollisionDamage(entity, fullstop, collision, damage, velocity);
         } else if (!collision.collidingEntities.isEmpty()) {
-            applyEntityCollisionDamage(entity, fullstop, collision, damage, velocity, sources);
+            anyHurt = applyEntityCollisionDamage(entity, fullstop, collision, damage, velocity, sources);
         }
 
-        fullstop.markDamageApplied(entity.tickCount, DAMAGE_COOLDOWN_TICKS);
+        // Only an impact that actually hurt something starts the cooldown. Marking
+        // it for fully-mitigated grazes swallowed the REAL hit that followed within
+        // 5 ticks (elytra flights grazing terrain just before a wall, for example)
+        // — and with vanilla fall damage cancelled, that meant no damage at all.
+        if (anyHurt) {
+            fullstop.markDamageApplied(entity.tickCount, DAMAGE_COOLDOWN_TICKS, totalThisImpact);
+        }
+        return anyHurt;
     }
 
-    private static void applyBlockCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision,
-                                                  double damage, VelocityDisplay velocity) {
+    private static boolean applyBlockCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision,
+                                                     double damage, VelocityDisplay velocity) {
         boolean hitDripstone = false;
         for (BlockState state : collision.blockStates) {
             if (state.is(Blocks.POINTED_DRIPSTONE) && state.getValue(PointedDripstoneBlock.TIP_DIRECTION) == Direction.UP) {
@@ -66,10 +88,13 @@ public class KineticDamageApplier {
 
         boolean downward = fullstop.isMostlyDownward();
         boolean upward = fullstop.isMostlyUpward();
+        boolean waterFlop = collision.collisionType == Collision.CollisionType.WATER
+                && downward && KineticDamageCalculator.isBellyFlop(entity);
 
         DamageSource customSource = FullStopDamageSources.kineticSelf(
-                entity, velocity, downward, upward, hitDripstone && downward);
+                entity, velocity, downward, upward, hitDripstone && downward, waterFlop);
 
+        boolean anyHurt = false;
         if (downward) {
             // Riders press down on whatever they sit on: the bottom of the stack takes
             // its share of the whole stack's mass.
@@ -84,14 +109,14 @@ public class KineticDamageApplier {
                 selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, true, false);
             }
             if (selfDamage > 0) {
-                entity.hurt(customSource, selfDamage);
+                anyHurt |= entity.hurt(customSource, selfDamage);
             }
 
             float passengerDamage = (float) damage * 0.5f;
             if (passengerDamage > 0) {
                 for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
                     if (passenger == entity) continue;
-                    passenger.hurt(customSource, passengerDamage);
+                    anyHurt |= hurtPassenger(passenger, customSource, passengerDamage, true, false);
                 }
             }
         } else {
@@ -100,17 +125,28 @@ public class KineticDamageApplier {
                 selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, false, upward);
             }
             if (selfDamage > 0) {
-                entity.hurt(customSource, selfDamage);
+                anyHurt |= entity.hurt(customSource, selfDamage);
             }
 
             if (entity.isPassenger() && damage > 5) {
                 entity.stopRiding();
             }
         }
+        return anyHurt;
     }
 
-    private static void applyEntityCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision,
-                                                   double damage, VelocityDisplay velocity, DamageSources sources) {
+    /** Passengers get the same immunity rules and armor mitigation as everyone else. */
+    private static boolean hurtPassenger(Entity passenger, DamageSource source, float damage,
+                                         boolean downward, boolean upward) {
+        if (passenger instanceof LivingEntity living) {
+            if (DamageImmunityRules.isDamageImmune(living)) return false;
+            damage = DamageMitigation.applyArmorReduction(living, damage, downward, upward);
+        }
+        return damage > 0 && passenger.hurt(source, damage);
+    }
+
+    private static boolean applyEntityCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision,
+                                                      double damage, VelocityDisplay velocity, DamageSources sources) {
         List<LivingEntity> validTargets = collision.collidingEntities.stream()
                 .filter(e -> e instanceof LivingEntity)
                 .map(e -> (LivingEntity) e)
@@ -167,35 +203,40 @@ public class KineticDamageApplier {
                 selfSource = FullStopDamageSources.entityCollisionSelf(entity, collidedExample, displayVelocity, downward, upward);
             }
         } else {
-            selfSource = FullStopDamageSources.kineticSelf(entity, displayVelocity, downward, upward, false);
+            selfSource = FullStopDamageSources.kineticSelf(entity, displayVelocity, downward, upward, false, false);
         }
 
+        // Self-damage and dealt-damage are tracked separately: an immune or
+        // non-living MOVER (creative player, minecart) takes nothing itself but
+        // still hits what it rams — zeroing the shared value silenced both.
+        float selfSplitDamage = splitEntityDamage;
         if (!(entity instanceof LivingEntity self) || DamageImmunityRules.isDamageImmune(self) || fullstop.getIsDamageImmune()) {
-            splitEntityDamage = 0;
+            selfSplitDamage = 0;
         }
 
-        if (entity instanceof Horse && splitEntityDamage < 1.0 && downward) {
-            splitEntityDamage = 0;
+        if (entity instanceof AbstractHorse && selfSplitDamage < 1.0 && downward) {
+            selfSplitDamage = 0;
         }
 
         double stackMass = EntityStackUtils.getAllEntitiesInStack(entity).stream()
                 .mapToDouble(EntityStackUtils::getEntityMass).sum();
         double selfMass = Math.max(EntityStackUtils.getEntityMass(entity), 0.001);
 
-        float selfDamage = splitEntityDamage;
+        float selfDamage = selfSplitDamage;
         if (downward) {
             selfDamage *= (float) (stackMass / selfMass);
         }
 
+        boolean anyHurt = false;
         if (selfDamage > 0 && !(entity instanceof AbstractMinecart) && !(entity instanceof IronGolem)) {
-            entity.hurt(selfSource, selfDamage);
+            anyHurt |= entity.hurt(selfSource, selfDamage);
         }
 
-        if (downward && splitEntityDamage > 0) {
-            float passengerDamage = splitEntityDamage * 0.5f;
+        if (downward && selfSplitDamage > 0) {
+            float passengerDamage = selfSplitDamage * 0.5f;
             for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
                 if (passenger == entity) continue;
-                passenger.hurt(selfSource, passengerDamage);
+                anyHurt |= hurtPassenger(passenger, selfSource, passengerDamage, downward, upward);
             }
         }
 
@@ -217,13 +258,14 @@ public class KineticDamageApplier {
                 targetScaledDamage = DamageMitigation.applyArmorReduction(target, targetScaledDamage, downward, upward);
 
                 if (targetScaledDamage > 0) {
-                    target.hurt(attackerSource, targetScaledDamage);
+                    anyHurt |= target.hurt(attackerSource, targetScaledDamage);
                 }
             }
         }
+        return anyHurt;
     }
 
-    /** Golems shrug off impacts, clang, and get angry at whoever hit them. */
+    /** Golems shrug off impacts, clang, and get angry at whoever hit them hard. */
     private static void reactGolems(Entity entity, Collision collision, double damage) {
         for (Entity collided : collision.collidingEntities) {
             if (!(collided instanceof IronGolem golem)) continue;
@@ -233,7 +275,9 @@ public class KineticDamageApplier {
 
             FSSoundPlayer.playSoundServer(golem, SoundEvents.IRON_GOLEM_HURT, SoundSource.NEUTRAL, volume, pitch);
 
-            if (entity instanceof LivingEntity livingTarget) {
+            // Only a genuinely hard hit reads as an attack — a gentle bump (or being
+            // nudged into the golem by something else) shouldn't make it hunt you.
+            if (entity instanceof LivingEntity livingTarget && damage >= 4.0) {
                 golem.setTarget(livingTarget);
             }
         }

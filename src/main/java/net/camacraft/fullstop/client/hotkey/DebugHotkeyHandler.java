@@ -30,7 +30,8 @@ public final class DebugHotkeyHandler {
 
         Component message = Component.empty()
                 .append(Component.literal("[Debug]: ").withStyle(ChatFormatting.RED, ChatFormatting.BOLD))
-                .append(Component.literal("Velocity debug lines: " + (velocityDebugEnabled ? "ON" : "OFF"))
+                .append(Component.translatable("fullstop.debug.raycast_toggle",
+                                velocityDebugEnabled ? "ON" : "OFF")
                         .withStyle(ChatFormatting.WHITE));
 
         mc.player.displayClientMessage(message, false);

@@ -1,5 +1,7 @@
 package net.camacraft.fullstop.common.physics;
 
+import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
@@ -30,8 +32,9 @@ public final class BlockPhasing {
 
     private static final double ENGULFING_DRAG = 0.5;
     private static final double PHASEABLE_DRAG = 0.9;
-    /** Below this speed (4 m/s in blocks/tick, squared) no drag applies — idle/walking entities skip the block scan. */
-    private static final double MIN_DRAG_SPEED_SQR = 0.2 * 0.2;
+
+    /** Per-tick horizontal drag while brushing a fullstop:slowing block (honey, soul sand family). */
+    private static final double SLOWING_FIELD_DRAG = 0.8;
 
     private BlockPhasing() {
     }
@@ -44,9 +47,23 @@ public final class BlockPhasing {
         boolean hasAuthority = !level.isClientSide
                 || (entity instanceof Player player && player.isLocalPlayer());
         if (!hasAuthority) return;
+        if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;
 
         Vec3 velocity = entity.getDeltaMovement();
-        if (velocity.lengthSqr() < MIN_DRAG_SPEED_SQR) return;
+
+        // Viscous field (honey / soul sand walls) works at ANY speed — walking
+        // beside them is exactly the case — so it runs before the phase gate.
+        applySlowingField(entity, velocity);
+        velocity = entity.getDeltaMovement();
+
+        // Drag only applies once the entity is moving fast enough to actually
+        // phase INTO the block — the same threshold PhaseableBlockMixin uses to
+        // turn the block passable. Below it the block is solid and simply walked
+        // or rolled on, so a slow mover whose hitbox merely clips the sand it
+        // stands on (e.g. a dodge-roll across a dune) is no longer yanked to a
+        // halt every tick, which the server rejected as a rubber-band.
+        double thresholdNative = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.05;
+        if (phaseSpeedSqr(entity) < thresholdNative * thresholdNative) return;
 
         AABB box = entity.getBoundingBox().deflate(0.01);
         BlockState engulfingState = null;
@@ -73,6 +90,49 @@ public final class BlockPhasing {
         } else if (phasing) {
             entity.setDeltaMovement(velocity.scale(PHASEABLE_DRAG));
         }
+    }
+
+    /**
+     * Honey and the soul sand family cling to anything moving BESIDE them: a
+     * steady horizontal drag, matching Minecraft's own soul-sand-slows-you
+     * style. Deliberately continuous and silent — the old behavior for honey
+     * emerged from the collision pipeline, which replayed the impact sound and
+     * particles every time it re-slowed the runner. Blocks at or below foot
+     * level are ignored: standing ON soul sand is the block's own speed factor,
+     * not this field.
+     */
+    private static void applySlowingField(LivingEntity entity, Vec3 velocity) {
+        if (velocity.horizontalDistanceSqr() < 1.0e-6) return;
+
+        Level level = entity.level();
+        AABB box = entity.getBoundingBox().inflate(0.1, 0.0, 0.1);
+        for (BlockPos pos : BlockPos.betweenClosed(
+                Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
+                Mth.floor(box.maxX), Mth.floor(box.maxY), Mth.floor(box.maxZ))) {
+            // Wall blocks only: skip anything whose top sits at/below foot level.
+            if (pos.getY() + 1.0 <= box.minY + 0.5) continue;
+            if (level.getBlockState(pos).is(FullStopTags.SLOWING)) {
+                entity.setDeltaMovement(velocity.multiply(SLOWING_FIELD_DRAG, 1.0, SLOWING_FIELD_DRAG));
+                return;
+            }
+        }
+    }
+
+    /**
+     * THE phase-speed check — shared with PhaseableBlockMixin so passability and
+     * drag can never drift apart (they used to be verbatim copies). A server-side
+     * player's {@code getDeltaMovement} is never written back from move packets,
+     * so its capability velocity is the real speed there.
+     */
+    public static double phaseSpeedSqr(LivingEntity living) {
+        if (living instanceof Player && !living.level().isClientSide) {
+            FullStopCapability cap = FullStopCapability.grabCapability(living);
+            if (cap != null) {
+                return Math.max(cap.getCurrentNativeVelocity().lengthSqr(),
+                        living.getDeltaMovement().lengthSqr());
+            }
+        }
+        return living.getDeltaMovement().lengthSqr();
     }
 
     private static void burrowEffects(LivingEntity entity, BlockState state, BlockPos pos) {

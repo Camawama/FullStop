@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server;
 
+import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.minecraft.world.entity.projectile.FireworkRocketEntity;
@@ -8,6 +9,8 @@ import net.minecraftforge.event.entity.ProjectileImpactEvent;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.event.entity.living.LivingFallEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+
+import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability;
 
 public class CancelEvents {
 
@@ -18,7 +21,11 @@ public class CancelEvents {
      */
     @SubscribeEvent
     public static void onLivingFall(LivingFallEvent event) {
-        if (DamageImmunityRules.unphysable(event.getEntity())) {
+        // Must agree with the tick loop's unphysable verdict, which uses the
+        // capability's cached NoAI flag — a fresh isNoAi() read here could
+        // disagree during the cache window and double- or zero-damage a landing.
+        FullStopCapability fullstop = grabCapability(event.getEntity());
+        if (DamageImmunityRules.unphysable(event.getEntity(), fullstop)) {
             return;
         }
 

@@ -42,6 +42,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
+        public final ForgeConfigSpec.BooleanValue enableGravityBlocks;
+        public final ForgeConfigSpec.BooleanValue enableValkyrienSkiesCompat;
         public final ForgeConfigSpec.DoubleValue phaseMinimumSpeed;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
@@ -97,6 +99,21 @@ public class FullStopConfig {
                     .comment("Default: true")
                     .define("enableGForceEffects", true);
 
+            this.enableGravityBlocks = builder
+                    .comment("When true, blocks tagged fullstop:gravity_affected (slime and honey by default) fall like sand when nothing supports them.",
+                            "Blocks also tagged fullstop:sticky cling to any touching block, not just the one below.")
+                    .translation(key("enableGravityBlocks"))
+                    .comment("Default: true")
+                    .define("enableGravityBlocks", true);
+
+            this.enableValkyrienSkiesCompat = builder
+                    .comment("When true and Valkyrien Skies is installed, FullStop compensates for ship motion",
+                            "(no phantom impact damage while riding ships) and recognizes impacts against ship blocks.",
+                            "Turn off to test FullStop behavior as if Valkyrien Skies were not installed.")
+                    .translation(key("enableValkyrienSkiesCompat"))
+                    .comment("Default: true")
+                    .define("enableValkyrienSkiesCompat", true);
+
             builder.pop();
             builder.push("Projectile settings");
 
@@ -113,7 +130,8 @@ public class FullStopConfig {
                     .define("projectilesHaveMomentum", false);
 
             this.wildMode = builder
-                    .comment("Disables any nerfs and causes other assorted mayhem if enabled. (e.g. arrows retain the vanilla speed damage bonus)")
+                    .comment("When true, arrows go through FullStop's velocity damage re-scaling (stacked on vanilla's own arrow speed bonus).",
+                            "When false, arrows keep plain vanilla damage; FullStop's armor mitigation layers still apply either way.")
                     .translation(key("wildMode"))
                     .comment("Default: true")
                     .define("wildMode", true);
@@ -154,10 +172,12 @@ public class FullStopConfig {
             
             this.dripstoneDamageMultiplier = builder
                     .comment("Multiplier for damage when falling on pointed dripstone.")
+                    .translation(key("dripstoneDamageMultiplier"))
                     .defineInRange("dripstoneDamageMultiplier", 2.0, 1.0, 100.0);
 
             this.entityWeights = builder
                     .comment("Define custom weights (multipliers) for specific entities. Format: \"entity_id,multiplier\"")
+                    .translation(key("entityWeights"))
                     .defineList("entityWeights", Arrays.asList(
                             "minecraft:iron_golem,8.0",
                             "minecraft:skeleton,0.333",
@@ -175,38 +195,47 @@ public class FullStopConfig {
 
             this.enablePressureSimulation = builder
                     .comment("Enables atmospheric and underwater pressure effects.")
+                    .translation(key("enablePressureSimulation"))
                     .define("enablePressureSimulation", true);
 
             this.altitudePressureAffectsMobs = builder
                     .comment("When true, non-player mobs also lose air at high altitudes. Beware: ordinary mountain mobs can suffocate if the start level is low.")
+                    .translation(key("altitudePressureAffectsMobs"))
                     .define("altitudePressureAffectsMobs", false);
 
             this.highAltitudeStartLevel = builder
-                    .comment("The Y-level where players start losing air due to thin atmosphere. Note that vanilla terrain can exceed Y=128.")
+                    .comment("The Y-level where players start losing air due to thin atmosphere. Note that 1.20 jagged peaks can approach Y=250.")
+                    .translation(key("highAltitudeStartLevel"))
                     .defineInRange("highAltitudeStartLevel", 200, -64, 320);
 
             this.highAltitudeAirLossRate = builder
                     .comment("Multiplier for air loss rate at high altitudes. Higher is faster.")
+                    .translation(key("highAltitudeAirLossRate"))
                     .defineInRange("highAltitudeAirLossRate", 0.5, 0.0, 10.0);
 
             this.deepWaterStartLevel = builder
                     .comment("The Y-level below which entities lose air faster underwater.")
+                    .translation(key("deepWaterStartLevel"))
                     .defineInRange("deepWaterStartLevel", 0, -64, 320);
 
             this.deepWaterAirLossMultiplier = builder
-                    .comment("Multiplier for how much faster air is lost in deep water.")
+                    .comment("Extra air lost per tick (on top of vanilla drowning) below the deep water start level.")
+                    .translation(key("deepWaterAirLossMultiplier"))
                     .defineInRange("deepWaterAirLossMultiplier", 2.0, 1.0, 20.0);
 
             this.pressureDamageStartDepth = builder
                     .comment("The Y-level where entities start taking pressure damage underwater.")
+                    .translation(key("pressureDamageStartDepth"))
                     .defineInRange("pressureDamageStartDepth", -32, -64, 0);
 
             this.pressureDamageAmount = builder
                     .comment("Amount of damage dealt by underwater pressure.")
+                    .translation(key("pressureDamageAmount"))
                     .defineInRange("pressureDamageAmount", 2.0, 0.0, 100.0);
 
             this.pressureDamageTickRate = builder
                     .comment("How often (in ticks) pressure damage is applied. 20 ticks = 1 second.")
+                    .translation(key("pressureDamageTickRate"))
                     .defineInRange("pressureDamageTickRate", 40, 1, 200);
 
             builder.pop();
@@ -219,6 +248,7 @@ public class FullStopConfig {
 
     public static class ClientConfigValues {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
+        public final ForgeConfigSpec.BooleanValue rotateCameraOnlyWhenFlying;
         public final ForgeConfigSpec.DoubleValue minGForceThreshold;
         public final ForgeConfigSpec.DoubleValue maxGForceThreshold;
 
@@ -229,6 +259,12 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.rotateCamera")
                     .comment("Default: true")
                     .define("rotateCamera", true);
+
+            this.rotateCameraOnlyWhenFlying = builder
+                    .comment("When true, bounce camera rotation only happens while flying with an Elytra")
+                    .translation("config.fullstop.client.rotateCameraOnlyWhenFlying")
+                    .comment("Default: false")
+                    .define("rotateCameraOnlyWhenFlying", false);
 
             this.minGForceThreshold = builder
                     .comment("The G-force value at which visual effects start to appear")
