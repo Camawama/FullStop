@@ -127,6 +127,12 @@ public final class RaycastLineRenderer {
                 collisionGrade = direction.dot(normal) < -0.1
                         && -preImpactVelocity.dot(normal)
                                 >= net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
+                // Same rule as the classifier: a side face on a block whose top
+                // is at foot level is the floor ahead, not a wall.
+                if (blockHit.getDirection().getAxis().isHorizontal()
+                        && blockHit.getBlockPos().getY() + 1.0 <= entity.getBoundingBox().minY + 0.15) {
+                    collisionGrade = false;
+                }
             }
 
             float r = hitBlock ? (collisionGrade ? HIT_R : TOUCH_R) : MISS_R;

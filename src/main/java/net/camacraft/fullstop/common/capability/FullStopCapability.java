@@ -332,6 +332,16 @@ public class FullStopCapability {
             if (groundedDrift || autoStep) {
                 velocityMps = new Vec3(velocityMps.x, 0, velocityMps.z);
             }
+        } else if (entity.onGround()) {
+            // Non-living grounded movers (boats, minecarts) carry the same
+            // gravity-drift artifact but have no gravity attribute; a small
+            // fixed window covers their per-tick drift. Left in, the drift
+            // tilts the collision rays slightly downward, which is what let a
+            // boat gliding on ice clip the floor seams ahead as "wall" hits.
+            double vy = velocityMps.y;
+            if (vy < 0 && vy >= -2.0) {
+                velocityMps = new Vec3(velocityMps.x, 0, velocityMps.z);
+            }
         }
     }
 

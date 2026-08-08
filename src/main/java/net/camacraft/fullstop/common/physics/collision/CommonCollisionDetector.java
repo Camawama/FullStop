@@ -131,6 +131,19 @@ public class CommonCollisionDetector {
                     isOpposing = false;
                 }
 
+                // A side face on a block whose TOP is level with the entity's
+                // feet is the floor ahead, not a wall. The bottom rays start
+                // only 0.1 above the surface, so any tiny downward tilt in the
+                // travel direction (boat gravity drift, a micro-hop at speed)
+                // dips them below that margin and into the NEXT floor block
+                // through its seam-side face — which then reads as a wall hit
+                // at full horizontal speed. Boats gliding on ice hit this every
+                // seam: phantom collision sounds, smashed ice under the boat,
+                // and boat-breaking "wall" damage while driving on flat ground.
+                if (hitFace.getAxis().isHorizontal() && hitPos.getY() + 1.0 <= box.minY + 0.15) {
+                    isOpposing = false;
+                }
+
                 // Wall faces are ignored while mostly ascending so jumping flush
                 // against a wall never reads as a wall impact — but ONLY below the
                 // horizontal damage threshold. Unconditional, this blinded the
