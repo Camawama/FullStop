@@ -22,7 +22,7 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 ### Kinetic Physics
 - 💥 **Dynamic Kinetic Damage:** Impact damage is calculated from real measured stopping force, factoring in mass, velocity, impact direction, block hardness, and armor. Fall damage, wall crashes, and ceiling hits all use the same system. Vanilla fall damage is replaced entirely.
 - 🏃 **Velocity-Based Attack Scaling:** Speed is power. Attacks deal more damage when moving toward your target and less when retreating.
-- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Fast, heavy entities crack and shatter blocks on impact. Fragile blocks like glass and ice give way easily, but only to impacts that actually drive into them.
+- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Fast, heavy entities crack and shatter blocks on impact. Fragile blocks like glass give way easily, but only to impacts that actually drive into them. Ice is tiered: solid ice resists and visibly cracks (turning into frosted ice) before it shatters, and already-cracked ice breaks from the next good hit.
 - 🕳️ **Block Phasing and Engulfment:** At high speed you punch through leaves, and dive straight into sand, gravel, or snow. Engulfing blocks bleed off your speed and bury you inside. Dig or jump your way back out.
 - 🪨 **Gravity-Affected Blocks:** Slime and honey blocks fall like sand when nothing supports them, and sticky blocks cling to neighbors on any face.
 - 🤼 **Entity Collisions:** Collide with entities using momentum transfer, and even land on a mob or boat to ride it. (Experimental, off by default.)
@@ -56,6 +56,8 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 
 ## Configuration
 Nearly everything is tunable in the server config: damage thresholds, block breaking, each kinetic interaction (doors, buttons, note blocks, bells, sand blasting), pressure simulation, phasing speed, entity weights, and Valkyrien Skies compat. Client config covers the bounce camera (including an elytra-only mode) and G-force effect thresholds.
+
+Damage is tunable too. Pick a **fall damage mode**: `KINETIC` (FullStop's stopping-force model, scaled by block hardness) or `VANILLA_PARITY` (impacts deal exactly what vanilla would for the equivalent fall distance, so a 20-block fall onto grass hurts like vanilla). There is also a global kinetic damage multiplier, a block-hardness toggle, and a configurable minimum solid-impact damage.
 
 ## Known Incompatibilities
 - CustomNPCs (NPCs will not look at players)

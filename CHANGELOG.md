@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- Rubbing along a slime/honey wall at speed no longer randomly reads as a head-on collision (red debug rays, mirror bounces that spin you around, honey pulse-braking). Vanilla parks a sliding entity flush against the surface, so the collision rays ran exactly in the wall plane and clipped the seam face of the next block along the wall — a face whose normal opposes travel at your full speed. Hits now require the entity's swept volume to genuinely overlap the face's cross-section; rubbing overlaps by exactly zero, so it can never register at any speed. Applies to walls, floors, and ceilings alike, and the debug ray colors follow the same rule.
+- Slime bounces now work while riding a boat (or any player-driven vehicle). Player-controlled vehicles are client-authoritative — the server-side boat zeroes its own motion every tick, so the bounce velocity written on the server never reached the boat. Bounces and water skips are now delivered to the driver's client directly (network protocol bumped to 3).
+- Corner bounces no longer rotate the camera in the wrong direction: the camera aimed off whichever hit face the rays found first; it now picks the face most opposed to your motion, the same one the server bounces you off.
+- Bounce camera pitch (looking up/down) only follows the rebound during elytra flight. Jumping into a slime wall on foot no longer yanks the view upward; yaw still turns to follow the bounce.
+- Riding passengers are no longer independently bounced by their vehicle's impact (the written motion was ignored by vanilla anyway and burned the rider's bounce cooldown).
+- A living entity without the Forge gravity attribute no longer crashes the physics tick (degrades to vanilla gravity).
+- `maxDamagePercent` config description now matches what the code does (it caps the total buffed damage as a multiple of the original, not the bonus).
+
 - Horizontal collision damage works again for players: the server can never see a player's `horizontalCollision` flag (move packets arrive pre-clipped), so the damage evidence gate rejected every wall/ceiling hit. The client now reports its collision flags in the velocity packet (network protocol bumped to 2). Wall and ceiling impacts — running, sprint-jumping, and elytra — now deal damage past the threshold.
 - Fall damage is consistent again: a two-tick impact could land a small partial hit on the contact tick, which started the damage cooldown and swallowed the real hit one tick later (9/15/18/21-block falls dealing one heart). Damage now tops up to the larger value during the cooldown window.
 - Standing flush against a wall no longer counts as a collision: block hits now require ~2 m/s of approach speed into the face. This removes the red debug rays while wall-hugging, the sound/particle spam when stopping beside a wall, and the honey-wall collision spam.
@@ -24,8 +32,16 @@
 - A piston-launched boat with a rider no longer randomly dead-stops shortly after launch: the entity collision system was treating the boat's own passenger as a collision target (the passenger's velocity reads as zero) and the momentum exchange ate the boat's speed. An entity's own ride stack is now excluded from entity collisions.
 - Fixed floor seams reading as walls: the bottom collision rays start 0.1 above the surface, and any tiny downward drift (boat gravity, micro-hops) dipped them into the next floor block's side face at every block boundary. That phantom "wall" hit at full horizontal speed caused repeated collision sounds while boating on ice, smashed the ice under a launched boat (breaking the boat with it), and dead-stopped ridden boats when the phantom damage synced the server's stale velocity to the client. Side faces on blocks whose top is at foot level are now classified as floor, and non-living grounded movers (boats, minecarts) get the same vertical drift cleanup living entities already had.
 
+### Changed
+
+- Ice toughness is tiered: pristine ice now resists impacts at its real hardness (it takes roughly a 13-block fall or an elytra crash for a player to smash through), but any solid sub-break impact converts it to frosted ice — vanilla's cracked-ice look — which is tagged `fullstop:fragile` and shatters outright on the next hit (and slowly melts away). Packed and blue ice also use their real hardness now (blue ice is genuinely tough) and show crack overlays instead of insta-breaking. Glass and snow are unchanged.
+
 ### Added
 
+- **`fallDamageMode` server config** — `KINETIC` (default, FullStop's stopping-force model) or `VANILLA_PARITY`: impacts convert to the vanilla fall distance that produces the same impact speed and deal exactly vanilla fall damage (a 20-block fall onto grass hurts like vanilla; Jump Boost included, dripstone matches vanilla's ×2). Wall/ceiling crashes use the same conversion. Feather Falling, armor, belly flops, and soft-block tags still apply in both modes.
+- **`kineticDamageMultiplier` server config** — global scale for all kinetic impact damage (default 1.0).
+- **`hardnessAffectsDamage` server config** — turn off the block-hardness damage scaling without leaving KINETIC mode (default true).
+- **`minimumSolidImpactDamage` server config** — the previously hardcoded 1-heart floor on over-threshold solid impacts is now configurable (0 disables it).
 - **Potion of Acclimation** (Awkward + Phantom Membrane; extendable with Redstone): the high-altitude counterpart to Water Breathing — no air loss in thin air while active.
 - **Lung Capacity** attribute (`fullstop:lung_capacity`, default 1.0): divides the thin-air drain rate; a base for how long breath lasts.
 - Thin-air air loss is now ramped and capped: entering thin air pops bubbles slowly at first, faster the higher/longer you stay, up to a hard cap — even teleporting thousands of blocks up leaves several seconds before suffocation starts.

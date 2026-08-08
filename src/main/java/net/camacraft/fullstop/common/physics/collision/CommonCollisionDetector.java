@@ -13,7 +13,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.BedBlock;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SlimeBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
@@ -40,6 +40,49 @@ public class CommonCollisionDetector {
      * merely hugging a wall. Also shared with the debug renderer's coloring.
      */
     public static final double MIN_APPROACH_SPEED_MPS = 2.0;
+
+    /**
+     * Minimum overlap (blocks) between the entity's swept box and a hit block's
+     * cell on the axes perpendicular to the hit face for the hit to be real.
+     * Vanilla collision resolution parks an entity within 1.0e-7 of the surface
+     * it slides along, so anything at or under that is "flush", not overlapping;
+     * 1.0e-4 leaves comfortable float headroom while a genuine approach overlaps
+     * a face's cross-section by far more.
+     */
+    private static final double MIN_CROSS_SECTION_OVERLAP = 1.0e-4;
+
+    /**
+     * Whether the entity's swept volume genuinely overlaps the hit block's cell
+     * on the two axes perpendicular to the hit face.
+     *
+     * <p>This kills the seam-graze false positives: vanilla leaves an entity
+     * flush against the surface it slides along (within 1.0e-7), so the rays
+     * cast from the flush corners run exactly IN the surface plane. The block
+     * traversal then walks cells on the far side of that plane, and the clip
+     * registers a hit on the seam face of the NEXT block along the surface — a
+     * face whose normal fully opposes travel, so its "approach speed" is the
+     * entity's entire speed. At high speed that read as a head-on collision
+     * while merely rubbing: slime walls mirror-bounced runners back and forth,
+     * honey walls dead-stopped and released them in pulses, and the debug rays
+     * lit red. A real approach to a face always overlaps its cross-section; a
+     * rub along the surface overlaps it by exactly zero.
+     */
+    public static boolean crossSectionOverlaps(AABB swept, BlockPos hitPos, Direction hitFace) {
+        Direction.Axis axis = hitFace.getAxis();
+        if (axis != Direction.Axis.X
+                && Math.min(swept.maxX, hitPos.getX() + 1.0) - Math.max(swept.minX, hitPos.getX()) <= MIN_CROSS_SECTION_OVERLAP) {
+            return false;
+        }
+        if (axis != Direction.Axis.Y
+                && Math.min(swept.maxY, hitPos.getY() + 1.0) - Math.max(swept.minY, hitPos.getY()) <= MIN_CROSS_SECTION_OVERLAP) {
+            return false;
+        }
+        if (axis != Direction.Axis.Z
+                && Math.min(swept.maxZ, hitPos.getZ() + 1.0) - Math.max(swept.minZ, hitPos.getZ()) <= MIN_CROSS_SECTION_OVERLAP) {
+            return false;
+        }
+        return true;
+    }
 
     public static Collision detectBlocks(Entity entity, FullStopCapability fullstop) {
         // Pre-impact velocity (faster of the last two ticks): the damage tick of a
@@ -81,6 +124,9 @@ public class CommonCollisionDetector {
 
         FullStopConfig.RaycastMode mode = FullStopConfig.SERVER.raycastMode.get();
         List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode);
+        // Full entity box swept along the travel direction, for the seam-graze
+        // cross-section test (unlike rayEnvelope, this one keeps the true floor).
+        AABB sweptBox = box.expandTowards(direction.scale(rayLength));
         // One shape context for all rays; each ClipContext would otherwise build
         // its own EntityCollisionContext (SynchedEntityData reads) per ray.
         CollisionContext shapeContext = CollisionContext.of(entity);
@@ -131,6 +177,14 @@ public class CommonCollisionDetector {
                     isOpposing = false;
                 }
 
+                // Rays grazing exactly along a surface hit the seam faces of the
+                // next blocks along it, whose normals oppose travel at full
+                // speed. Only faces whose cross-section the entity's swept box
+                // genuinely overlaps are real — see crossSectionOverlaps.
+                if (!crossSectionOverlaps(sweptBox, hitPos, hitFace)) {
+                    isOpposing = false;
+                }
+
                 // A side face on a block whose TOP is level with the entity's
                 // feet is the floor ahead, not a wall. The bottom rays start
                 // only 0.1 above the surface, so any tiny downward tilt in the
@@ -172,7 +226,9 @@ public class CommonCollisionDetector {
             if (isWater) {
                 typeHere = Collision.CollisionType.WATER;
             } else if (hitState.isStickyBlock()) {
-                if (hitState.is(Blocks.SLIME_BLOCK)) {
+                // instanceof rather than a Blocks reference so modded SlimeBlock
+                // subclasses bounce instead of behaving like honey.
+                if (hitState.getBlock() instanceof SlimeBlock) {
                     typeHere = Collision.CollisionType.SLIME;
                 } else {
                     typeHere = Collision.CollisionType.HONEY;

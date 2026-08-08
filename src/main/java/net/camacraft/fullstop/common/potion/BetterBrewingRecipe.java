@@ -2,6 +2,7 @@ package net.camacraft.fullstop.common.potion;
 
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.PotionItem;
 import net.minecraft.world.item.alchemy.Potion;
 import net.minecraft.world.item.alchemy.PotionUtils;
 import net.minecraftforge.common.brewing.IBrewingRecipe;
@@ -19,7 +20,10 @@ public class BetterBrewingRecipe implements IBrewingRecipe {
 
     @Override
     public boolean isInput(ItemStack input) {
-        return PotionUtils.getPotion(input) == this.input;
+        // PotionItem covers splash/lingering subclasses. Matching on the potion
+        // NBT alone accepted anything carrying it — one echo shard could
+        // "brew" a single tipped arrow straight to the upgraded arrow.
+        return input.getItem() instanceof PotionItem && PotionUtils.getPotion(input) == this.input;
     }
 
     @Override

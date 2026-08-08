@@ -184,6 +184,13 @@ public class AudioFilterManager {
             if (currentCutoff < 0.99f) {
                 currentCutoff = 1.0f;
                 updateFilter(1.0f);
+                transparentTicks = 0; // let the transparent params propagate for a couple ticks
+            } else if (transparentTicks <= 2) {
+                // The latch must advance here too: from launch (or after leaving
+                // a world) this branch is the only one that runs, and stuck at 0
+                // the per-tick full-channel reattach kept firing on the title
+                // screen forever — the exact behavior the latch exists to stop.
+                transparentTicks++;
             }
             return;
         }

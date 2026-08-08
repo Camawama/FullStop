@@ -106,6 +106,8 @@ public final class RaycastLineRenderer {
         // the render-interpolated offset keeps the rays glued to the visual entity.
         Vec3 renderOffset = entity.getPosition(partialTick).subtract(entity.position());
         Vec3 preImpactVelocity = fullstop.getPreImpactScaledVelocity();
+        // Same swept box the gameplay classifier uses for its seam-graze test.
+        net.minecraft.world.phys.AABB sweptBox = entity.getBoundingBox().expandTowards(direction.scale(rayLength));
 
         int index = 0;
         for (Vec3 tickStart : rayStarts) {
@@ -131,6 +133,12 @@ public final class RaycastLineRenderer {
                 // is at foot level is the floor ahead, not a wall.
                 if (blockHit.getDirection().getAxis().isHorizontal()
                         && blockHit.getBlockPos().getY() + 1.0 <= entity.getBoundingBox().minY + 0.15) {
+                    collisionGrade = false;
+                }
+                // Same seam-graze rule as the classifier: rubbing along a surface
+                // must show yellow (touch), never red, at any speed.
+                if (!net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.crossSectionOverlaps(
+                        sweptBox, blockHit.getBlockPos(), blockHit.getDirection())) {
                     collisionGrade = false;
                 }
             }

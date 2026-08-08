@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.mixin;
 
+import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.SlimeBlock;
@@ -17,6 +18,10 @@ public abstract class SlimeBlockNoBounceMixin {
 
     @Inject(method = "updateEntityAfterFallOn", at = @At("HEAD"), cancellable = true)
     private void fullstop$suppressVanillaBounce(BlockGetter level, Entity entity, CallbackInfo ci) {
+        // Entities FullStop never simulates (dropped items, XP orbs) keep their
+        // vanilla bounce — suppressing it for them replaced it with nothing.
+        if (DamageImmunityRules.unphysableIgnoringAi(entity)) return;
+
         entity.setDeltaMovement(entity.getDeltaMovement().multiply(1.0D, 0.0D, 1.0D));
         ci.cancel();
     }

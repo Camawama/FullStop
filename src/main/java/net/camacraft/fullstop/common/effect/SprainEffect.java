@@ -38,8 +38,10 @@ public class SprainEffect extends MobEffect {
             );
         }
 
-        // Always suppress the "jumping" flag to prevent the intent to jump
-        entity.setJumping(false);
+        // Jump suppression lives in CancelEvents.onLivingJump (LivingJumpEvent
+        // zeroes the upward motion). Clearing the jumping flag here did nothing:
+        // player input and mob JumpControl re-set it later in the same tick,
+        // before the jump logic consumes it.
     }
 
     @Override

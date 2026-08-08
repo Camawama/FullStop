@@ -52,6 +52,10 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue phaseMinimumSpeed;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
+        public final ForgeConfigSpec.EnumValue<FallDamageMode> fallDamageMode;
+        public final ForgeConfigSpec.DoubleValue kineticDamageMultiplier;
+        public final ForgeConfigSpec.BooleanValue hardnessAffectsDamage;
+        public final ForgeConfigSpec.DoubleValue minimumSolidImpactDamage;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
@@ -87,7 +91,7 @@ public class FullStopConfig {
                     .defineInRange("minDamagePercent", DEFAULT_MINIMUM_DMG, 0, 1.0);
 
             this.maxDamagePercent = builder
-                    .comment("The maximum bonus amount of damage, as a percentage of the original, that a buffed attack may do.")
+                    .comment("The maximum TOTAL damage, as a multiple of the original, that a velocity-buffed attack may deal (e.g. 2.0 caps buffed attacks at double damage).")
                     .translation(key("maxDamagePercent"))
                     .comment("Default: " + Float.MAX_VALUE)
                     .defineInRange("maxDamagePercent", DEFAULT_MAXIMUM_DMG, 0, Float.MAX_VALUE);
@@ -155,6 +159,36 @@ public class FullStopConfig {
                     .translation(key("velocityDamageThresholdVertical"))
                     .comment("Default: 12.77")
                     .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL, 0, 100);
+
+            this.fallDamageMode = builder
+                    .comment("How kinetic impact damage is computed.",
+                            "KINETIC: FullStop's own model. Damage grows with the speed lost beyond the thresholds above and scales with the hardness of what you hit.",
+                            "VANILLA_PARITY: an impact is converted to the vanilla fall distance that produces the same impact speed and deals vanilla fall damage ((distance - 3) points, Jump Boost included) - a 20-block fall onto grass hurts exactly like vanilla. Wall and ceiling impacts use the same conversion. In this mode the two thresholds above, block hardness and minimumSolidImpactDamage are ignored.",
+                            "Both modes: soft blocks (fullstop:soft_landing / fullstop:cushioning), belly flops, Feather Falling and armor still apply.")
+                    .translation(key("fallDamageMode"))
+                    .comment("Default: KINETIC")
+                    .defineEnum("fallDamageMode", FallDamageMode.KINETIC);
+
+            this.kineticDamageMultiplier = builder
+                    .comment("Global multiplier applied to all kinetic impact damage (falls, wall crashes, ceiling hits) after every other modifier, in both fall damage modes.",
+                            "0.5 = half damage, 2.0 = double. Does not affect velocity-scaled ATTACK damage (see General settings).")
+                    .translation(key("kineticDamageMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("kineticDamageMultiplier", 1.0, 0.0, 100.0);
+
+            this.hardnessAffectsDamage = builder
+                    .comment("KINETIC mode only: when true, the hardness of the block you hit scales the damage - soft blocks (dirt, sand) hurt less than hard ones (stone, obsidian).",
+                            "When false, every block hits equally hard.")
+                    .translation(key("hardnessAffectsDamage"))
+                    .comment("Default: true")
+                    .define("hardnessAffectsDamage", true);
+
+            this.minimumSolidImpactDamage = builder
+                    .comment("KINETIC mode only: minimum damage for any over-threshold impact against a solid block, so a genuine overspeed landing is never completely free even on soft or fragile blocks.",
+                            "Set to 0 to disable the floor.")
+                    .translation(key("minimumSolidImpactDamage"))
+                    .comment("Default: 2.0")
+                    .defineInRange("minimumSolidImpactDamage", 2.0, 0.0, 100.0);
 
             this.entityCollisionDamage = builder
                     .comment("When enabled, colliding with entities will cause kinetic damage. This is a highly experimental feature, use at your own risk!")
@@ -290,7 +324,8 @@ public class FullStopConfig {
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
             this.rotateCamera = builder
-                    .comment("When true, enables camera rotation when bouncing on a slime block")
+                    .comment("When true, the camera turns to follow the rebound when bouncing off a bouncy block (slime, beds).",
+                            "Pitch (looking up/down) only follows during Elytra flight; on foot only yaw turns.")
                     .translation("config.fullstop.client.rotateCamera")
                     .comment("Default: true")
                     .define("rotateCamera", true);
@@ -321,5 +356,12 @@ public class FullStopConfig {
         CORNERS_ONLY,
         CORNERS_AND_CENTERS,
         FULL_SWEEP
+    }
+
+    public enum FallDamageMode {
+        /** FullStop's stopping-force model: thresholds, block hardness, the works. */
+        KINETIC,
+        /** Impacts deal what vanilla would for the equivalent fall distance. */
+        VANILLA_PARITY
     }
 }

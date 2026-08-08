@@ -1,8 +1,11 @@
 package net.camacraft.fullstop.common.physics.math;
 
 import net.camacraft.fullstop.common.data.Collision;
+import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Pure bounce/deflection math shared by the server bounce handler (which applies
@@ -41,6 +44,29 @@ public final class BounceMath {
         if (approach < MIN_IMPACT_SPEED_MPS) return false;
         return approach >= ALWAYS_IMPACT_SPEED_MPS
                 || approach >= velocityMps.length() * MIN_DIRECTNESS;
+    }
+
+    /**
+     * The hit face most opposed to the incoming velocity, or null when no face
+     * opposes it. Corner impacts record several faces in ray order; bouncing (or
+     * aiming the camera) off whichever landed first made the rebound direction
+     * arbitrary — the camera visibly rotated the wrong way on corner hits.
+     * Shared by the server bounce and the client camera so both pick the SAME
+     * face for the same impact.
+     */
+    @Nullable
+    public static Vec3 mostOpposedNormal(List<BlockHitResult> hits, Vec3 velocityMps) {
+        Vec3 best = null;
+        double bestOpposition = 0;
+        for (BlockHitResult hit : hits) {
+            Vec3 n = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+            double opposition = -velocityMps.dot(n);
+            if (opposition > bestOpposition) {
+                bestOpposition = opposition;
+                best = n;
+            }
+        }
+        return best;
     }
 
     /**

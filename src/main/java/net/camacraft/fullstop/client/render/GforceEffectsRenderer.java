@@ -45,6 +45,11 @@ public class GforceEffectsRenderer {
 
     @SubscribeEvent(priority = EventPriority.LOW)
     public static void onComputeFov(ViewportEvent.ComputeFov event) {
+        // World FOV pass only. The event fires a second time per frame for the
+        // item-in-hand FOV (usedConfiguredFov() == false); running there advanced
+        // the smoothing at double speed and warped the held item under high g.
+        if (!event.usedConfiguredFov()) return;
+
         LocalPlayer player = effectTarget();
         if (player == null || !FullStopConfig.SERVER.enableGForceEffects.get()) {
             currentFovModifier = 1.0f;

@@ -3,6 +3,7 @@ package net.camacraft.fullstop.common.enchantment;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentCategory;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.item.enchantment.ProtectionEnchantment;
 
 public class KineticProtectionEnchantment extends Enchantment {
@@ -27,6 +28,9 @@ public class KineticProtectionEnchantment extends Enchantment {
 
     @Override
     protected boolean checkCompatibility(Enchantment other) {
-        return !(other instanceof ProtectionEnchantment) && super.checkCompatibility(other);
+        // Vanilla treats Feather Falling as compatible with every protection
+        // type; Kinetic Protection follows suit (blast/fire/generic still clash).
+        return (other == Enchantments.FALL_PROTECTION || !(other instanceof ProtectionEnchantment))
+                && super.checkCompatibility(other);
     }
 }

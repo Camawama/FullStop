@@ -83,7 +83,14 @@ public class PressureHandler {
         // keep meaning "higher is faster".
         double maxExtraLoss = MAX_EXTRA_AIR_LOSS_PER_TICK
                 * (FullStopConfig.SERVER.highAltitudeAirLossRate.get() / 0.5);
-        double extraLoss = Math.max(1.0, maxExtraLoss * altitudeFactor * rampFactor) / lungCapacity;
+        double rawExtraLoss = maxExtraLoss * altitudeFactor * rampFactor;
+
+        // Rate 0 means OFF. The 1.0 floor below exists so any active drain beats
+        // vanilla's regen; unconditional, it kept draining at the configured
+        // minimum and made 0 impossible to actually configure.
+        if (rawExtraLoss <= 0) return;
+
+        double extraLoss = Math.max(1.0, rawExtraLoss) / lungCapacity;
 
         // +4 compensates vanilla's out-of-water air regen (+4/tick, LivingEntity
         // baseTick) — without it any loss below 4 was silently regenerated and

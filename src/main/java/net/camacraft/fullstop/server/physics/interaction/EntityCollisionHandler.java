@@ -2,6 +2,7 @@ package net.camacraft.fullstop.server.physics.interaction;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
@@ -222,6 +223,7 @@ public final class EntityCollisionHandler {
             other.setDeltaMovement(v2.add(impulseOnOther.scale(1 / m2)));
             other.hasImpulse = true;
             other.hurtMarked = true; // without this, living entities never sync the push to clients
+            PacketHandler.syncMotionToControllingDriver(other);
             anyCollision = true;
         }
 
@@ -229,6 +231,7 @@ public final class EntityCollisionHandler {
             entity.setDeltaMovement(v1);
             entity.hasImpulse = true;
             entity.hurtMarked = true;
+            PacketHandler.syncMotionToControllingDriver(entity);
         }
     }
 

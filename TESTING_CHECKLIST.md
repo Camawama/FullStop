@@ -1,6 +1,24 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-07-21 (perf overhaul + audit fix batch)
+**Build:** working tree, 2026-08-08 (collision accuracy + ridden-vehicle bounce + damage modes + ice tiers)
+
+## 0. NEW in this build `[FIX]` — test these first
+
+- [ ] **Rub along a slime wall at high speed** (Speed II + sprint, or elytra glide beside it, holding slightly into the wall). *Expect:* NEVER bounces or reverses you, at any speed. Debug rays (F3+V) stay yellow against the wall — red only when actually flying INTO it.
+- [ ] **Rub along a honey wall at speed.** *Expect:* a steady, continuous slow from the viscous field — no pulse pattern of dead-stop / re-accelerate / dead-stop.
+- [ ] **Sprint-jump diagonally into a slime wall** (corner hits especially). *Expect:* camera yaw follows the actual rebound direction — never spins the wrong way. Pitch does NOT move (on foot).
+- [ ] **Elytra-fly into a slime wall.** *Expect:* bounce + camera follows including pitch (pitch is elytra-only now).
+- [ ] **Ride a boat off a cliff onto slime blocks.** *Expect:* the boat bounces WITH you in it, roughly like the empty boat does. This never worked before.
+- [ ] **Boat water-skip while riding.** *Expect:* still works (same new sync path).
+- [ ] **Sprint-jump into an ice wall** (~8+ m/s). *Expect:* crack overlay appears and the ice turns into frosted (cracked-texture) ice — it does NOT shatter.
+- [ ] **Hit the same (now frosted) ice again at speed.** *Expect:* it shatters immediately.
+- [ ] **Fall ~15 blocks onto plain ice.** *Expect:* breaks through (real hardness). Blue ice from the same height: does NOT break (it's genuinely tough now).
+- [ ] **Set `fallDamageMode = VANILLA_PARITY`, fall 20 blocks onto grass.** *Expect:* 8.5 hearts (17 damage), same as vanilla. A 3-block fall: zero. Jump Boost reduces it like vanilla.
+- [ ] **Set `kineticDamageMultiplier = 0.5`,** repeat a fall. *Expect:* half damage.
+- [ ] **Set `highAltitudeAirLossRate = 0`,** go above the start level. *Expect:* NO air loss at all (0 actually disables it now).
+- [ ] **Feather Falling + Kinetic Protection on one pair of boots** at an anvil. *Expect:* they combine now (like vanilla FF + other protections).
+- [ ] **Tipped arrow + echo shard in a brewing stand.** *Expect:* NOT accepted as a brewing input anymore.
+- [ ] **Title screen idle with F3 pipeline open** (or a profiler). *Expect:* no per-tick audio-filter churn on the title screen.
 **How to use:** work through each section in survival unless stated otherwise. Check the box if the
 **Expect** line matches what you saw; if not, note what actually happened next to the item.
 

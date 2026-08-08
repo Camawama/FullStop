@@ -19,9 +19,7 @@
     "minecraft:green_stained_glass_pane",
     "minecraft:red_stained_glass_pane",
     "minecraft:black_stained_glass_pane",
-    "minecraft:ice",
-    "minecraft:packed_ice",
-    "minecraft:blue_ice",
+    "minecraft:frosted_ice",
     "minecraft:snow",
     "minecraft:snow_block"
   ]

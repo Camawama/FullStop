@@ -1,13 +1,17 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.math.VanillaFallMath;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -70,12 +74,35 @@ public class KineticDamageCalculator {
             return 0;
         }
 
-        double horizontalExceedance = (!blockImpact || horizontalEvidence)
-                ? Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0)
-                : 0;
-        double verticalExceedance = (!blockImpact || verticalEvidence)
-                ? Math.max(fullstop.getVerticalStoppingForce() - SERVER.velocityDamageThresholdVertical.get(), 0)
-                : 0;
+        boolean vanillaParity = SERVER.fallDamageMode.get() == FullStopConfig.FallDamageMode.VANILLA_PARITY;
+
+        // Vanilla subtracts Jump Boost levels from the effective fall distance.
+        double jumpBonus = 0;
+        if (vanillaParity && entity instanceof LivingEntity living) {
+            MobEffectInstance jump = living.getEffect(MobEffects.JUMP);
+            if (jump != null) jumpBonus = jump.getAmplifier() + 1;
+        }
+
+        double horizontalExceedance;
+        double verticalExceedance;
+        if (vanillaParity) {
+            // Impact speed → the vanilla fall distance that produces it → vanilla
+            // damage ((distance - 3) points). Wall crashes use the same mapping so
+            // hitting a wall at 20-block-fall speed hurts like a 20-block fall.
+            horizontalExceedance = (!blockImpact || horizontalEvidence)
+                    ? Math.max(VanillaFallMath.equivalentFallDistance(fullstop.getHorizontalStoppingForce()) - 3.0, 0)
+                    : 0;
+            verticalExceedance = (!blockImpact || verticalEvidence)
+                    ? Math.max(VanillaFallMath.equivalentFallDistance(fullstop.getVerticalStoppingForce()) - 3.0 - jumpBonus, 0)
+                    : 0;
+        } else {
+            horizontalExceedance = (!blockImpact || horizontalEvidence)
+                    ? Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0)
+                    : 0;
+            verticalExceedance = (!blockImpact || verticalEvidence)
+                    ? Math.max(fullstop.getVerticalStoppingForce() - SERVER.velocityDamageThresholdVertical.get(), 0)
+                    : 0;
+        }
 
         // Dripstone is special: an upward spike hurts from the first block of
         // exceedance — but only on real contact with real deceleration. The
@@ -87,13 +114,21 @@ public class KineticDamageCalculator {
                 if (isDownwardImpact && tipDirection == Direction.UP) {
                     // ~a one-block drop's landing speed; below that it's a step, not a fall.
                     if (verticalEvidence && fullstop.getVerticalStoppingForce() > 4.0) {
-                        return 1.0 + (verticalExceedance * SERVER.dripstoneDamageMultiplier.get());
+                        if (vanillaParity) {
+                            // Vanilla: causeFallDamage(distance + 2, 2.0) → ((d + 2 − 3 − jump) × mult).
+                            double dist = VanillaFallMath.equivalentFallDistance(fullstop.getVerticalStoppingForce());
+                            return Math.max(dist - 1.0 - jumpBonus, 0.5)
+                                    * SERVER.dripstoneDamageMultiplier.get()
+                                    * SERVER.kineticDamageMultiplier.get();
+                        }
+                        return (1.0 + (verticalExceedance * SERVER.dripstoneDamageMultiplier.get()))
+                                * SERVER.kineticDamageMultiplier.get();
                     }
                 } else if (!isDownwardImpact) {
                     // Ramming a spike sideways: needs an actual horizontal hit + a real
                     // (walking-speed) deceleration, not just proximity.
                     if (horizontalEvidence && fullstop.getHorizontalStoppingForce() > 2.0) {
-                        return 2.0;
+                        return 2.0 * SERVER.kineticDamageMultiplier.get();
                     }
                 }
             }
@@ -124,6 +159,8 @@ public class KineticDamageCalculator {
             damage = Math.max(averageRelativeSpeed - threshold, 0);
         } else {
             damage = Math.max(horizontalExceedance, verticalExceedance);
+            // Vanilla rounds fall damage up to whole points.
+            if (vanillaParity) damage = Math.ceil(damage);
         }
 
         if (damage <= 0) return 0;
@@ -153,45 +190,54 @@ public class KineticDamageCalculator {
             }
         }
 
-        double averageHardness = 1.0;
-        if (!collision.blockStates.isEmpty()) {
-            double totalHardness = 0;
-            int count = 0;
-            for (BlockState state : collision.blockStates) {
-                // Water's block hardness is 100 (bedrock-tier) — meaningless for an
-                // impact; its softness is already handled by the dive/flop factor.
-                if (state.is(Blocks.WATER)) continue;
+        // VANILLA_PARITY skips the hardness curve and the solid-impact floor:
+        // vanilla fall damage doesn't care what you land on beyond the soft-block
+        // multipliers above, and adding either would break the 1:1 calibration.
+        if (!vanillaParity) {
+            if (SERVER.hardnessAffectsDamage.get()) {
+                double averageHardness = 1.0;
+                if (!collision.blockStates.isEmpty()) {
+                    double totalHardness = 0;
+                    int count = 0;
+                    for (BlockState state : collision.blockStates) {
+                        // Water's block hardness is 100 (bedrock-tier) — meaningless for an
+                        // impact; its softness is already handled by the dive/flop factor.
+                        if (state.is(Blocks.WATER)) continue;
 
-                float hardness = state.getDestroySpeed(entity.level(), entity.blockPosition());
-                if (state.is(FullStopTags.FRAGILE)) {
-                    hardness = 0.05f;
+                        float hardness = state.getDestroySpeed(entity.level(), entity.blockPosition());
+                        if (state.is(FullStopTags.FRAGILE)) {
+                            hardness = 0.05f;
+                        }
+                        if (hardness >= 0) {
+                            totalHardness += hardness;
+                        } else {
+                            totalHardness += 100.0; // unbreakable blocks hit like bedrock
+                        }
+                        count++;
+                    }
+                    if (count > 0) {
+                        averageHardness = totalHardness / count;
+                    }
                 }
-                if (hardness >= 0) {
-                    totalHardness += hardness;
-                } else {
-                    totalHardness += 100.0; // unbreakable blocks hit like bedrock
-                }
-                count++;
+
+                double hardnessMultiplier = 0.5 + (averageHardness / 4.0);
+                hardnessMultiplier = Mth.clamp(hardnessMultiplier, 0.2, 2.0);
+                damage *= hardnessMultiplier;
             }
-            if (count > 0) {
-                averageHardness = totalHardness / count;
+
+            damage *= 1.07;
+
+            // Crossing the speed threshold on a solid impact always costs at least
+            // the configured floor, even when soft/weak blocks would shrink it to a
+            // scratch — landing spot choice should matter, but a real overspeed
+            // landing is never free.
+            double minimumSolid = SERVER.minimumSolidImpactDamage.get();
+            if (collision.collisionType == Collision.CollisionType.SOLID && damage > 0 && minimumSolid > 0) {
+                damage = Math.max(damage, minimumSolid);
             }
         }
 
-        double hardnessMultiplier = 0.5 + (averageHardness / 4.0);
-        hardnessMultiplier = Mth.clamp(hardnessMultiplier, 0.2, 2.0);
-        damage *= hardnessMultiplier;
-
-        damage *= 1.07;
-
-        // Crossing the speed threshold on a solid impact always costs at least one
-        // heart, even when soft/weak blocks would shrink it to a scratch — landing
-        // spot choice should matter, but a real overspeed landing is never free.
-        if (collision.collisionType == Collision.CollisionType.SOLID && damage > 0) {
-            damage = Math.max(damage, 2.0);
-        }
-
-        return damage;
+        return damage * SERVER.kineticDamageMultiplier.get();
     }
 
     /**

@@ -4,7 +4,6 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 
 /**
@@ -24,9 +23,11 @@ public final class CameraBounceHandler {
         Vec3 preV = fullstop.getPreviousScaledVelocity();
         if (preV.lengthSqr() < 0.0001) return;
 
-        if (collision.impactedHits.isEmpty()) return;
-        BlockHitResult hit = collision.impactedHits.get(0);
-        Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+        // Most-opposed face, not first-listed: corner impacts record several
+        // faces in ray order, and aiming off the arbitrary first one rotated the
+        // camera in the wrong direction. Must match the server's bounce normal.
+        Vec3 normal = BounceMath.mostOpposedNormal(collision.impactedHits, preV);
+        if (normal == null) return;
 
         // Same rubbing-vs-impact and refractory gates as the server BounceHandler:
         // brushing a slime wall while walking must not swing the camera, and a
@@ -44,11 +45,13 @@ public final class CameraBounceHandler {
         double newAngle = Math.atan2(-newV.x, newV.z);
         fullstop.setTargetAngle(newAngle / Math.PI * 180);
 
-        double horizontalDistance = Math.sqrt(newV.x * newV.x + newV.z * newV.z);
-        double targetPitch = -Math.toDegrees(Math.atan2(newV.y, horizontalDistance));
-
-        boolean isElytraFlying = player.isFallFlying();
-        if (!fullstop.isMostlyDownward() || isElytraFlying) {
+        // Pitch is elytra-only: mid-flight a bounce genuinely redirects the
+        // flyer, so the camera follows the new arc — but on foot, jumping into
+        // a slime wall and having the view yanked up/down felt wrong. Yaw
+        // (above) still tracks the rebound for everyone.
+        if (player.isFallFlying()) {
+            double horizontalDistance = Math.sqrt(newV.x * newV.x + newV.z * newV.z);
+            double targetPitch = -Math.toDegrees(Math.atan2(newV.y, horizontalDistance));
             fullstop.setTargetPitch(targetPitch);
         }
     }

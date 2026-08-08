@@ -15,7 +15,12 @@ public final class FullStopTags {
     private FullStopTags() {
     }
 
-    /** Blocks that shatter easily and count as nearly zero hardness on impact (glass, ice, snow). */
+    /**
+     * Blocks that shatter easily and count as nearly zero hardness on impact
+     * (glass, frosted/cracked ice, snow). Pristine ice is deliberately NOT here:
+     * solid ice resists impacts at its real hardness and sub-break hits convert
+     * it to frosted ice (see KineticBlockInteractions), which IS fragile.
+     */
     public static final TagKey<Block> FRAGILE = blockTag("fragile");
 
     /** Blocks that absorb most of an impact (hay). Damage is multiplied by 0.3. */

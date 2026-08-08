@@ -27,6 +27,7 @@ import net.minecraft.world.level.GameRules;
 import net.minecraft.world.level.block.BedBlock;
 import net.minecraft.world.level.block.BellBlock;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.ButtonBlock;
 import net.minecraft.world.level.block.DoorBlock;
 import net.minecraft.world.level.block.FenceGateBlock;
@@ -274,9 +275,9 @@ public class KineticBlockInteractions {
             }
 
             if (kineticEnergy > GRASS_PATH_THRESHOLD) {
-                if (impactVelocity.normalize().y < -0.5 && state.is(net.minecraft.world.level.block.Blocks.GRASS_BLOCK)) {
+                if (impactVelocity.normalize().y < -0.5 && state.is(Blocks.GRASS_BLOCK)) {
                     level.playSound(null, pos, SoundEvents.SHOVEL_FLATTEN, SoundSource.BLOCKS, 1.0f, 1.0f);
-                    level.setBlockAndUpdate(pos, net.minecraft.world.level.block.Blocks.DIRT_PATH.defaultBlockState());
+                    level.setBlockAndUpdate(pos, Blocks.DIRT_PATH.defaultBlockState());
                 }
             }
 
@@ -293,6 +294,19 @@ public class KineticBlockInteractions {
                 }
                 level.destroyBlockProgress(entity.getId(), pos, crackStage);
                 crackPosThisPass = pos;
+
+                // Ice cracks PERSISTENTLY: a sub-break impact turns plain ice into
+                // frosted ice (vanilla's cracked-ice texture, age scaled to how
+                // hard the hit was), and frosted ice is tagged fullstop:fragile —
+                // so pristine ice stays hard to smash, but ice that's already
+                // cracked shatters outright on the next solid hit.
+                if (state.is(Blocks.ICE)) {
+                    int age = Math.min(3, (int) (((damageRatio - partialThreshold) / (1.0 - partialThreshold)) * 4));
+                    level.setBlockAndUpdate(pos, Blocks.FROSTED_ICE.defaultBlockState()
+                            .setValue(BlockStateProperties.AGE_3, age));
+                    level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
+                            1.0f, 0.8f + level.random.nextFloat() * 0.3f);
+                }
             }
         }
 

@@ -22,8 +22,6 @@ import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Objects;
-
 /**
  * Per-entity velocity/impact state.
  *
@@ -313,7 +311,10 @@ public class FullStopCapability {
         }
 
         if (entity instanceof LivingEntity living && entity.onGround()) {
-            double gravityStep = Objects.requireNonNull(living.getAttribute(ForgeMod.ENTITY_GRAVITY.get())).getValue() * 20;
+            // Null-safe: an exotic modded living entity without the Forge gravity
+            // attribute must degrade to the vanilla 0.08, not crash the tick loop.
+            var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
+            double gravityStep = (gravityAttr != null ? gravityAttr.getValue() : 0.08) * 20;
             // How far vanilla's auto-step can lift the entity in a single tick.
             double stepUp = entity.maxUpStep() * 20;
             double vy = velocityMps.y;
