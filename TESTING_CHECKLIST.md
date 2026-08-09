@@ -3,6 +3,7 @@
 **Build:** working tree, 2026-08-08h (vanilla push suppressed for the ex-rider/ex-boat pair — no more veer)
 
 - [ ] **Shift-dismount a boat at speed (retest #4).** *Expect:* you fly out forward, the boat glides STRAIGHT on without you — no sideways veer, no speed dump into you. After ~2 s you and the boat push each other normally again (walk into it: it nudges).
+- [ ] **Dismount at speed, WAIT for the boat to fully stop, re-enter it.** *Expect:* the boat stays put — no ghost launch with its old speed. Then retest boarding a boat that IS moving: momentum still transfers.
 
 ## 0. NEW in this build `[FIX]` — test these first
 

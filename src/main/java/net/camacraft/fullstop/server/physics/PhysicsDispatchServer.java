@@ -204,7 +204,12 @@ public class PhysicsDispatchServer {
                 vehicle.getY() - vehicle.yOld,
                 vehicle.getZ() - vehicle.zOld);
         FullStopCapability cap = grabCapability(vehicle);
-        if (cap != null) {
+        // FRESH measurements only. A boat's client-side capability is ticked
+        // only while the local player drives it; after a dismount it freezes at
+        // the last driven (fast) velocity while the real boat coasts to a stop
+        // — and re-boarding then "restored" that stale speed to a standing
+        // boat. Server-side caps tick every tick, so they always pass.
+        if (cap != null && vehicle.tickCount - cap.getLastTick() <= 2) {
             Vec3 measured = cap.getCurrentNativeVelocity();
             if (measured.lengthSqr() > motion.lengthSqr()) {
                 motion = measured;
