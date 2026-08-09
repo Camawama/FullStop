@@ -10,7 +10,8 @@
     "FallingBlockEntityMixin",
     "SlimeBlockNoBounceMixin",
     "PhaseableBlockMixin",
-    "BoatLerpMixin"
+    "BoatLerpMixin",
+    "EntityPushMixin"
   ],
   "injectors": {
     "defaultRequire": 1

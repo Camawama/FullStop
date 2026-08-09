@@ -137,9 +137,10 @@ public final class ClientVehiclePhysics {
 
         // The VEHICLE turns into the rebound — the ricochet equivalent of the
         // on-foot camera rotation; its heading streams to the server with the
-        // regular vehicle move packets. The rider's head turns BY THE SAME
-        // DELTA so they keep facing the same way relative to the boat (user
-        // spec), rather than being left staring backwards over the stern.
+        // regular vehicle move packets. The rider's head follows BY THE SAME
+        // DELTA so they keep facing the same way relative to the boat — but
+        // SMOOTHLY, through the capability's gradual camera correction (the
+        // same easing the on-foot bounce camera uses; a raw setYRot snapped).
         if (collision.bouncy() && newV.horizontalDistance() > 3.0) {
             float oldYaw = vehicle.getYRot();
             float newYaw = (float) Math.toDegrees(Math.atan2(-newV.x, newV.z));
@@ -149,7 +150,10 @@ public final class ClientVehiclePhysics {
             vehicle.yRotO = newYaw;
 
             float yawDelta = Mth.wrapDegrees(newYaw - oldYaw);
-            player.setYRot(player.getYRot() + yawDelta);
+            FullStopCapability playerCap = grabCapability(player);
+            if (playerCap != null) {
+                playerCap.setTargetAngle(player.getYRot() + yawDelta);
+            }
         }
     }
 

@@ -68,9 +68,9 @@ public class PhysicsDispatchClient {
         if (player == null || event.getEntityMounting() != player) return;
 
         Entity vehicle = event.getEntityBeingMounted();
-        Vec3 observedMotion = new Vec3(vehicle.getX() - vehicle.xOld,
-                vehicle.getY() - vehicle.yOld,
-                vehicle.getZ() - vehicle.zOld);
+        // Phase-robust motion source: pos − xOld or the capability measurement,
+        // whichever is live at this point in the tick (see observedVehicleMotion).
+        Vec3 observedMotion = net.camacraft.fullstop.server.physics.PhysicsDispatchServer.observedVehicleMotion(vehicle);
         ClientVehiclePhysics.onLocalMountChange(event.isMounting(), vehicle, observedMotion);
     }
 

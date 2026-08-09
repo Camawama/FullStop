@@ -44,6 +44,11 @@ public class ServerCollisionDetector {
                             // (whose deltaMovement reads ~0 as a passenger), and the impulse
                             // exchange dead-stopped the boat a few blocks out.
                             && e.getRootVehicle() != entity.getRootVehicle()
+                            // Fresh (dis)mount pairs are exempt too: vanilla parks the
+                            // dismounted player right beside the still-moving boat, and
+                            // the exchange dead-stopped the boat while launching the
+                            // player further.
+                            && !recentRideExchange(entity, e)
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
             );
 
@@ -58,5 +63,13 @@ public class ServerCollisionDetector {
 
         return new Collision(impactType, blockCollision.blockStates, collidingEntities,
                 blockCollision.impactedPositions, blockCollision.impactedHits);
+    }
+
+    /** Whether either entity is inside its mount/dismount grace with the other. */
+    private static boolean recentRideExchange(Entity a, Entity b) {
+        FullStopCapability capA = FullStopCapability.grabCapability(a);
+        if (capA != null && capA.recentlyExchangedWith(b)) return true;
+        FullStopCapability capB = FullStopCapability.grabCapability(b);
+        return capB != null && capB.recentlyExchangedWith(a);
     }
 }

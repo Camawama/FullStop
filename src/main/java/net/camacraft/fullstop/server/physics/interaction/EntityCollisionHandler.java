@@ -3,6 +3,7 @@ package net.camacraft.fullstop.server.physics.interaction;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
+import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
@@ -59,7 +60,13 @@ public final class EntityCollisionHandler {
         for (Entity other : collision.collidingEntities) {
             if (other == entity || !other.isAlive()) continue;
 
-            Vec3 v2 = other.getDeltaMovement();
+            // Measured velocity, mirroring v1Initial: a server-side player's raw
+            // deltaMovement is ~always zero (movement is client-authoritative),
+            // which made every player read as a stationary wall — anything that
+            // grazed one dumped its whole momentum into the "impact".
+            Vec3 v2 = other.hasImpulse
+                    ? other.getDeltaMovement()
+                    : VelocityMath.entityVelocity(other).scale(0.05);
 
             Vec3 relativeVelocity = v1Initial.subtract(v2);
 

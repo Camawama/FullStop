@@ -619,6 +619,23 @@ public class FullStopCapability {
         return dismountCooldown;
     }
 
+    // The vehicle this entity most recently mounted or dismounted, valid while
+    // the dismount cooldown runs. Exists so the entity-collision system can
+    // exempt the pair: vanilla parks a dismounted player right beside the
+    // still-moving boat, and the momentum exchange (against the player's
+    // server-side deltaMovement of ~0) dead-stopped the boat while launching
+    // the player.
+    private int exchangedVehicleId = -1;
+
+    public void markVehicleExchange(int vehicleId) {
+        this.exchangedVehicleId = vehicleId;
+    }
+
+    /** True while this entity's mount/dismount grace covers {@code other}. */
+    public boolean recentlyExchangedWith(Entity other) {
+        return dismountCooldown > 0 && exchangedVehicleId == other.getId();
+    }
+
     public long getLastTick() {
         return lastTick;
     }

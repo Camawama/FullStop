@@ -125,6 +125,9 @@ public class PhysicsDispatchServer {
             FullStopCapability cap = grabCapability(living);
             if (cap != null) {
                 cap.justDismounted();
+                // While the dismount grace runs, this rider and this vehicle
+                // must not exchange collision momentum (see ServerCollisionDetector).
+                cap.markVehicleExchange(event.getEntityBeingMounted().getId());
                 // Mounting/dismounting snaps the rider's position (right-clicking
                 // a minecart from several blocks away teleports the player onto
                 // it) — far below the 60 m/s discontinuity guard, so unmarked it
@@ -144,9 +147,7 @@ public class PhysicsDispatchServer {
         // server→client packet approach lost exactly that race — the boat
         // dead-stopped on entry no matter how the packet was timed.)
         Entity vehicle = event.getEntityBeingMounted();
-        Vec3 vehicleMotion = new Vec3(vehicle.getX() - vehicle.xOld,
-                vehicle.getY() - vehicle.yOld,
-                vehicle.getZ() - vehicle.zOld);
+        Vec3 vehicleMotion = observedVehicleMotion(vehicle);
 
         if (event.isMounting()) {
             // Boarding a MOVING boat keeps it moving: the new driver's client
@@ -164,6 +165,15 @@ public class PhysicsDispatchServer {
                 Entity rider = event.getEntityMounting();
                 rider.setDeltaMovement(vehicleMotion);
                 rider.hasImpulse = true;
+
+                // ...and the VEHICLE keeps its momentum too. While ridden, the
+                // server-side boat zeroed its own deltaMovement every tick, so
+                // when the dismount hands simulation back to the server it
+                // resumed from zero — the boat froze the instant the driver
+                // left. Reseeding here lets it glide on under server physics.
+                if (vehicle.isAlive()) {
+                    vehicle.setDeltaMovement(vehicleMotion);
+                }
             }
         }
     }
@@ -177,6 +187,30 @@ public class PhysicsDispatchServer {
         if (event.getSource().is(DamageTypes.FALLING_STALACTITE)) {
             event.setAmount(event.getAmount() * SERVER.dripstoneDamageMultiplier.get().floatValue());
         }
+    }
+
+    /**
+     * The vehicle's per-tick movement, robust to WHEN in the tick it is read.
+     * pos − xOld is only nonzero between a position update and the entity's
+     * next tick (which copies pos into xOld) — a shift-dismount is processed in
+     * the connection tick, AFTER the ridden boat's level tick, where that
+     * difference reads exactly zero and the momentum seed silently failed its
+     * threshold ("the boat just stops anyway"). The capability's measured
+     * velocity (one full completed tick, valid at any phase) fills that hole;
+     * the larger of the two wins so whichever source is live this phase is used.
+     */
+    public static Vec3 observedVehicleMotion(Entity vehicle) {
+        Vec3 motion = new Vec3(vehicle.getX() - vehicle.xOld,
+                vehicle.getY() - vehicle.yOld,
+                vehicle.getZ() - vehicle.zOld);
+        FullStopCapability cap = grabCapability(vehicle);
+        if (cap != null) {
+            Vec3 measured = cap.getCurrentNativeVelocity();
+            if (measured.lengthSqr() > motion.lengthSqr()) {
+                motion = measured;
+            }
+        }
+        return motion;
     }
 
     private static void markTeleported(Entity entity) {

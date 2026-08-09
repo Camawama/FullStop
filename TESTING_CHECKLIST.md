@@ -1,6 +1,8 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-08f (jump-slam fix + client-seeded mount/dismount momentum + rider head follows boat)
+**Build:** working tree, 2026-08-08h (vanilla push suppressed for the ex-rider/ex-boat pair — no more veer)
+
+- [ ] **Shift-dismount a boat at speed (retest #4).** *Expect:* you fly out forward, the boat glides STRAIGHT on without you — no sideways veer, no speed dump into you. After ~2 s you and the boat push each other normally again (walk into it: it nudges).
 
 ## 0. NEW in this build `[FIX]` — test these first
 
@@ -11,7 +13,9 @@
 - [ ] **Land on slime and bounce.** *Expect:* bounces unchanged (they're pre-contact, exempt from the jump rule).
 - [ ] **Enter a boat gliding past you (retest #3).** *Expect:* it keeps gliding — the velocity is now seeded client-side and re-applied for 5 ticks.
 - [ ] **Shift-dismount a moving boat (retest).** *Expect:* you fly out with the boat's velocity — the seed now outlives the server's dismount position packet.
-- [ ] **Boat slime-wall ricochet while riding.** *Expect:* the boat snaps to the rebound heading AND your view turns with it by the same amount — you stay facing forward relative to the hull.
+- [ ] **Boat slime-wall ricochet while riding.** *Expect:* the boat snaps to the rebound heading and your view eases around SMOOTHLY to match (same gradual turn as the on-foot bounce camera) — no head snap. Moving the mouse mid-turn cancels the auto-turn, same as on foot.
+- [ ] **Shift-dismount a moving boat (retest #3).** *Expect:* BOTH keep moving — you fly out with the boat's velocity AND the boat glides on without you. No "collision" between you and the boat right after exit (the boat must not dead-stop and slingshot you — the pair is collision-exempt for 2 s).
+- [ ] **Sprint into a standing player/mob with entity collisions on.** *Expect:* sane momentum exchange — and a MOVING player being grazed no longer absorbs the full impact as if they were a wall (their measured velocity counts now).
 
 - [ ] **Drive a boat fast into a slime wall, 10× in a row.** *Expect:* a full-strength rebound EVERY time, applied instantly (the bounce now runs on YOUR client, pre-contact) — no twitch-then-dead-stop, no "sometimes works".
 - [ ] **Watch the boat itself on that bounce.** *Expect:* the BOAT turns to face the rebound direction (ricochet), while your camera does NOT move.
