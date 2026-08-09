@@ -26,8 +26,14 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class BounceHandler {
 
-    /** Refractory period between bounces; breaks corner-seam ping-pong loops. */
-    private static final int BOUNCE_COOLDOWN_TICKS = 6;
+    /**
+     * Refractory period between bounces. Only a same-tick dedup now: the
+     * corner-seam ping-pong this originally guarded (6 ticks) is prevented by
+     * the seam cross-section guard and the moving-away check — and 6 ticks
+     * blocked LEGITIMATE rapid double-bounces (slime corridors on foot, a
+     * tagged projectile ricocheting between two slime walls).
+     */
+    private static final int BOUNCE_COOLDOWN_TICKS = 1;
 
     private BounceHandler() {
     }

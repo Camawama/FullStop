@@ -255,6 +255,18 @@ public class FullStopCapability {
         if (firstTick) {
             currentPosition = entity.position();
             previousPosition = currentPosition.subtract(entity.getDeltaMovement());
+            // Seed the whole velocity history from the spawn motion. An entity
+            // is born already moving (projectiles at FULL speed), and an empty
+            // history cost the first ticks twice over: pre-impact velocity read
+            // zero (the dispatcher skipped processing entirely), and a spawn
+            // speed over 60 m/s tripped the teleport-discontinuity guard
+            // (lastMeasuredSpeed was 0). A tagged grappling hook fired at
+            // nearby ice hit it before FullStop ever processed one tick.
+            Vec3 spawnVelocityMps = entity.getDeltaMovement().scale(20);
+            velocityMps = spawnVelocityMps;
+            prevVelocityMps = spawnVelocityMps;
+            prevPrevVelocityMps = spawnVelocityMps;
+            lastMeasuredSpeed = spawnVelocityMps.length();
             firstTick = false;
         } else {
             previousPosition = currentPosition;

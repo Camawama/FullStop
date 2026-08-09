@@ -44,7 +44,7 @@ public final class CameraBounceHandler {
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);
         if (newV == null || newV.length() < 3.0) return;
 
-        fullstop.setBounceCooldown(6);
+        fullstop.setBounceCooldown(1); // matches BounceHandler's reduced refractory
         fullstop.setJustBounced(true);
 
         double newAngle = Math.atan2(-newV.x, newV.z);

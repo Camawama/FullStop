@@ -47,6 +47,19 @@ public abstract class PhaseableBlockMixin {
         double thresholdNative = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.05; // m/s → blocks/tick
         if (BlockPhasing.phaseSpeedSqr(living) < thresholdNative * thresholdNative) return;
 
+        // The RUNNING SURFACE stays solid: phasing the very sand underfoot
+        // dropped a fast runner INTO their own floor — sink, engulf-drag below
+        // the threshold, sand re-solidifies around the legs, vanilla shoves
+        // them back out, repeat. That jitter loop smashed the sand being run
+        // on and spiked g-force into a blackout. A phaseable block whose top
+        // is at or below the feet only phases for a genuine DIVE (falling
+        // faster than 8 m/s); blocks at body height (dune walls, canopies you
+        // fly into) phase exactly as before.
+        if (pos.getY() + 1.0 <= living.getBoundingBox().minY + 0.15
+                && BlockPhasing.phaseVelocityNativeY(living) > -0.4) {
+            return;
+        }
+
         cir.setReturnValue(Shapes.empty());
     }
 }

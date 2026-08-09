@@ -13,6 +13,7 @@
   "config.fullstop.kineticDamageMultiplier": "Kinetic Damage Multiplier",
   "config.fullstop.hardnessAffectsDamage": "Block Hardness Affects Damage",
   "config.fullstop.minimumSolidImpactDamage": "Minimum Solid Impact Damage",
+  "config.fullstop.crackHealSeconds": "Crack Heal Time (seconds, 0 = never heal)",
   "config.fullstop.entityCollisionDamage": "Entity Collision Damage",
   "config.fullstop.kineticBlockBreaking": "Kinetic Block Breaking",
   "config.fullstop.kineticDoorOpening": "Kinetic Door Opening",

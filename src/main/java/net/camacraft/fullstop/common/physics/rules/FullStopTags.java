@@ -84,13 +84,16 @@ public final class FullStopTags {
     public static final TagKey<EntityType<?>> PHYSICS_BLACKLIST = entityTag("physics_blacklist");
 
     /**
-     * Projectile-type entities that get FullStop's collision physics (slime
-     * bounces above all). Projectiles are normally excluded — vanilla ones own
+     * Projectile-type entities that get FullStop's FULL physics: slime/bed
+     * bounces, water skips, kinetic block cracking and breaking, and entity
+     * collision damage. Projectiles are normally excluded — vanilla ones own
      * their impacts (arrows stick, tridents return) — but modded projectiles
-     * like grappling hooks can opt in here: the one-tick-lookahead bounce
-     * redirects them BEFORE their own onHit fires. Empty by default.
+     * like grappling hooks can opt in here: the one-tick-lookahead reactions
+     * fire BEFORE the projectile's own onHit does. How hard a light projectile
+     * hits is tuned via the entityWeights config (mass drives block breaking).
+     * Empty by default.
      */
-    public static final TagKey<EntityType<?>> BOUNCING_PROJECTILES = entityTag("bouncing_projectiles");
+    public static final TagKey<EntityType<?>> PHYSICS_PROJECTILES = entityTag("physics_projectiles");
 
     private static TagKey<Block> blockTag(String name) {
         return TagKey.create(Registries.BLOCK, new ResourceLocation(FullStop.MODID, name));

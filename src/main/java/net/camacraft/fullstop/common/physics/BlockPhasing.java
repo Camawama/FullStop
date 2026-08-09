@@ -159,6 +159,23 @@ public final class BlockPhasing {
         return living.getDeltaMovement().lengthSqr();
     }
 
+    /**
+     * Vertical velocity (native blocks/tick) for the phase floor rule, from the
+     * same sources as {@link #phaseSpeedSqr} (server players need the
+     * capability). Takes the most DOWNWARD of the candidates so a dive is never
+     * missed because one source lags a tick.
+     */
+    public static double phaseVelocityNativeY(LivingEntity living) {
+        double vy = living.getDeltaMovement().y;
+        if (living instanceof Player && !living.level().isClientSide) {
+            FullStopCapability cap = FullStopCapability.grabCapability(living);
+            if (cap != null) {
+                vy = Math.min(vy, cap.getCurrentNativeVelocity().y);
+            }
+        }
+        return vy;
+    }
+
     private static void burrowEffects(LivingEntity entity, BlockState state, BlockPos pos) {
         if (!(entity.level() instanceof ServerLevel serverLevel)) return;
 

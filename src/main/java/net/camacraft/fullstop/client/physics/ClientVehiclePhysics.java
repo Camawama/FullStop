@@ -133,7 +133,7 @@ public final class ClientVehiclePhysics {
 
         vehicle.setDeltaMovement(newV.scale(0.05));
         vehicle.hasImpulse = true;
-        cap.setBounceCooldown(6);
+        cap.setBounceCooldown(1); // matches BounceHandler's reduced refractory
 
         // The VEHICLE turns into the rebound — the ricochet equivalent of the
         // on-foot camera rotation; its heading streams to the server with the

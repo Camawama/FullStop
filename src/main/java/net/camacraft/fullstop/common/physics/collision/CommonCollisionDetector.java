@@ -216,7 +216,11 @@ public class CommonCollisionDetector {
 
                 // Ignore floor hits unless actually falling with some speed (velocity here
                 // is native blocks/tick; -0.5 ≈ falling faster than 10 m/s).
-                if (hitFace == Direction.UP && velocity.y > -0.5) {
+                // Projectiles are exempt from this walking-artifact rule: a fired
+                // hook arcing down into floor ice is a real approach — the
+                // approach-speed gate above still filters near-flat grazes.
+                if (hitFace == Direction.UP && velocity.y > -0.5
+                        && !(entity instanceof net.minecraft.world.entity.projectile.Projectile)) {
                     isOpposing = false;
                 }
             }

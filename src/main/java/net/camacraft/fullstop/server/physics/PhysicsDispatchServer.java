@@ -77,14 +77,6 @@ public class PhysicsDispatchServer {
         }
     }
 
-    /** Drops per-level state (accumulated ice cracks) when a level unloads. */
-    @SubscribeEvent
-    public static void onLevelUnload(net.minecraftforge.event.level.LevelEvent.Unload event) {
-        if (event.getLevel() instanceof ServerLevel serverLevel) {
-            KineticBlockInteractions.onLevelUnload(serverLevel);
-        }
-    }
-
     @SubscribeEvent
     public static void onEntityChangeDimension(EntityTravelToDimensionEvent event) {
         markTeleported(event.getEntity());
@@ -97,7 +89,19 @@ public class PhysicsDispatchServer {
 
     @SubscribeEvent
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
-        markTeleported(event.getEntity());
+        // Only an entity with an already-RUNNING capability needs the teleport
+        // shield on a rejoin (mod remove/re-add position jumps). A freshly
+        // joining entity's capability seeds itself from its spawn state —
+        // blanket-marking gave every new spawn 5 ticks of damage immunity plus
+        // velocity resets, so a mob summoned WITH Motion crossed its first
+        // ~10 blocks untracked and slammed into walls for free (falls still
+        // billed only because they outlast the window).
+        if (event.getEntity() instanceof LivingEntity living) {
+            FullStopCapability cap = grabCapability(living);
+            if (cap != null && cap.getLastTick() != -1) {
+                cap.setHasTeleported(true);
+            }
+        }
     }
 
     @SubscribeEvent
@@ -322,8 +326,14 @@ public class PhysicsDispatchServer {
     }
 
     private static void impactAesthetic(Entity entity, Collision collision) {
-        for (BlockState blockState : collision.blockStates) {
-            CollisionParticleSpawner.spawnParticle(entity.level(), entity.position(), collision, blockState);
+        // Particles spawn AT the impact point (the ray hit location on the block
+        // face), not at the entity's feet — blockStates and impactedHits are
+        // built pairwise by the detector, so index i of one matches the other.
+        for (int i = 0; i < collision.blockStates.size(); i++) {
+            Vec3 at = i < collision.impactedHits.size()
+                    ? collision.impactedHits.get(i).getLocation()
+                    : entity.position();
+            CollisionParticleSpawner.spawnParticle(entity.level(), at, collision, collision.blockStates.get(i));
         }
     }
 

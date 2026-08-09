@@ -22,7 +22,7 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 ### Kinetic Physics
 - 💥 **Dynamic Kinetic Damage:** Impact damage is calculated from real measured stopping force, factoring in mass, velocity, impact direction, block hardness, and armor. Fall damage, wall crashes, and ceiling hits all use the same system. Vanilla fall damage is replaced entirely.
 - 🏃 **Velocity-Based Attack Scaling:** Speed is power. Attacks deal more damage when moving toward your target and less when retreating.
-- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Fast, heavy entities crack and shatter blocks on impact. Fragile blocks like glass give way easily, but only to impacts that actually drive into them. Ice is tiered: impacts leave real, persistent cracks on the block (the mining-crack overlay), and cracked ice takes less to shatter. The cracks slowly heal if left alone.
+- 🧱 **Kinetic Block Breaking:** Become a wrecking ball. Fast, heavy entities crack and shatter blocks on impact. Fragile blocks like glass give way easily, but only to impacts that actually drive into them. Ice is tiered: impacts leave real, persistent cracks on the block (the mining-crack overlay), and cracked ice takes less to shatter. Cracks are permanent (and save with the world) unless you configure them to heal.
 - 🕳️ **Block Phasing and Engulfment:** At high speed you punch through leaves, and dive straight into sand, gravel, or snow. Engulfing blocks bleed off your speed and bury you inside. Dig or jump your way back out.
 - 🪨 **Gravity-Affected Blocks:** Slime and honey blocks fall like sand when nothing supports them, and sticky blocks cling to neighbors on any face. A falling sticky block even grabs onto blocks it falls past.
 - 🤼 **Entity Collisions:** Collide with entities using momentum transfer, and even land on a mob or boat to ride it. (Experimental, off by default.)
@@ -51,7 +51,7 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 ### Quality of Life
 - 💀 **Detailed Death Messages:** Death messages report the exact speed of the fatal impact.
 - 🚢 **Valkyrien Skies Compatibility:** Riding a moving ship doesn't count as your own velocity, and impacts against ship blocks are recognized.
-- 📦 **Data-Driven Tags:** Block behaviors (fragile, crackable, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code. Entity tags too: blacklist modded entities from FullStop physics entirely (`fullstop:physics_blacklist`), or opt modded projectiles like grappling hooks into slime bounces (`fullstop:bouncing_projectiles`).
+- 📦 **Data-Driven Tags:** Block behaviors (fragile, crackable, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code. Entity tags too: blacklist modded entities from FullStop physics entirely (`fullstop:physics_blacklist`), or opt modded projectiles like grappling hooks into the full physics — bounces, block breaking, collision damage (`fullstop:physics_projectiles`).
 - 🛠️ **Debug Mode:** Press `F3 + V` to visualize collision raycasts in real time. Red rays are collision-grade hits, yellow means touching, green is clear.
 
 ## Configuration

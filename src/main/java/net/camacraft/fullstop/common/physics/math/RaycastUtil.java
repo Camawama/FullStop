@@ -38,11 +38,13 @@ public class RaycastUtil {
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
         // Projectiles own their impacts (arrows stick, tridents return), so
         // FullStop does not raycast for them — unless a pack opts one in via
-        // fullstop:bouncing_projectiles (modded grappling hooks and the like),
-        // in which case the pre-contact bounce redirects it before its own
-        // onHit ever fires.
+        // fullstop:physics_projectiles (modded grappling hooks and the like).
+        // This single gate is what withholds ALL of FullStop's physics from
+        // projectiles: with rays enabled, bouncing, water skips, block
+        // breaking and entity-collision damage all apply, and the pre-contact
+        // reactions fire before the projectile's own onHit does.
         if (entity instanceof Projectile
-                && !entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.BOUNCING_PROJECTILES)) {
+                && !entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_PROJECTILES)) {
             return 0;
         }
         return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH) + 0.01;

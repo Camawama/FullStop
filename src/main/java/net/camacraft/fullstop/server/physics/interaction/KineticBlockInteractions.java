@@ -7,10 +7,16 @@ import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraftforge.registries.ForgeRegistries;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.BlockTags;
@@ -117,14 +123,86 @@ public class KineticBlockInteractions {
      * shows as the vanilla mining-crack overlay ON THE BLOCK, independent of
      * which entity hit it. Accumulated damage lowers the energy needed to
      * finish the block, so pristine ice is tough but cracked ice shatters from
-     * the next good hit. Entries heal (and the overlay fades) after
-     * {@link #CRACK_HEAL_TICKS} without further hits.
+     * the next good hit. By default cracks are permanent; the crackHealSeconds
+     * config can make them heal (and the overlay fade) after a quiet period.
      */
     private record AccumulatedCrack(float fraction, long lastHitTime, Block block) {}
-    private static final Map<CrackEntry, AccumulatedCrack> ACCUMULATED_CRACKS = new HashMap<>();
-    /** 30 s without further hits and the ice settles: crack heals, overlay fades. */
-    private static final int CRACK_HEAL_TICKS = 600;
     private static final int CRACK_SWEEP_INTERVAL_TICKS = 40;
+
+    /**
+     * One physical impact is DETECTED on several consecutive ticks (the contact
+     * tick plus the stale pre-impact window that exists so fast hits aren't
+     * missed). The damage pipeline dedups that via its cooldown top-up; the
+     * crack accumulator needed its own: an anchoring projectile's final tick
+     * measures its full travel speed, so every re-detection re-billed the FULL
+     * crack fraction — one grappling-hook throw cracked ice ~3× and could
+     * break through on the echo. Hits on a block within this window of its
+     * last recorded hit are the same impact and are ignored.
+     */
+    private static final int CRACK_IMPACT_DEDUP_TICKS = 8;
+
+    /** Configured heal time in ticks; 0 = cracks never heal (the default). */
+    private static long crackHealTicks() {
+        return FullStopConfig.SERVER.crackHealSeconds.get() * 20L;
+    }
+
+    /** Whether a stored crack is still valid (fresh enough under the heal config, or healing disabled). */
+    private static boolean crackStillValid(AccumulatedCrack crack, long now) {
+        long healTicks = crackHealTicks();
+        return healTicks <= 0 || now - crack.lastHitTime() <= healTicks;
+    }
+
+    /**
+     * Crack storage, persisted WITH the level (SavedData). The original
+     * in-RAM static map could outlive or predecease the world across a relog
+     * (statics survive a same-JVM world change; the map did not survive a game
+     * restart) — either way the overlay visuals and the functional crack state
+     * drifted apart: blocks LOOKED cracked after a relog but accumulated from
+     * scratch when hit. One saved source of truth keeps them in lockstep, and
+     * the sweep restores the overlays after loading.
+     */
+    public static class CrackData extends SavedData {
+        private static final String NAME = "fullstop_cracks";
+
+        final Map<BlockPos, AccumulatedCrack> cracks = new HashMap<>();
+
+        static CrackData get(ServerLevel level) {
+            return level.getDataStorage().computeIfAbsent(CrackData::load, CrackData::new, NAME);
+        }
+
+        static CrackData load(CompoundTag tag) {
+            CrackData data = new CrackData();
+            ListTag list = tag.getList("cracks", Tag.TAG_COMPOUND);
+            for (int i = 0; i < list.size(); i++) {
+                CompoundTag entry = list.getCompound(i);
+                ResourceLocation blockId = ResourceLocation.tryParse(entry.getString("block"));
+                Block block = blockId != null ? ForgeRegistries.BLOCKS.getValue(blockId) : null;
+                if (block == null || block == Blocks.AIR) continue; // block removed from the game
+                data.cracks.put(new BlockPos(entry.getInt("x"), entry.getInt("y"), entry.getInt("z")),
+                        new AccumulatedCrack(entry.getFloat("fraction"), entry.getLong("lastHit"), block));
+            }
+            return data;
+        }
+
+        @Override
+        public CompoundTag save(CompoundTag tag) {
+            ListTag list = new ListTag();
+            for (Map.Entry<BlockPos, AccumulatedCrack> crack : cracks.entrySet()) {
+                ResourceLocation blockId = ForgeRegistries.BLOCKS.getKey(crack.getValue().block());
+                if (blockId == null) continue;
+                CompoundTag entry = new CompoundTag();
+                entry.putInt("x", crack.getKey().getX());
+                entry.putInt("y", crack.getKey().getY());
+                entry.putInt("z", crack.getKey().getZ());
+                entry.putFloat("fraction", crack.getValue().fraction());
+                entry.putLong("lastHit", crack.getValue().lastHitTime());
+                entry.putString("block", blockId.toString());
+                list.add(entry);
+            }
+            tag.put("cracks", list);
+            return tag;
+        }
+    }
 
     /**
      * Stable NEGATIVE overlay id per position. destroyBlockProgress overlays are
@@ -142,36 +220,32 @@ public class KineticBlockInteractions {
      * invalidated ones (block broken/replaced by other means).
      */
     public static void tickCracks(ServerLevel level) {
-        if (ACCUMULATED_CRACKS.isEmpty()) return;
         long now = level.getGameTime();
         if (now % CRACK_SWEEP_INTERVAL_TICKS != 0) return;
 
-        Iterator<Map.Entry<CrackEntry, AccumulatedCrack>> iterator = ACCUMULATED_CRACKS.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<CrackEntry, AccumulatedCrack> entry = iterator.next();
-            if (entry.getKey().dimension() != level.dimension()) continue;
+        CrackData data = CrackData.get(level);
+        if (data.cracks.isEmpty()) return;
 
-            BlockPos pos = entry.getKey().pos();
-            if (!level.isLoaded(pos)) {
-                iterator.remove(); // clients purge the stale overlay on their own
-                continue;
-            }
+        Iterator<Map.Entry<BlockPos, AccumulatedCrack>> iterator = data.cracks.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<BlockPos, AccumulatedCrack> entry = iterator.next();
+            BlockPos pos = entry.getKey();
+
+            // Unloaded chunks keep their saved cracks untouched; the entry is
+            // processed again when the chunk comes back.
+            if (!level.isLoaded(pos)) continue;
 
             AccumulatedCrack crack = entry.getValue();
             if (level.getBlockState(pos).getBlock() != crack.block()
-                    || now - crack.lastHitTime() > CRACK_HEAL_TICKS) {
+                    || !crackStillValid(crack, now)) {
                 level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
                 iterator.remove();
+                data.setDirty();
             } else {
                 level.destroyBlockProgress(crackOverlayId(pos), pos,
                         Mth.clamp((int) (crack.fraction() * 9.0f), 1, 9));
             }
         }
-    }
-
-    /** Drops all accumulated cracks of an unloading level. */
-    public static void onLevelUnload(ServerLevel level) {
-        ACCUMULATED_CRACKS.keySet().removeIf(key -> key.dimension() == level.dimension());
     }
 
     /** Called from the dispatcher's EntityLeaveLevelEvent hook. */
@@ -217,10 +291,28 @@ public class KineticBlockInteractions {
         if (entity instanceof LivingEntity living) {
             totalMass += living.getAttributeValue(Attributes.ARMOR) / 20.0;
         }
+        // Tagged physics projectiles are DENSE (a metal hook, not a
+        // volume-scaled body): mass = hitbox volume makes a 0.125-cube hook
+        // weigh 0.002, whose kinetic energy can't crack ice at any speed —
+        // even large entityWeights multipliers barely register. Floor their
+        // mass at half a block so speed decides what they smash; entityWeights
+        // still raises it further.
+        if (entity instanceof net.minecraft.world.entity.projectile.Projectile
+                && entity.getType().is(FullStopTags.PHYSICS_PROJECTILES)) {
+            totalMass = Math.max(totalMass, 0.5);
+        }
         if (totalMass <= 0) return ImpactResult.NONE;
 
         double kineticEnergy = 0.5 * totalMass * (velocityMag * velocityMag);
-        boolean isPlayer = entity instanceof Player;
+        // Player-CAUSED, not just player-embodied: a player's own fired
+        // projectile (grappling hook) or the vehicle they drive is the player
+        // acting on the world — mobGriefing=false must not veto it, same as
+        // vanilla doesn't veto player-lit TNT. Mob-thrown projectiles and
+        // mob-driven vehicles stay gated.
+        boolean isPlayer = entity instanceof Player
+                || (entity instanceof net.minecraft.world.entity.projectile.Projectile projectile
+                        && projectile.getOwner() instanceof Player)
+                || entity.getControllingPassenger() instanceof Player;
         FakePlayer fakePlayer = null;
         boolean blockBroken = false;
         double smashDamage = 0;
@@ -315,22 +407,31 @@ public class KineticBlockInteractions {
 
             // Crackable blocks (the ice family) remember damage from earlier
             // hits: prior cracks lower the energy needed to finish the block.
-            CrackEntry crackKey = null;
+            BlockPos crackPos = null;
+            CrackData crackData = null;
             float priorFraction = 0;
             if (state.is(FullStopTags.CRACKABLE)) {
-                crackKey = new CrackEntry(level.dimension(), pos.immutable());
-                AccumulatedCrack prior = ACCUMULATED_CRACKS.get(crackKey);
-                if (prior != null && prior.block() == state.getBlock()
-                        && level.getGameTime() - prior.lastHitTime() <= CRACK_HEAL_TICKS) {
-                    priorFraction = prior.fraction();
+                crackPos = pos.immutable();
+                crackData = CrackData.get(level);
+                AccumulatedCrack prior = crackData.cracks.get(crackPos);
+                if (prior != null && prior.block() == state.getBlock()) {
+                    // Same impact re-detected on a later tick: skip this block
+                    // entirely (no re-crack, no cheapened break-through).
+                    if (level.getGameTime() - prior.lastHitTime() < CRACK_IMPACT_DEDUP_TICKS) {
+                        continue;
+                    }
+                    if (crackStillValid(prior, level.getGameTime())) {
+                        priorFraction = prior.fraction();
+                    }
                 }
             }
             double effectiveBreakCost = breakCost * (1.0 - priorFraction);
 
             if (kineticEnergy >= effectiveBreakCost) {
                 if (level.destroyBlock(pos, true, entity)) {
-                    if (crackKey != null) {
-                        ACCUMULATED_CRACKS.remove(crackKey);
+                    if (crackPos != null) {
+                        crackData.cracks.remove(crackPos);
+                        crackData.setDirty();
                         level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
                     }
                     blockBroken = true;
@@ -370,13 +471,14 @@ public class KineticBlockInteractions {
             double partialThreshold = 0.15;
             double damageRatio = kineticEnergy / breakCost;
             if (!blockBroken && damageRatio > partialThreshold) {
-                if (crackKey != null) {
+                if (crackPos != null) {
                     // Persistent path: the damage sticks to the BLOCK. Capped at
                     // 0.95 so a heavily cracked block still needs one (trivial)
                     // finishing hit instead of silently sitting at ≥100%.
                     float accumulated = Math.min(priorFraction + (float) damageRatio, 0.95f);
-                    ACCUMULATED_CRACKS.put(crackKey,
+                    crackData.cracks.put(crackPos,
                             new AccumulatedCrack(accumulated, level.getGameTime(), state.getBlock()));
+                    crackData.setDirty();
                     level.destroyBlockProgress(crackOverlayId(pos), pos,
                             Mth.clamp((int) (accumulated * 9.0f), 1, 9));
                     level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,

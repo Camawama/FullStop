@@ -64,6 +64,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue kineticDamageMultiplier;
         public final ForgeConfigSpec.BooleanValue hardnessAffectsDamage;
         public final ForgeConfigSpec.DoubleValue minimumSolidImpactDamage;
+        public final ForgeConfigSpec.IntValue crackHealSeconds;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
@@ -210,6 +211,13 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+
+            this.crackHealSeconds = builder
+                    .comment("Seconds after the last hit before accumulated impact cracks (fullstop:crackable blocks, the ice family) heal and their overlay fades.",
+                            "0 = cracks never heal: they persist (and save with the world) until the block breaks or is replaced.")
+                    .translation(key("crackHealSeconds"))
+                    .comment("Default: 0")
+                    .defineInRange("crackHealSeconds", 0, 0, 86400);
 
             this.kineticDoorOpening = builder
                     .comment("When enabled, sprinting into doors, trapdoors and fence gates flings them open.")

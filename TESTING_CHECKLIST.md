@@ -1,11 +1,22 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-08i (stair corners + non-living rammers + debug ray symmetry + mod-entity tags)
+**Build:** working tree, 2026-08-09b (summoned-mob wall damage + hook mass floor + rapid double-bounces)
+
+- [ ] **`/summon minecraft:cow ~ ~1 ~ {Motion:[2.0,0.0,0.0]}` aimed at a wall a few blocks away.** *Expect:* the cow takes wall damage on impact (it was inside a 5-tick spawn immunity before). Falls unchanged.
+- [ ] **Throw the hook at ice and let it LATCH.** *Expect:* exactly ONE crack step per throw — the crack must not deepen further (or break through) while the hook sits anchored. Repeated separate throws still accumulate.
+- [ ] **Fire the tagged grappling hook at an ice WALL.** *Expect:* cracks on lighter hits, breaks through on fast ones (mass floor 0.5 — with your weight-50 config it hits hard). Also try a steep downward shot at floor ice: registers now.
+- [ ] **Fire the hook between two slime walls.** *Expect:* it ricochets off BOTH — no dead stop at the second (bounce refractory reduced to 1 tick).
+- [ ] **Player in a tight slime corridor.** *Expect:* rapid wall-to-wall bounces chain properly; rubbing along a single wall still never bounces (seam guard regression check).
+
+- [ ] **Speed V+, sprint across flat sand.** *Expect:* smooth running — no sinking, no jitter, no sand breaking under you, no g-force blackout. Then DIVE into sand from a tall drop or steep elytra dive: engulfment still swallows you.
+- [ ] **Elytra-fly horizontally into a dune wall above phase speed.** *Expect:* still punches in (body-height blocks phase as before).
+- [ ] **Crack some ice, save & quit, re-enter the world.** *Expect:* cracks still visible AND still functional — one more good hit finishes a nearly-broken block instead of starting over. Cracks are PERMANENT now by default (no 30 s heal); set `crackHealSeconds` > 0 and verify they fade after that long.
+- [ ] **Slam into a wall and watch the particles.** *Expect:* they burst from the impact point on the block face, not from your body center. Check a ceiling hit and a floor landing too.
 
 - [ ] **Jump repeatedly onto the CORNERS of stairs from 1-3 blocks up.** *Expect:* only normal (tiny/zero) fall damage — no phantom spikes, no deaths. Also hop along slab edges and up/down staircases at sprint.
 - [ ] **Spawn a fast boat at a STANDING player (dispenser/summon with Motion).** *Expect:* damage on hit, standing or moving — and the death message names the boat ("was hit by Boat"), not "experienced kinetic energy". Sprint into a parked boat fatally: "slammed into Boat".
 - [ ] **Rub along walls in ALL four directions with F3+V.** *Expect:* rays touching the wall stay YELLOW in every direction — north/west no longer flash-then-green.
-- [ ] **Tag a modded projectile (e.g. grappling hook) into `fullstop:bouncing_projectiles` via datapack, fire it at slime.** *Expect:* it bounces off instead of latching. Untagged projectiles (arrows) unchanged — they stick.
+- [ ] **Tag a modded projectile (e.g. grappling hook) into `fullstop:physics_projectiles` via datapack.** *Expect:* fired at slime it bounces instead of latching; fired fast at glass it shatters through (bump its `entityWeights` mass if it lacks punch); fired through a mob it hurts it (entity collisions on). Untagged projectiles (arrows) unchanged — they stick.
 - [ ] **Tag an entity into `fullstop:physics_blacklist`.** *Expect:* FullStop ignores it entirely (no bounces, no kinetic damage, no collisions).
 - [ ] **Shift-dismount a boat at speed (retest #4).** *Expect:* you fly out forward, the boat glides STRAIGHT on without you — no sideways veer, no speed dump into you. After ~2 s you and the boat push each other normally again (walk into it: it nudges).
 - [ ] **Dismount at speed, WAIT for the boat to fully stop, re-enter it.** *Expect:* the boat stays put — no ghost launch with its old speed. Then retest boarding a boat that IS moving: momentum still transfers.
@@ -42,7 +53,7 @@
 - [ ] **Plain sprint and sprint-jump into a wall, no Speed effect.** *Expect:* still NO damage (9.6 m/s peak < 10.5 threshold) — soft bump sound only.
 - [ ] **Sprint-jump into an ice wall** (~8+ m/s). *Expect:* a visible mining-style crack overlay appears ON the block and STAYS (everyone can see it; it survives you walking away). No frosted ice, no block change.
 - [ ] **Hit the same cracked ice again.** *Expect:* the crack deepens per hit and the block shatters once accumulated damage completes. Cracked ice breaks much easier than pristine.
-- [ ] **Leave cracked ice alone ~30 s.** *Expect:* the crack overlay fades (ice "heals").
+- [ ] ~~Leave cracked ice alone ~30 s~~ (superseded: cracks are permanent by default now, `crackHealSeconds` config).
 - [ ] **Crack packed and blue ice too.** *Expect:* same crack visuals, appropriately harder (blue ice needs serious speed to even crack).
 - [ ] **Drop a slime/honey block down a shaft with a solid block partway down the wall.** *Expect:* the falling block grabs onto the wall block as it passes and stays there. Sand does not do this.
 - [ ] **Elytra-dash through leaves above phase speed.** *Expect:* leaf particles spray and a quiet rustle plays while passing through.
