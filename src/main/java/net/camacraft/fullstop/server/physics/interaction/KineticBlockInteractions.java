@@ -3,9 +3,7 @@ package net.camacraft.fullstop.server.physics.interaction;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.math.FastRaycast;
-import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
-import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -76,9 +74,6 @@ public class KineticBlockInteractions {
 
     /** Minimum speed (m/s) for a collision to shove a door/gate/trapdoor open. Sprinting is ~5.6. */
     private static final double DOOR_OPEN_MIN_SPEED_MPS = 5.0;
-    /** Slamming a door open stings: half a heart at sprint speed, up to 1.5 hearts at high speed. */
-    private static final float DOOR_SLAM_BASE_DAMAGE = 1.0f;
-    private static final float DOOR_SLAM_MAX_DAMAGE = 3.0f;
     /** Crashing through blocks grazes the entity: damage per broken block per m/s above this speed. */
     private static final double GRAZE_MIN_SPEED_MPS = 8.0;
     private static final double GRAZE_DAMAGE_FACTOR = 0.08;
@@ -258,7 +253,6 @@ public class KineticBlockInteractions {
                     // use() handles per-material open sounds, hand-openable checks (iron
                     // doors PASS) and both door halves — no casting to DoorBlock needed.
                     if (state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult).consumesAction()) {
-                        applyDoorSlamDamage(entity, impactVelocity);
                         continue;
                     }
                     // Not hand-openable (e.g. iron door): fall through to the break check.
@@ -515,31 +509,8 @@ public class KineticBlockInteractions {
             if (!shouldKineticOpen(state, nativeVelocity)) continue;
 
             fakePlayer = preparedFakePlayer(fakePlayer, level, entity);
-            if (state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hit).consumesAction()) {
-                applyDoorSlamDamage(entity, nativeVelocity);
-            }
+            state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hit);
         }
-    }
-
-    /**
-     * Slamming a door/gate/trapdoor open with your body hurts a little — half a
-     * heart at sprint speed, scaling up with speed. Applied on the kinetic-open
-     * paths only; walking up and clicking a door stays free. Vanilla's
-     * invulnerability window naturally keeps double doors from double-billing.
-     */
-    private static void applyDoorSlamDamage(Entity entity, Vec3 nativeVelocity) {
-        if (!(entity instanceof LivingEntity living)) return;
-        if (DamageImmunityRules.isDamageImmune(living)) return;
-
-        double speedMps = nativeVelocity.length() * 20;
-        float damage = (float) Math.min(
-                DOOR_SLAM_BASE_DAMAGE + Math.max(speedMps - DOOR_OPEN_MIN_SPEED_MPS, 0) * 0.15,
-                DOOR_SLAM_MAX_DAMAGE);
-        living.hurt(FullStopDamageSources.kineticSelf(
-                        living,
-                        FullStopDamageSources.velocityDisplay(speedMps),
-                        false, false, false, false),
-                damage);
     }
 
     /**

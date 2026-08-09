@@ -43,10 +43,27 @@ public class RaycastUtil {
         return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH) + 0.01;
     }
 
+    /**
+     * The Y below which this entity cannot really collide: its own box floor —
+     * or, when riding, the vehicle's, whichever is higher. A seated boat
+     * passenger's box floor sits 0.45 blocks BELOW the hull (riding offsets),
+     * i.e. inside the floor layer the boat glides on; rays cast from inside
+     * that layer read every block seam as a head-on wall, which is how a rider
+     * "collided with" and ground away the ice under a moving boat.
+     */
+    public static double effectiveFloorY(Entity entity) {
+        double minY = entity.getBoundingBox().minY;
+        Entity vehicle = entity.getVehicle();
+        if (vehicle != null) {
+            minY = Math.max(minY, vehicle.getBoundingBox().minY);
+        }
+        return minY;
+    }
+
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode) {
         AABB box = entity.getBoundingBox();
         double minX = box.minX;
-        double minY = box.minY + 0.1;
+        double minY = Math.min(effectiveFloorY(entity) + 0.1, box.maxY);
         double minZ = box.minZ;
         double maxX = box.maxX;
         double maxY = box.maxY;

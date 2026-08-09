@@ -1,10 +1,31 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-08b (grounded wall damage + ice crack overlay + door slam + sticky cling + phase rustle)
+**Build:** working tree, 2026-08-08f (jump-slam fix + client-seeded mount/dismount momentum + rider head follows boat)
 
 ## 0. NEW in this build `[FIX]` — test these first
 
 **IMPORTANT: delete `velocityDamageThresholdHorizontal` from the saved server config (or set it to 10.5) — old configs keep 12.77 and mask the grounded-damage fix.**
+
+- [ ] **Jump repeatedly, timing space exactly on each landing (bunny hop).** *Expect:* ZERO damage from 1-block hops, however precisely timed. Also drop 3-4 blocks and jump on landing: only normal fall damage for that height, no spike.
+- [ ] **Jump into a low ceiling hard.** *Expect:* ceiling damage still works (regression check on the jump fix).
+- [ ] **Land on slime and bounce.** *Expect:* bounces unchanged (they're pre-contact, exempt from the jump rule).
+- [ ] **Enter a boat gliding past you (retest #3).** *Expect:* it keeps gliding — the velocity is now seeded client-side and re-applied for 5 ticks.
+- [ ] **Shift-dismount a moving boat (retest).** *Expect:* you fly out with the boat's velocity — the seed now outlives the server's dismount position packet.
+- [ ] **Boat slime-wall ricochet while riding.** *Expect:* the boat snaps to the rebound heading AND your view turns with it by the same amount — you stay facing forward relative to the hull.
+
+- [ ] **Drive a boat fast into a slime wall, 10× in a row.** *Expect:* a full-strength rebound EVERY time, applied instantly (the bounce now runs on YOUR client, pre-contact) — no twitch-then-dead-stop, no "sometimes works".
+- [ ] **Watch the boat itself on that bounce.** *Expect:* the BOAT turns to face the rebound direction (ricochet), while your camera does NOT move.
+- [ ] **On-foot slime bounces.** *Expect:* camera yaw still follows (regression check).
+- [ ] **Enter a boat gliding past you (retest).** *Expect:* it keeps gliding with its speed and direction the moment you sit — the momentum is now read and applied locally on your client at takeover.
+- [ ] **Dismount a moving boat (shift mid-glide).** *Expect:* you fly out with the boat's velocity instead of freezing in place.
+- [ ] **Break a boat while it moves fast (another player/dispenser arrow), or ride it off a cliff and let the crash destroy it.** *Expect:* the ejected rider carries the boat's momentum.
+- [ ] **Ridden-boat water skip.** *Expect:* skimming still works while driving (now client-side too).
+- [ ] **Mob-driven boat (zombie in a boat) shoved onto slime.** *Expect:* still bounces (server path retained for non-player drivers).
+
+- [ ] **Ride a boat fast across a long ice sheet.** *Expect:* the ice under/around the path is NEVER cracked or broken by the ride. F3+V shows no red rays from the rider along the floor.
+- [ ] **Boat crashes head-on into a wall while ridden.** *Expect:* wall impact still registers (rider + boat damage past threshold) — the rider floor fix must not blind real wall hits at chest height.
+- [ ] **Push a boat so it glides past you, then enter it mid-glide.** *Expect:* the boat keeps moving in its direction with roughly its speed after you sit down, instead of dead-stopping.
+- [ ] **Sprint through a wooden door.** *Expect:* flings open exactly as before with NO damage (door slam damage reverted).
 
 - [ ] **Speed V+, sprint on flat ground into a tall wall, feet never leaving the ground.** *Expect:* DAMAGE. This was the "only hurts if I jump first" bug — grounded runs reported half their real speed.
 - [ ] **Same run with Speed 50.** *Expect:* heavy damage (or you smash through the wall, which also damages).
@@ -13,7 +34,6 @@
 - [ ] **Hit the same cracked ice again.** *Expect:* the crack deepens per hit and the block shatters once accumulated damage completes. Cracked ice breaks much easier than pristine.
 - [ ] **Leave cracked ice alone ~30 s.** *Expect:* the crack overlay fades (ice "heals").
 - [ ] **Crack packed and blue ice too.** *Expect:* same crack visuals, appropriately harder (blue ice needs serious speed to even crack).
-- [ ] **Sprint through a wooden door.** *Expect:* door flings open as before AND you take about half a heart. Faster = up to 1.5 hearts. Clicking the door open: free. Iron doors: unchanged (no open, no slam damage).
 - [ ] **Drop a slime/honey block down a shaft with a solid block partway down the wall.** *Expect:* the falling block grabs onto the wall block as it passes and stays there. Sand does not do this.
 - [ ] **Elytra-dash through leaves above phase speed.** *Expect:* leaf particles spray and a quiet rustle plays while passing through.
 - [ ] **Respiration item names.** *Expect:* the enchantment shows as "Better Breathing"; it slows high-altitude air loss (already did — verify with Resp III above the altitude start level).

@@ -113,7 +113,10 @@ public class CommonCollisionDetector {
         // grounded entity stands on into the scan and defeat the skip for every
         // sprinting player and galloping horse on flat ground.
         AABB box = entity.getBoundingBox();
-        AABB rayEnvelope = new AABB(box.minX, Math.min(box.minY + 0.1, box.maxY), box.minZ,
+        // Effective floor, not the raw box floor: a riding passenger's box dips
+        // below their vehicle's hull into the floor layer (see effectiveFloorY).
+        double effectiveFloor = RaycastUtil.effectiveFloorY(entity);
+        AABB rayEnvelope = new AABB(box.minX, Math.min(effectiveFloor + 0.1, box.maxY), box.minZ,
                 box.maxX, box.maxY, box.maxZ);
         AABB swept = rayEnvelope.expandTowards(direction.scale(rayLength)).inflate(0.001);
         boolean worldBlocksNearby = FastRaycast.mayHitAnything(level, swept);
@@ -194,7 +197,9 @@ public class CommonCollisionDetector {
                 // at full horizontal speed. Boats gliding on ice hit this every
                 // seam: phantom collision sounds, smashed ice under the boat,
                 // and boat-breaking "wall" damage while driving on flat ground.
-                if (hitFace.getAxis().isHorizontal() && hitPos.getY() + 1.0 <= box.minY + 0.15) {
+                // Feet = the EFFECTIVE floor: a boat passenger's own box floor
+                // is 0.45 inside the ice layer, which made this rule miss.
+                if (hitFace.getAxis().isHorizontal() && hitPos.getY() + 1.0 <= effectiveFloor + 0.15) {
                     isOpposing = false;
                 }
 

@@ -2,12 +2,12 @@ package net.camacraft.fullstop.server.physics.interaction;
 
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
-import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.item.FallingBlockEntity;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.SlimeBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -48,9 +48,16 @@ public final class BounceHandler {
         if (hasBrokenBlock) return;
 
         // A passenger's motion is slaved to its vehicle: the vehicle takes the
-        // bounce (and syncs it to its driver below); bouncing the rider only
-        // wrote motion vanilla ignores and burned the rider's bounce cooldown.
+        // bounce; bouncing the rider only wrote motion vanilla ignores and
+        // burned the rider's bounce cooldown.
         if (entity.isPassenger()) return;
+
+        // Player-driven vehicles bounce CLIENT-side (ClientVehiclePhysics): the
+        // driver's client owns the motion, this side detects contact a tick
+        // late, and server writes raced the client sim (weak bounces and
+        // bounce-then-dead-stop on ridden boats). Mob-driven and unmanned
+        // vehicles are server-simulated and stay handled here.
+        if (entity.getControllingPassenger() instanceof Player) return;
 
         if (entity.isCrouching() || collision.fake()) return;
 
@@ -70,7 +77,13 @@ public final class BounceHandler {
 
         if (!fullstop.canBounce()) return;
 
-        Vec3 preV = fullstop.getPreviousScaledVelocity();
+        // PRE-IMPACT velocity, not last tick's: a client-authoritative vehicle's
+        // positions arrive already clipped, so the bounce is usually detected a
+        // tick AFTER the client boat physically stopped at the wall — by then
+        // the one-tick-old velocity is only the contact-tick remnant, and
+        // mirroring it produced a feeble kick that died instantly (ridden boats
+        // "bounced then stopped"; only a lucky early detection bounced fully).
+        Vec3 preV = fullstop.getPreImpactScaledVelocity();
         Vec3 normal = BounceMath.mostOpposedNormal(collision.impactedHits, preV);
         if (normal == null) return;
 
@@ -93,7 +106,6 @@ public final class BounceHandler {
 
         entity.setDeltaMovement(newV.scale(0.05));
         entity.hurtMarked = true;
-        PacketHandler.syncMotionToControllingDriver(entity);
         fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
 
         if (collision.bouncy() || carrierType == Collision.CollisionType.SLIME) {
@@ -110,7 +122,9 @@ public final class BounceHandler {
     }
 
     private static void handleWaterSkip(Entity entity, FullStopCapability fullstop, Collision collision) {
-        Vec3 preV = fullstop.getPreviousScaledVelocity();
+        // Pre-impact velocity for the same reason as apply(): late detection on
+        // client-authoritative vehicles must still see the real approach speed.
+        Vec3 preV = fullstop.getPreImpactScaledVelocity();
         // Minimum speed to skip. Minecarts get a lower bar: their vanilla top
         // speed is 8 m/s, so the general 10 m/s floor made cart skipping
         // (explicitly intended, see the caller) unreachable in practice.
@@ -144,7 +158,6 @@ public final class BounceHandler {
 
         entity.setDeltaMovement(newV.scale(0.05));
         entity.hurtMarked = true;
-        PacketHandler.syncMotionToControllingDriver(entity);
         fullstop.setWaterSkipCooldown(10); // 10 ticks of water immunity
         fullstop.setJustBounced(true);
     }

@@ -20,7 +20,12 @@ public final class CameraBounceHandler {
         if (!collision.bouncy()) return;
         if (player.getAbilities().flying) return;
 
-        Vec3 preV = fullstop.getPreviousScaledVelocity();
+        // Passengers keep their head still: the VEHICLE takes the bounce, and a
+        // rider's own rays grazing the surface must not yank their view around.
+        if (player.isPassenger()) return;
+
+        // Pre-impact velocity, matching the server BounceHandler.
+        Vec3 preV = fullstop.getPreImpactScaledVelocity();
         if (preV.lengthSqr() < 0.0001) return;
 
         // Most-opposed face, not first-listed: corner impacts record several

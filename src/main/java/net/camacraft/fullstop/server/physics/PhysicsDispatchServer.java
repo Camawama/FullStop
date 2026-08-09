@@ -24,9 +24,11 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.entity.vehicle.Minecart;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.event.entity.EntityLeaveLevelEvent;
@@ -55,6 +57,7 @@ public class PhysicsDispatchServer {
      * (KineticBlockInteractions.MIN_INTERACTION_VELOCITY).
      */
     private static final double MIN_PROCESS_SPEED_SQR = 3.0 * 3.0;
+
 
     /** A collision only makes noise/particles when this much speed (m/s) was lost. */
     private static final double MIN_AESTHETIC_STOPPING_FORCE = 2.0;
@@ -128,6 +131,39 @@ public class PhysicsDispatchServer {
                 // read as a violent move that smashed the blocks around the cart
                 // and killed the rider.
                 cap.setHasTeleported(true);
+            }
+        }
+
+        // Momentum transfer at the mount boundary, in BOTH directions. The
+        // velocity source is the vehicle's observed per-tick movement (position
+        // minus old position) — valid on either logical side for any ticked
+        // entity, with no capability or packet involved. Crucially, this
+        // handler also runs on the DRIVER'S CLIENT, the side that actually owns
+        // a driven vehicle's motion: applying the value there at the exact
+        // takeover/release moment cannot race anything. (The earlier
+        // server→client packet approach lost exactly that race — the boat
+        // dead-stopped on entry no matter how the packet was timed.)
+        Entity vehicle = event.getEntityBeingMounted();
+        Vec3 vehicleMotion = new Vec3(vehicle.getX() - vehicle.xOld,
+                vehicle.getY() - vehicle.yOld,
+                vehicle.getZ() - vehicle.zOld);
+
+        if (event.isMounting()) {
+            // Boarding a MOVING boat keeps it moving: the new driver's client
+            // otherwise starts simulating from the stale synced motion (~0).
+            // First passenger only — a second rider must not reset the boat.
+            if (vehicle instanceof Boat && vehicle.getFirstPassenger() == null
+                    && vehicleMotion.lengthSqr() > 1.0e-6) {
+                vehicle.setDeltaMovement(vehicleMotion);
+            }
+        } else {
+            // Dismounting — including being thrown off a destroyed vehicle
+            // (ejecting passengers fires this event too): the passenger keeps
+            // the vehicle's momentum instead of freezing in place.
+            if (vehicleMotion.lengthSqr() > 1.0e-4) {
+                Entity rider = event.getEntityMounting();
+                rider.setDeltaMovement(vehicleMotion);
+                rider.hasImpulse = true;
             }
         }
     }

@@ -130,9 +130,9 @@ public final class RaycastLineRenderer {
                         && -preImpactVelocity.dot(normal)
                                 >= net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
                 // Same rule as the classifier: a side face on a block whose top
-                // is at foot level is the floor ahead, not a wall.
+                // is at (effective) foot level is the floor ahead, not a wall.
                 if (blockHit.getDirection().getAxis().isHorizontal()
-                        && blockHit.getBlockPos().getY() + 1.0 <= entity.getBoundingBox().minY + 0.15) {
+                        && blockHit.getBlockPos().getY() + 1.0 <= RaycastUtil.effectiveFloorY(entity) + 0.15) {
                     collisionGrade = false;
                 }
                 // Same seam-graze rule as the classifier: rubbing along a surface

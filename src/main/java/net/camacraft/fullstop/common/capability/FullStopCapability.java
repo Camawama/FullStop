@@ -69,6 +69,11 @@ public class FullStopCapability {
     private double avgAccel = 0.0;
     private double rawAvgAccel = 0.0; // Unaffected by clarity/vertigo potions
 
+    // Grounded state of the last two ticks, for the jump-is-not-a-bounce rule
+    // in tickSpeed (same window as prevVelocityMps/prevPrevVelocityMps).
+    private boolean prevOnGround = false;
+    private boolean prevPrevOnGround = false;
+
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
     private boolean wasSleeping = false;
@@ -190,6 +195,10 @@ public class FullStopCapability {
         if (entity instanceof LivingEntity living) {
             tickGForce(living);
         }
+
+        // After tickSpeed, which reads the previous ticks' values.
+        prevPrevOnGround = prevOnGround;
+        prevOnGround = entity.onGround();
     }
 
     /** Smooths the felt acceleration (g-force) that drives blackout/vignette/audio effects. */
@@ -371,8 +380,24 @@ public class FullStopCapability {
         // through. It never invents deceleration: while speeding up the current
         // speed is the largest, so the stopping force stays zero.
         double stoppingForceX = calculateStoppingForceComponent(actualVelocity.x, preImpact(prevVelocityMps.x, prevPrevVelocityMps.x));
-        double stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, preImpact(prevVelocityMps.y, prevPrevVelocityMps.y));
         double stoppingForceZ = calculateStoppingForceComponent(actualVelocity.z, preImpact(prevVelocityMps.z, prevPrevVelocityMps.z));
+
+        // A JUMP IS NOT A BOUNCE. An upward velocity born on the ground is
+        // self-powered: the ground can only stop a fall to zero, never fling
+        // the entity back up. Left to the generic bounce rule, jumping on the
+        // exact landing tick sign-flipped against the fall's remnant inside the
+        // two-tick window and billed fall + jump speed as one huge vertical
+        // stopping force — a harmless hop plus a well-timed space press dealt
+        // heavy "impact" damage. Measure the landing against zero instead.
+        // Slime/bed bounces are unaffected: they are applied PRE-contact, so
+        // the entity is never grounded during a genuine bounce reversal.
+        double oldY = preImpact(prevVelocityMps.y, prevPrevVelocityMps.y);
+        double stoppingForceY;
+        if (actualVelocity.y > 0 && (prevOnGround || prevPrevOnGround)) {
+            stoppingForceY = calculateStoppingForceComponent(0.0, oldY);
+        } else {
+            stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, oldY);
+        }
 
         decelerationForceHorizontal = Math.sqrt(stoppingForceX * stoppingForceX + stoppingForceZ * stoppingForceZ);
         decelerationForceVertical = stoppingForceY;
