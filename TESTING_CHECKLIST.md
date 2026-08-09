@@ -1,24 +1,22 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-08 (collision accuracy + ridden-vehicle bounce + damage modes + ice tiers)
+**Build:** working tree, 2026-08-08b (grounded wall damage + ice crack overlay + door slam + sticky cling + phase rustle)
 
 ## 0. NEW in this build `[FIX]` — test these first
 
-- [ ] **Rub along a slime wall at high speed** (Speed II + sprint, or elytra glide beside it, holding slightly into the wall). *Expect:* NEVER bounces or reverses you, at any speed. Debug rays (F3+V) stay yellow against the wall — red only when actually flying INTO it.
-- [ ] **Rub along a honey wall at speed.** *Expect:* a steady, continuous slow from the viscous field — no pulse pattern of dead-stop / re-accelerate / dead-stop.
-- [ ] **Sprint-jump diagonally into a slime wall** (corner hits especially). *Expect:* camera yaw follows the actual rebound direction — never spins the wrong way. Pitch does NOT move (on foot).
-- [ ] **Elytra-fly into a slime wall.** *Expect:* bounce + camera follows including pitch (pitch is elytra-only now).
-- [ ] **Ride a boat off a cliff onto slime blocks.** *Expect:* the boat bounces WITH you in it, roughly like the empty boat does. This never worked before.
-- [ ] **Boat water-skip while riding.** *Expect:* still works (same new sync path).
-- [ ] **Sprint-jump into an ice wall** (~8+ m/s). *Expect:* crack overlay appears and the ice turns into frosted (cracked-texture) ice — it does NOT shatter.
-- [ ] **Hit the same (now frosted) ice again at speed.** *Expect:* it shatters immediately.
-- [ ] **Fall ~15 blocks onto plain ice.** *Expect:* breaks through (real hardness). Blue ice from the same height: does NOT break (it's genuinely tough now).
-- [ ] **Set `fallDamageMode = VANILLA_PARITY`, fall 20 blocks onto grass.** *Expect:* 8.5 hearts (17 damage), same as vanilla. A 3-block fall: zero. Jump Boost reduces it like vanilla.
-- [ ] **Set `kineticDamageMultiplier = 0.5`,** repeat a fall. *Expect:* half damage.
-- [ ] **Set `highAltitudeAirLossRate = 0`,** go above the start level. *Expect:* NO air loss at all (0 actually disables it now).
-- [ ] **Feather Falling + Kinetic Protection on one pair of boots** at an anvil. *Expect:* they combine now (like vanilla FF + other protections).
-- [ ] **Tipped arrow + echo shard in a brewing stand.** *Expect:* NOT accepted as a brewing input anymore.
-- [ ] **Title screen idle with F3 pipeline open** (or a profiler). *Expect:* no per-tick audio-filter churn on the title screen.
+**IMPORTANT: delete `velocityDamageThresholdHorizontal` from the saved server config (or set it to 10.5) — old configs keep 12.77 and mask the grounded-damage fix.**
+
+- [ ] **Speed V+, sprint on flat ground into a tall wall, feet never leaving the ground.** *Expect:* DAMAGE. This was the "only hurts if I jump first" bug — grounded runs reported half their real speed.
+- [ ] **Same run with Speed 50.** *Expect:* heavy damage (or you smash through the wall, which also damages).
+- [ ] **Plain sprint and sprint-jump into a wall, no Speed effect.** *Expect:* still NO damage (9.6 m/s peak < 10.5 threshold) — soft bump sound only.
+- [ ] **Sprint-jump into an ice wall** (~8+ m/s). *Expect:* a visible mining-style crack overlay appears ON the block and STAYS (everyone can see it; it survives you walking away). No frosted ice, no block change.
+- [ ] **Hit the same cracked ice again.** *Expect:* the crack deepens per hit and the block shatters once accumulated damage completes. Cracked ice breaks much easier than pristine.
+- [ ] **Leave cracked ice alone ~30 s.** *Expect:* the crack overlay fades (ice "heals").
+- [ ] **Crack packed and blue ice too.** *Expect:* same crack visuals, appropriately harder (blue ice needs serious speed to even crack).
+- [ ] **Sprint through a wooden door.** *Expect:* door flings open as before AND you take about half a heart. Faster = up to 1.5 hearts. Clicking the door open: free. Iron doors: unchanged (no open, no slam damage).
+- [ ] **Drop a slime/honey block down a shaft with a solid block partway down the wall.** *Expect:* the falling block grabs onto the wall block as it passes and stays there. Sand does not do this.
+- [ ] **Elytra-dash through leaves above phase speed.** *Expect:* leaf particles spray and a quiet rustle plays while passing through.
+- [ ] **Respiration item names.** *Expect:* the enchantment shows as "Better Breathing"; it slows high-altitude air loss (already did — verify with Resp III above the altitude start level).
 **How to use:** work through each section in survival unless stated otherwise. Check the box if the
 **Expect** line matches what you saw; if not, note what actually happened next to the item.
 

@@ -17,11 +17,19 @@ public final class FullStopTags {
 
     /**
      * Blocks that shatter easily and count as nearly zero hardness on impact
-     * (glass, frosted/cracked ice, snow). Pristine ice is deliberately NOT here:
-     * solid ice resists impacts at its real hardness and sub-break hits convert
-     * it to frosted ice (see KineticBlockInteractions), which IS fragile.
+     * (glass, snow). The solid ice family is deliberately NOT here — it is
+     * {@link #CRACKABLE} instead: real hardness, with persistent impact cracks.
      */
     public static final TagKey<Block> FRAGILE = blockTag("fragile");
+
+    /**
+     * Blocks that accumulate PERSISTENT impact damage (the ice family): each
+     * sub-break hit adds a visible mining-crack overlay on the block and lowers
+     * the energy needed to finish it, so pristine ice is tough while cracked
+     * ice shatters from the next good hit. Cracks heal after ~30 s without
+     * hits. See KineticBlockInteractions.
+     */
+    public static final TagKey<Block> CRACKABLE = blockTag("crackable");
 
     /** Blocks that absorb most of an impact (hay). Damage is multiplied by 0.3. */
     public static final TagKey<Block> SOFT_LANDING = blockTag("soft_landing");

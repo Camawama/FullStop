@@ -3,12 +3,15 @@ package net.camacraft.fullstop.server.physics.interaction;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.math.FastRaycast;
+import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.level.Level;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -51,6 +54,7 @@ import net.minecraftforge.common.util.FakePlayerFactory;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -72,6 +76,9 @@ public class KineticBlockInteractions {
 
     /** Minimum speed (m/s) for a collision to shove a door/gate/trapdoor open. Sprinting is ~5.6. */
     private static final double DOOR_OPEN_MIN_SPEED_MPS = 5.0;
+    /** Slamming a door open stings: half a heart at sprint speed, up to 1.5 hearts at high speed. */
+    private static final float DOOR_SLAM_BASE_DAMAGE = 1.0f;
+    private static final float DOOR_SLAM_MAX_DAMAGE = 3.0f;
     /** Crashing through blocks grazes the entity: damage per broken block per m/s above this speed. */
     private static final double GRAZE_MIN_SPEED_MPS = 8.0;
     private static final double GRAZE_DAMAGE_FACTOR = 0.08;
@@ -108,6 +115,69 @@ public class KineticBlockInteractions {
      */
     private static final Map<CrackEntry, Long> NOTE_BLOCK_COOLDOWN = new HashMap<>();
     private static final int NOTE_BLOCK_COOLDOWN_TICKS = 12;
+
+    /**
+     * Persistent impact damage for blocks tagged fullstop:crackable (the ice
+     * family): each sub-break hit adds a fraction of the block's integrity and
+     * shows as the vanilla mining-crack overlay ON THE BLOCK, independent of
+     * which entity hit it. Accumulated damage lowers the energy needed to
+     * finish the block, so pristine ice is tough but cracked ice shatters from
+     * the next good hit. Entries heal (and the overlay fades) after
+     * {@link #CRACK_HEAL_TICKS} without further hits.
+     */
+    private record AccumulatedCrack(float fraction, long lastHitTime, Block block) {}
+    private static final Map<CrackEntry, AccumulatedCrack> ACCUMULATED_CRACKS = new HashMap<>();
+    /** 30 s without further hits and the ice settles: crack heals, overlay fades. */
+    private static final int CRACK_HEAL_TICKS = 600;
+    private static final int CRACK_SWEEP_INTERVAL_TICKS = 40;
+
+    /**
+     * Stable NEGATIVE overlay id per position. destroyBlockProgress overlays are
+     * keyed by breaker id; entity ids are positive, so a negative synthetic id
+     * can never fight a real breaker's overlay — and unlike an entity id, it
+     * keeps the crack alive when the entity that made it leaves.
+     */
+    private static int crackOverlayId(BlockPos pos) {
+        return -(Math.abs(pos.hashCode() % 0x3FFFFF00) + 1);
+    }
+
+    /**
+     * Level-tick sweep: refreshes living crack overlays (vanilla clients purge
+     * destruction progress not updated for ~400 ticks) and heals expired or
+     * invalidated ones (block broken/replaced by other means).
+     */
+    public static void tickCracks(ServerLevel level) {
+        if (ACCUMULATED_CRACKS.isEmpty()) return;
+        long now = level.getGameTime();
+        if (now % CRACK_SWEEP_INTERVAL_TICKS != 0) return;
+
+        Iterator<Map.Entry<CrackEntry, AccumulatedCrack>> iterator = ACCUMULATED_CRACKS.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<CrackEntry, AccumulatedCrack> entry = iterator.next();
+            if (entry.getKey().dimension() != level.dimension()) continue;
+
+            BlockPos pos = entry.getKey().pos();
+            if (!level.isLoaded(pos)) {
+                iterator.remove(); // clients purge the stale overlay on their own
+                continue;
+            }
+
+            AccumulatedCrack crack = entry.getValue();
+            if (level.getBlockState(pos).getBlock() != crack.block()
+                    || now - crack.lastHitTime() > CRACK_HEAL_TICKS) {
+                level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
+                iterator.remove();
+            } else {
+                level.destroyBlockProgress(crackOverlayId(pos), pos,
+                        Mth.clamp((int) (crack.fraction() * 9.0f), 1, 9));
+            }
+        }
+    }
+
+    /** Drops all accumulated cracks of an unloading level. */
+    public static void onLevelUnload(ServerLevel level) {
+        ACCUMULATED_CRACKS.keySet().removeIf(key -> key.dimension() == level.dimension());
+    }
 
     /** Called from the dispatcher's EntityLeaveLevelEvent hook. */
     public static void onEntityLeave(Entity entity, ServerLevel level) {
@@ -188,6 +258,7 @@ public class KineticBlockInteractions {
                     // use() handles per-material open sounds, hand-openable checks (iron
                     // doors PASS) and both door halves — no casting to DoorBlock needed.
                     if (state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hitResult).consumesAction()) {
+                        applyDoorSlamDamage(entity, impactVelocity);
                         continue;
                     }
                     // Not hand-openable (e.g. iron door): fall through to the break check.
@@ -247,10 +318,29 @@ public class KineticBlockInteractions {
             if (hardness < 0 || state.isAir()) continue;
 
             double breakCost = hardness * HARDNESS_BREAK_THRESHOLD_MULTIPLIER;
-            if (kineticEnergy >= breakCost) {
+
+            // Crackable blocks (the ice family) remember damage from earlier
+            // hits: prior cracks lower the energy needed to finish the block.
+            CrackEntry crackKey = null;
+            float priorFraction = 0;
+            if (state.is(FullStopTags.CRACKABLE)) {
+                crackKey = new CrackEntry(level.dimension(), pos.immutable());
+                AccumulatedCrack prior = ACCUMULATED_CRACKS.get(crackKey);
+                if (prior != null && prior.block() == state.getBlock()
+                        && level.getGameTime() - prior.lastHitTime() <= CRACK_HEAL_TICKS) {
+                    priorFraction = prior.fraction();
+                }
+            }
+            double effectiveBreakCost = breakCost * (1.0 - priorFraction);
+
+            if (kineticEnergy >= effectiveBreakCost) {
                 if (level.destroyBlock(pos, true, entity)) {
+                    if (crackKey != null) {
+                        ACCUMULATED_CRACKS.remove(crackKey);
+                        level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
+                    }
                     blockBroken = true;
-                    kineticEnergy -= breakCost;
+                    kineticEnergy -= effectiveBreakCost;
                     if (!isFragile) kineticEnergy *= ENERGY_DAMPING_FACTOR;
                     if (kineticEnergy < 0) kineticEnergy = 0;
                     double newVelocityMag = Math.sqrt(2 * kineticEnergy / totalMass);
@@ -285,27 +375,28 @@ public class KineticBlockInteractions {
             // impact that clearly thumped a wall showed nothing at all.
             double partialThreshold = 0.15;
             double damageRatio = kineticEnergy / breakCost;
-            if (!blockBroken && damageRatio > partialThreshold && damageRatio < 1.0) {
-                int crackStage = (int) (((damageRatio - partialThreshold) / (1.0 - partialThreshold)) * 9);
-                // Only one crack is tracked per entity; if this pass cracks a second
-                // block, clear the first immediately so it can't linger.
-                if (crackPosThisPass != null && !crackPosThisPass.equals(pos)) {
-                    level.destroyBlockProgress(entity.getId(), crackPosThisPass, -1);
-                }
-                level.destroyBlockProgress(entity.getId(), pos, crackStage);
-                crackPosThisPass = pos;
-
-                // Ice cracks PERSISTENTLY: a sub-break impact turns plain ice into
-                // frosted ice (vanilla's cracked-ice texture, age scaled to how
-                // hard the hit was), and frosted ice is tagged fullstop:fragile —
-                // so pristine ice stays hard to smash, but ice that's already
-                // cracked shatters outright on the next solid hit.
-                if (state.is(Blocks.ICE)) {
-                    int age = Math.min(3, (int) (((damageRatio - partialThreshold) / (1.0 - partialThreshold)) * 4));
-                    level.setBlockAndUpdate(pos, Blocks.FROSTED_ICE.defaultBlockState()
-                            .setValue(BlockStateProperties.AGE_3, age));
+            if (!blockBroken && damageRatio > partialThreshold) {
+                if (crackKey != null) {
+                    // Persistent path: the damage sticks to the BLOCK. Capped at
+                    // 0.95 so a heavily cracked block still needs one (trivial)
+                    // finishing hit instead of silently sitting at ≥100%.
+                    float accumulated = Math.min(priorFraction + (float) damageRatio, 0.95f);
+                    ACCUMULATED_CRACKS.put(crackKey,
+                            new AccumulatedCrack(accumulated, level.getGameTime(), state.getBlock()));
+                    level.destroyBlockProgress(crackOverlayId(pos), pos,
+                            Mth.clamp((int) (accumulated * 9.0f), 1, 9));
                     level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
                             1.0f, 0.8f + level.random.nextFloat() * 0.3f);
+                } else if (damageRatio < 1.0) {
+                    // Transient per-entity overlay for everything else.
+                    int crackStage = (int) (((damageRatio - partialThreshold) / (1.0 - partialThreshold)) * 9);
+                    // Only one crack is tracked per entity; if this pass cracks a second
+                    // block, clear the first immediately so it can't linger.
+                    if (crackPosThisPass != null && !crackPosThisPass.equals(pos)) {
+                        level.destroyBlockProgress(entity.getId(), crackPosThisPass, -1);
+                    }
+                    level.destroyBlockProgress(entity.getId(), pos, crackStage);
+                    crackPosThisPass = pos;
                 }
             }
         }
@@ -424,8 +515,31 @@ public class KineticBlockInteractions {
             if (!shouldKineticOpen(state, nativeVelocity)) continue;
 
             fakePlayer = preparedFakePlayer(fakePlayer, level, entity);
-            state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hit);
+            if (state.use(level, fakePlayer, InteractionHand.MAIN_HAND, hit).consumesAction()) {
+                applyDoorSlamDamage(entity, nativeVelocity);
+            }
         }
+    }
+
+    /**
+     * Slamming a door/gate/trapdoor open with your body hurts a little — half a
+     * heart at sprint speed, scaling up with speed. Applied on the kinetic-open
+     * paths only; walking up and clicking a door stays free. Vanilla's
+     * invulnerability window naturally keeps double doors from double-billing.
+     */
+    private static void applyDoorSlamDamage(Entity entity, Vec3 nativeVelocity) {
+        if (!(entity instanceof LivingEntity living)) return;
+        if (DamageImmunityRules.isDamageImmune(living)) return;
+
+        double speedMps = nativeVelocity.length() * 20;
+        float damage = (float) Math.min(
+                DOOR_SLAM_BASE_DAMAGE + Math.max(speedMps - DOOR_OPEN_MIN_SPEED_MPS, 0) * 0.15,
+                DOOR_SLAM_MAX_DAMAGE);
+        living.hurt(FullStopDamageSources.kineticSelf(
+                        living,
+                        FullStopDamageSources.velocityDisplay(speedMps),
+                        false, false, false, false),
+                damage);
     }
 
     /**

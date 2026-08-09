@@ -116,6 +116,41 @@ public final class GravityBlockHandler {
         return SERVER_SPEC.isLoaded() && SERVER.enableGravityBlocks.get();
     }
 
+    /**
+     * Mid-fall cling for falling sticky blocks (slime/honey): a sticky block
+     * falling PAST a solid block grabs onto it instead of continuing down, the
+     * same any-face support rule placed sticky blocks already follow. Called
+     * from FallingBlockEntityMixin at the end of every falling-block tick.
+     */
+    public static void tryStickySideCling(FallingBlockEntity falling) {
+        if (!(falling.level() instanceof ServerLevel level) || !enabled()) return;
+        // Skip the spawn tick(s): the block just lost ALL support (that's why it
+        // fell), so nothing is there to cling to yet — and the check is cheap
+        // only once genuinely falling.
+        if (falling.time <= 2 || falling.onGround() || !falling.isAlive()) return;
+        if (falling.getDeltaMovement().y >= -0.05) return; // only while actually falling
+
+        BlockState state = falling.getBlockState();
+        if (!state.is(FullStopTags.STICKY) || !state.is(FullStopTags.GRAVITY_AFFECTED)) return;
+
+        BlockPos pos = falling.blockPosition();
+        BlockState occupying = level.getBlockState(pos);
+        if (!occupying.isAir() && !occupying.canBeReplaced()) return;
+
+        for (Direction direction : Direction.Plane.HORIZONTAL) {
+            if (FallingBlock.isFree(level.getBlockState(pos.relative(direction)))) continue;
+
+            // Something solid beside the fall path: cling there. The placement
+            // fires neighbor updates, so the support re-check queue sees it and
+            // the block stays exactly as long as its anchor does.
+            level.setBlockAndUpdate(pos, state);
+            level.playSound(null, pos, state.getSoundType().getPlaceSound(),
+                    net.minecraft.sounds.SoundSource.BLOCKS, 1.0f, 0.9f);
+            falling.discard();
+            return;
+        }
+    }
+
     private static void queueIfUnsupported(ServerLevel level, BlockPos pos) {
         if (!level.isLoaded(pos)) return;
 

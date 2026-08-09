@@ -62,11 +62,23 @@ public class PhysicsDispatchServer {
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
         if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel level) {
+            // Keeps persistent ice-crack overlays alive (clients purge unrefreshed
+            // destruction progress) and heals expired ones.
+            KineticBlockInteractions.tickCracks(level);
+
             // Copy: handlers may mount/dismount entities, which mutates the entity list.
             List<Entity> entities = Lists.newArrayList(level.getAllEntities());
             for (Entity entity : entities) {
                 onEntityTick(entity);
             }
+        }
+    }
+
+    /** Drops per-level state (accumulated ice cracks) when a level unloads. */
+    @SubscribeEvent
+    public static void onLevelUnload(net.minecraftforge.event.level.LevelEvent.Unload event) {
+        if (event.getLevel() instanceof ServerLevel serverLevel) {
+            KineticBlockInteractions.onLevelUnload(serverLevel);
         }
     }
 

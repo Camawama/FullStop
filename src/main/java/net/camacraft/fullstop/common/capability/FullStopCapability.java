@@ -61,6 +61,10 @@ public class FullStopCapability {
     private double decelerationForce = 0.0;
     private double decelerationForceHorizontal = 0.0;
     private double decelerationForceVertical = 0.0;
+    // Per-axis horizontal components, for evidence that a specific wall FACE was
+    // hit (flush-stop corroboration in KineticDamageCalculator).
+    private double decelerationForceX = 0.0;
+    private double decelerationForceZ = 0.0;
 
     private double avgAccel = 0.0;
     private double rawAvgAccel = 0.0; // Unaffected by clarity/vertigo potions
@@ -293,14 +297,21 @@ public class FullStopCapability {
         // so the whole vehicle branch was dead.
         boolean clientControlled = entity instanceof Player || entity.getControllingPassenger() instanceof Player;
         if (clientControlled && clientVelocityMps != null) {
-            // The client value may REFINE the measurement, never replace it:
-            // accept it only when it is close to the measured delta in BOTH
-            // directions. The old inflation-only clamp let a cheat client
-            // under-report constantly, zeroing its own velocity history — and
-            // with it all stopping force (= kinetic-damage immunity).
+            // The client value may REFINE the measurement UPWARD only — it exists
+            // to capture intent the server position hasn't integrated yet (the
+            // first tick of a jump or dash), bounded by the plausibility band so
+            // a cheat client can't inflate it either. It must NEVER replace the
+            // measurement with a smaller value: vanilla multiplies deltaMovement
+            // by ground friction (~0.55) AFTER moving, so a grounded runner's
+            // end-of-tick report is systematically ~half their real speed — and
+            // the old both-ways band accepted it every tick, which halved every
+            // grounded impact's stopping force (ground-level wall slams dealt no
+            // damage at speeds where the same airborne slam hurt). A cheat
+            // client under-reporting now simply falls back to the measurement.
             double toleranceSqr = Math.max(1.0, actualVelocity.lengthSqr() * 0.25);
             boolean plausible = clientVelocityMps.subtract(actualVelocity).lengthSqr() <= toleranceSqr;
-            if (!entity.horizontalCollision && !entity.verticalCollision && plausible) {
+            boolean refinesUpward = clientVelocityMps.lengthSqr() >= actualVelocity.lengthSqr();
+            if (!entity.horizontalCollision && !entity.verticalCollision && plausible && refinesUpward) {
                 velocityMps = clientVelocityMps;
             } else {
                 velocityMps = actualVelocity;
@@ -365,6 +376,8 @@ public class FullStopCapability {
 
         decelerationForceHorizontal = Math.sqrt(stoppingForceX * stoppingForceX + stoppingForceZ * stoppingForceZ);
         decelerationForceVertical = stoppingForceY;
+        decelerationForceX = stoppingForceX;
+        decelerationForceZ = stoppingForceZ;
         decelerationForce = Math.sqrt(
                 stoppingForceX * stoppingForceX +
                         stoppingForceY * stoppingForceY +
@@ -542,6 +555,13 @@ public class FullStopCapability {
     /** Vertical speed lost this tick, m/s. */
     public double getVerticalStoppingForce() {
         return decelerationForceVertical;
+    }
+
+    /** Speed lost this tick on one horizontal axis (m/s). See flush-stop corroboration. */
+    public double getAxisStoppingForce(Direction.Axis axis) {
+        return axis == Direction.Axis.X ? decelerationForceX
+                : axis == Direction.Axis.Z ? decelerationForceZ
+                : decelerationForceVertical;
     }
 
     /** Velocity change this tick (m/s per tick). */

@@ -12,7 +12,15 @@ public class FullStopConfig {
     public static final float DEFAULT_MINIMUM_DMG = 0.30F;
     public static final float DEFAULT_MAXIMUM_DMG = Float.MAX_VALUE;
     public static final float DEFAULT_PROJECTILE_MULTIPLIER = 1.00F;
-    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 12.77f;
+    // Reference speeds (m/s): walk 4.3, sprint 5.6, sprint-jump peak 9.6 (the
+    // jump adds a flat +4), Speed IV sprint 10.1, Speed V sprint 11.2. 10.5
+    // keeps every unboosted movement safe with margin while Speed V+ runs and
+    // any real launch (elytra, slime cannon) hurt. The old 12.77 sat exactly in
+    // the sprint-jump band: Speed-boosted GROUND runs stayed under it while the
+    // same run plus a jump crossed it — which read as "wall damage only works
+    // when my feet leave the ground".
+    public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 10.5f;
+    // ≈ the impact speed of a 3-block fall, vanilla's safe-fall limit.
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     public static final ForgeConfigSpec SERVER_SPEC;
@@ -149,9 +157,10 @@ public class FullStopConfig {
             builder.push("Kinetic Damage settings");
 
             this.velocityDamageThresholdHorizontal = builder
-                    .comment("This value determines how fast an entity must be moving in order to apply kinetic damage horizontally. Very low values may be unplayable!")
+                    .comment("How fast an entity must be moving (m/s) for a horizontal impact to deal kinetic damage. Very low values may be unplayable!",
+                            "Reference speeds: walk 4.3, sprint 5.6, sprint-jump peak 9.6, Speed IV sprint 10.1, Speed V sprint 11.2.")
                     .translation(key("velocityDamageThresholdHorizontal"))
-                    .comment("Default: 12.77")
+                    .comment("Default: 10.5")
                     .defineInRange("velocityDamageThresholdHorizontal", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL, 0, 100);
 
             this.velocityDamageThresholdVertical = builder

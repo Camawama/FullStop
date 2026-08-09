@@ -68,7 +68,8 @@ public final class BlockPhasing {
         AABB box = entity.getBoundingBox().deflate(0.01);
         BlockState engulfingState = null;
         BlockPos engulfingPos = null;
-        boolean phasing = false;
+        BlockState phasingState = null;
+        BlockPos phasingPos = null;
 
         for (BlockPos pos : BlockPos.betweenClosed(
                 Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),
@@ -79,16 +80,39 @@ public final class BlockPhasing {
                 engulfingPos = pos.immutable();
                 break;
             }
-            if (state.is(FullStopTags.PHASEABLE)) {
-                phasing = true;
+            if (phasingState == null && state.is(FullStopTags.PHASEABLE)) {
+                phasingState = state;
+                phasingPos = pos.immutable();
             }
         }
 
         if (engulfingState != null) {
             entity.setDeltaMovement(velocity.scale(ENGULFING_DRAG));
             burrowEffects(entity, engulfingState, engulfingPos);
-        } else if (phasing) {
+        } else if (phasingState != null) {
             entity.setDeltaMovement(velocity.scale(PHASEABLE_DRAG));
+            phaseEffects(entity, phasingState, phasingPos);
+        }
+    }
+
+    /**
+     * Rustle for phasing through soft blocks (leaves): a spray of the block's
+     * own particles and its quiet hit sound, so crashing through a canopy is
+     * heard and seen instead of being a silent clip. Kept subtler than
+     * {@link #burrowEffects} — brushing through leaves is not being buried.
+     */
+    private static void phaseEffects(LivingEntity entity, BlockState state, BlockPos pos) {
+        if (!(entity.level() instanceof ServerLevel serverLevel)) return;
+
+        serverLevel.sendParticles(new BlockParticleOption(ParticleTypes.BLOCK, state),
+                entity.getX(), entity.getY(0.5), entity.getZ(),
+                6,
+                entity.getBbWidth() * 0.4, entity.getBbHeight() * 0.3, entity.getBbWidth() * 0.4,
+                0.08);
+
+        if (serverLevel.random.nextFloat() < 0.35f) {
+            serverLevel.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
+                    0.4f, 0.9f + serverLevel.random.nextFloat() * 0.3f);
         }
     }
 

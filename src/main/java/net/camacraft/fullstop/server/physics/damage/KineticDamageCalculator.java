@@ -4,14 +4,19 @@ import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.math.VanillaFallMath;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -69,7 +74,8 @@ public class KineticDamageCalculator {
         // grounded stop with no wall at all (ice runway into soul sand, boat
         // dismounts, cobwebs).
         boolean verticalEvidence = fullstop.hadRecentVerticalHit() || entity.onGround() || shipEvidence;
-        boolean horizontalEvidence = fullstop.hadRecentHorizontalHit() || shipEvidence;
+        boolean horizontalEvidence = fullstop.hadRecentHorizontalHit() || shipEvidence
+                || hasFlushStopAgainstWall(entity, fullstop, collision);
         if (blockImpact && !verticalEvidence && !horizontalEvidence) {
             return 0;
         }
@@ -238,6 +244,49 @@ public class KineticDamageCalculator {
         }
 
         return damage * SERVER.kineticDamageMultiplier.get();
+    }
+
+    /**
+     * Flag-independent wall-hit evidence: the entity is parked flush against an
+     * opposing face it approached, with the speed on that face's axis actually
+     * gone. Only a physical hit produces that end state — a near-miss elytra
+     * turn keeps moving (never flush + residual speed), and rubbing along a
+     * wall keeps its tangential speed but shows no normal-axis stopping force.
+     * Exists because the client's collision-flag report is the PRIMARY horizontal
+     * evidence, and any path that loses it (desync, other mods intercepting
+     * movement) silently zeroed all grounded wall damage.
+     */
+    private static boolean hasFlushStopAgainstWall(Entity entity, FullStopCapability fullstop, Collision collision) {
+        AABB box = entity.getBoundingBox();
+        Vec3 current = fullstop.getCurrentScaledVelocity();
+
+        for (BlockHitResult hit : collision.impactedHits) {
+            Direction face = hit.getDirection();
+            if (!face.getAxis().isHorizontal()) continue;
+
+            // Speed must actually have been lost on this face's axis this tick.
+            if (fullstop.getAxisStoppingForce(face.getAxis())
+                    < CommonCollisionDetector.MIN_APPROACH_SPEED_MPS) continue;
+
+            BlockPos pos = hit.getBlockPos();
+            double facePlane;
+            double entitySide;
+            double residualMps;
+            if (face.getAxis() == Direction.Axis.X) {
+                facePlane = face == Direction.WEST ? pos.getX() : pos.getX() + 1.0;
+                entitySide = face == Direction.WEST ? box.maxX : box.minX;
+                residualMps = Math.abs(current.x);
+            } else {
+                facePlane = face == Direction.NORTH ? pos.getZ() : pos.getZ() + 1.0;
+                entitySide = face == Direction.NORTH ? box.maxZ : box.minZ;
+                residualMps = Math.abs(current.z);
+            }
+
+            if (Math.abs(entitySide - facePlane) > 0.1) continue; // not actually against the face
+            if (residualMps > 1.5) continue;                      // still moving through — not a stop
+            return true;
+        }
+        return false;
     }
 
     /**
