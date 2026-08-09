@@ -141,6 +141,16 @@ public final class RaycastLineRenderer {
                         sweptBox, blockHit.getBlockPos(), blockHit.getDirection())) {
                     collisionGrade = false;
                 }
+                // Same buried-face rule as the classifier: internal seams of a
+                // continuous wall are not real surfaces.
+                if (collisionGrade) {
+                    net.minecraft.core.BlockPos facingPos = blockHit.getBlockPos().relative(blockHit.getDirection());
+                    net.minecraft.world.level.block.state.BlockState facingState = level.getBlockState(facingPos);
+                    if (facingState.getBlock() == level.getBlockState(blockHit.getBlockPos()).getBlock()
+                            || facingState.isFaceSturdy(level, facingPos, blockHit.getDirection().getOpposite())) {
+                        collisionGrade = false;
+                    }
+                }
             }
 
             float r = hitBlock ? (collisionGrade ? HIT_R : TOUCH_R) : MISS_R;

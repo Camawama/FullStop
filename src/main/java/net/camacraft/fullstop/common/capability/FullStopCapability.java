@@ -678,12 +678,30 @@ public class FullStopCapability {
     // flight, which read as an arbitrary interval.
     private boolean supersonic = false;
 
+    // The pressure wave: players who have already been swept by THIS
+    // supersonic episode's shock cone. Each bystander the flyer passes hears
+    // the boom exactly once; the set resets when the entity drops subsonic so
+    // a new crossing booms everyone again. Lazily allocated — supersonic
+    // entities are rare.
+    private java.util.Set<java.util.UUID> boomHeardBy = null;
+
     public boolean isSupersonic() {
         return supersonic;
     }
 
     public void setSupersonic(boolean supersonic) {
         this.supersonic = supersonic;
+        if (!supersonic) {
+            boomHeardBy = null;
+        }
+    }
+
+    /** Marks a listener as swept by the current shock cone; true if newly marked. */
+    public boolean markBoomHeard(java.util.UUID listener) {
+        if (boomHeardBy == null) {
+            boomHeardBy = new java.util.HashSet<>();
+        }
+        return boomHeardBy.add(listener);
     }
 
     public int getWaterSkipCooldown() {

@@ -38,6 +38,11 @@ public final class RideStackHandler {
     private static final double WATER_SINK_PER_MASS_RATIO = 0.03;
     private static final double MAX_SINK_MASS_RATIO = 2.0;
 
+    /** Passenger/vehicle mass ratio above which the load injures the carrier. */
+    private static final double CRUSH_MASS_RATIO = 1.5;
+    private static final int CRUSH_INTERVAL_TICKS = 40;
+    private static final float CRUSH_DAMAGE_PER_RATIO = 2.0f;
+
     private RideStackHandler() {
     }
 
@@ -85,6 +90,17 @@ public final class RideStackHandler {
             double sink = WATER_SINK_PER_MASS_RATIO
                     * Math.min(passengerMass / vehicleMass, MAX_SINK_MASS_RATIO);
             mob.setDeltaMovement(mob.getDeltaMovement().add(0, -sink, 0));
+        }
+
+        // Too much weight CRUSHES the carrier. Every mob in a stack evaluates
+        // the mass above ITSELF, so the bottom of a tall tower suffers most
+        // and a collapsing stack sheds from the bottom up. A single rider of
+        // similar size (ratio ~1) is safe; roughly 1.5× the carrier's own mass
+        // is where injury starts.
+        double massRatio = passengerMass / vehicleMass;
+        if (massRatio > CRUSH_MASS_RATIO && mob.tickCount % CRUSH_INTERVAL_TICKS == 0) {
+            float crushDamage = (float) ((massRatio - CRUSH_MASS_RATIO) * CRUSH_DAMAGE_PER_RATIO);
+            mob.hurt(mob.damageSources().cramming(), crushDamage);
         }
     }
 }

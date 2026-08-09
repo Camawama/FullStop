@@ -1,6 +1,10 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-09c (living mounts + bubble HUD fix + barrier-crossing sonic boom)
+**Build:** working tree, 2026-08-09d (shallow slime bounces + stack crushing + pressure-wave sonic boom)
+
+- [ ] **Hit a long slime wall at a SHALLOW angle (10-30°) at speed, repeatedly.** *Expect:* always deflected OUT along the wall, keeping most forward speed — never mirrored backwards, never a back-and-forth settle. Head-on hits unchanged (full mirror).
+- [ ] **Stack 3+ mobs (or drop an iron golem onto a cow).** *Expect:* the BOTTOM carrier starts taking periodic squish damage ("was squished too much" on death); a single similar-sized rider deals none. The stack sheds from the bottom up as carriers die.
+- [ ] **Two players + supersonic flyby (VS ship or command).** *Expect:* flyer booms once at the crossing; the bystander hears ONE boom exactly when the flyer passes within ~96 blocks (louder the closer), and never again during that supersonic run. Drop subsonic, cross again → everyone booms once more.
 
 - [ ] **Jump onto a cow (entity collisions on).** *Expect:* it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
 - [ ] **Stack test: cow on cow (or two mobs on one).** *Expect:* the carrier is slower the heavier the stack.

@@ -315,28 +315,44 @@ public class PhysicsDispatchServer {
      */
     private static final double RESUBSONIC_SPEED_SQR = 330.0 * 330.0;
 
+    /** How far the shock cone reaches: players within this of a passing supersonic entity get the boom. */
+    private static final double BOOM_HEARING_RANGE = 96.0;
+    private static final double BOOM_HEARING_RANGE_SQR = BOOM_HEARING_RANGE * BOOM_HEARING_RANGE;
+
     /**
-     * A sonic boom is the CROSSING of the sound barrier, not a state: one boom
-     * fires on the subsonic→supersonic transition, then nothing for the rest
-     * of the supersonic flight — no matter how long it lasts — until the
-     * entity drops back below the barrier and breaks it again. (The old
-     * version re-boomed on a 1-second cooldown for as long as the speed held,
-     * which read as an arbitrary interval.) The two-consecutive-tick
-     * requirement stays: a respawn/teleport position jump reads as one huge
-     * single-tick velocity, while genuine supersonic flight sustains it.
+     * A sonic boom is a moving PRESSURE WAVE, modelled per listener: the boom
+     * fires once for the flyer at the subsonic→supersonic crossing (the
+     * particle marks that spot), and then every player the supersonic entity
+     * passes is swept by the shock cone exactly once — full-presence sound at
+     * their own ears, louder the closer the flyby, tracked per supersonic
+     * episode so nobody hears it twice until the entity drops subsonic (with
+     * hysteresis) and breaks the barrier again. Cost while supersonic is one
+     * distance check per player per tick; zero otherwise.
      */
     private static void sonicBoom(Entity entity, FullStopCapability fullstop) {
         double speedSqr = fullstop.getCurrentScaledVelocity().lengthSqr();
         boolean sustainedSupersonic = speedSqr >= SONIC_BOOM_SPEED_SQR
                 && fullstop.getPreviousScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR;
 
-        if (sustainedSupersonic && !fullstop.isSupersonic()) {
-            if (entity.level() instanceof ServerLevel serverLevel) {
-                serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
-                FSSoundPlayer.playSoundServer(entity, SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, 4.0f,
-                        (1.0f + (entity.level().random.nextFloat() - entity.level().random.nextFloat()) * 0.2f) * 0.7f);
-                FSSoundPlayer.playSoundServer(entity, SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, 4.0f, 2.0f);
+        if (!(entity.level() instanceof ServerLevel serverLevel)) return;
+
+        if (sustainedSupersonic) {
+            if (!fullstop.isSupersonic()) {
                 fullstop.setSupersonic(true);
+                serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
+            }
+
+            for (net.minecraft.server.level.ServerPlayer player : serverLevel.players()) {
+                double distSqr = player.distanceToSqr(entity);
+                if (distSqr > BOOM_HEARING_RANGE_SQR) continue;
+                if (!fullstop.markBoomHeard(player.getUUID())) continue;
+
+                // The wave arrives AT the listener: closer flybys hit harder.
+                float presence = 1.0f - (float) (Math.sqrt(distSqr) / BOOM_HEARING_RANGE);
+                float volume = 1.0f + 3.0f * presence;
+                player.playNotifySound(SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, volume,
+                        (1.0f + (serverLevel.random.nextFloat() - serverLevel.random.nextFloat()) * 0.2f) * 0.7f);
+                player.playNotifySound(SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, volume, 2.0f);
             }
         } else if (fullstop.isSupersonic() && speedSqr < RESUBSONIC_SPEED_SQR) {
             fullstop.setSupersonic(false);

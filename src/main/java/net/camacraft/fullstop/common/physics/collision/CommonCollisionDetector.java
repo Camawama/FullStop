@@ -223,6 +223,23 @@ public class CommonCollisionDetector {
                         && !(entity instanceof net.minecraft.world.entity.projectile.Projectile)) {
                     isOpposing = false;
                 }
+
+                // A face BURIED against a neighboring block is not a real
+                // surface. A shallow-angle approach sweeps genuinely INTO the
+                // wall column, so rays can graze the INTERNAL seams between the
+                // wall's blocks — faces whose normals oppose the TANGENTIAL
+                // travel at full speed. mostOpposedNormal then preferred a seam
+                // over the true wall surface and mirrored shallow slime hits
+                // BACKWARDS (then back and forth until the speed died).
+                // Last check deliberately: it costs a getBlockState.
+                if (isOpposing) {
+                    BlockPos facingPos = hitPos.relative(hitFace);
+                    BlockState facingState = level.getBlockState(facingPos);
+                    if (facingState.getBlock() == hitState.getBlock()
+                            || facingState.isFaceSturdy(level, facingPos, hitFace.getOpposite())) {
+                        isOpposing = false;
+                    }
+                }
             }
 
             if (!isOpposing || collidedBlockPositions.contains(hitPos)) continue;
