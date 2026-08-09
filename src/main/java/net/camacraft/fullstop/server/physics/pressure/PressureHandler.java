@@ -66,10 +66,6 @@ public class PressureHandler {
 
         if (!suffering) return;
 
-        // Respiration slows the thin-air drain the same way it slows drowning:
-        // skip this tick's loss with probability level/(level+1).
-        if (respirationSpares(living)) return;
-
         double altitudeFactor = Math.min(1.0, (living.getY() - altitudeStart) / ALTITUDE_FULL_SEVERITY_RANGE);
         double rampFactor = Math.min(1.0, exposure / (double) EXPOSURE_RAMP_TICKS);
 
@@ -92,17 +88,30 @@ public class PressureHandler {
 
         double extraLoss = Math.max(1.0, rawExtraLoss) / lungCapacity;
 
+        // Respiration slows the thin-air drain the same way it slows drowning —
+        // by sparing THE EXTRA LOSS, never the regen compensation below.
+        // Skipping the whole tick let vanilla's +4/tick regen push air back UP
+        // on every spared tick: the bubble HUD flickered pop animations
+        // non-stop, and with Respiration III (3 of 4 ticks spared) air ROSE on
+        // net — the bubbles never went down at all. A spared tick now holds
+        // air exactly level, matching how Respiration reads underwater.
+        int extra = Math.max(1, (int) Math.round(extraLoss));
+        if (respirationSpares(living)) extra = 0;
+
         // +4 compensates vanilla's out-of-water air regen (+4/tick, LivingEntity
         // baseTick) — without it any loss below 4 was silently regenerated and
         // the whole system was inert until far above the start level.
-        int airLoss = 4 + Math.max(1, (int) Math.round(extraLoss));
+        int airLoss = 4 + extra;
 
         // Clamp to -20 so damage cadence doesn't depend on how far past the
         // threshold a single tick overshoots.
         int nextAir = Math.max(living.getAirSupply() - airLoss, -20);
         living.setAirSupply(nextAir);
 
-        if (nextAir <= -20) {
+        // Spared ticks (extra == 0) never damage, like vanilla drowning ticks
+        // spared by Respiration — the -4 above is transient bookkeeping that
+        // vanilla's regen returns later this tick.
+        if (extra > 0 && nextAir <= -20) {
             living.setAirSupply(0);
             living.hurt(FullStopDamageSources.atmosphere(living), 2.0F);
         }

@@ -82,7 +82,6 @@ public class FullStopCapability {
     private int teleportCooldown = 0;
     private int dismountCooldown = 0;
     private int soundCooldown = 0;
-    private int sonicBoomCooldown = 0;
     private int waterSkipCooldown = 0;
     private int bounceCooldown = 0;
     private int sloshCooldown = 0;
@@ -175,10 +174,6 @@ public class FullStopCapability {
 
         if (soundCooldown > 0) {
             soundCooldown--;
-        }
-
-        if (sonicBoomCooldown > 0) {
-            sonicBoomCooldown--;
         }
 
         if (waterSkipCooldown > 0) {
@@ -675,12 +670,20 @@ public class FullStopCapability {
         return soundCooldown <= 0;
     }
 
-    public void setSonicBoomCooldown(int ticks) {
-        this.sonicBoomCooldown = ticks;
+    // Whether the entity is currently past the sound barrier. A sonic boom is
+    // the CROSSING, not a state: one boom fires on the subsonic→supersonic
+    // transition, then nothing until the entity has genuinely dropped back
+    // below the barrier (with hysteresis) and crosses again. The old
+    // cooldown-based version re-boomed every second of sustained supersonic
+    // flight, which read as an arbitrary interval.
+    private boolean supersonic = false;
+
+    public boolean isSupersonic() {
+        return supersonic;
     }
 
-    public boolean canSonicBoom() {
-        return sonicBoomCooldown <= 0;
+    public void setSupersonic(boolean supersonic) {
+        this.supersonic = supersonic;
     }
 
     public int getWaterSkipCooldown() {

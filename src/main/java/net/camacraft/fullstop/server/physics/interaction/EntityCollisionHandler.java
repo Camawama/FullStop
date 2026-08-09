@@ -9,6 +9,7 @@ import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.player.Player;
@@ -149,7 +150,9 @@ public final class EntityCollisionHandler {
             double yDiff = entity.getY() - closest.other.getY();
             if (yDiff < -entity.getBbHeight() * 0.5 && v1Initial.y > 0.2) {
                 if (canRideSafely(closest.other, entity)) {
-                    closest.other.startRiding(entity, true);
+                    if (closest.other.startRiding(entity, true)) {
+                        applyMountPanic(entity, closest.other);
+                    }
                     return;
                 }
             }
@@ -245,9 +248,26 @@ public final class EntityCollisionHandler {
     public static boolean tryStartRidingSafely(Entity rider, Entity vehicle, FullStopCapability fullstop) {
         if (canRideSafely(rider, vehicle)) {
             if (Objects.requireNonNull(fullstop).getDismountCooldown() > 0) return false;
-            return rider.startRiding(vehicle, true);
+            if (rider.startRiding(vehicle, true)) {
+                applyMountPanic(vehicle, rider);
+                return true;
+            }
         }
         return false;
+    }
+
+    /**
+     * A mob that gets LANDED ON panics — something just dropped out of the sky
+     * onto its back. Applies only to FullStop's collision mounts (this class),
+     * never to saddled riding: setLastHurtByMob drives the vanilla PanicGoal
+     * (which has no is-vehicle check, so it runs while ridden), and the mixin
+     * that lets unsteered vehicles wander keeps it mobile enough to bolt.
+     */
+    static void applyMountPanic(Entity vehicle, Entity rider) {
+        if (vehicle instanceof Mob mobVehicle && rider instanceof LivingEntity livingRider
+                && !mobVehicle.level().isClientSide && !mobVehicle.isNoAi()) {
+            mobVehicle.setLastHurtByMob(livingRider);
+        }
     }
 
     public static boolean canRideSafely(Entity rider, Entity vehicle) {

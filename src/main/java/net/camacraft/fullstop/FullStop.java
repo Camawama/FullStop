@@ -56,6 +56,7 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.RideStackHandler.class);
         MinecraftForge.EVENT_BUS.register(GravityBlockHandler.class);
         MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(BlockPhasing.class);

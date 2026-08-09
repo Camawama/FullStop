@@ -11,7 +11,8 @@
     "SlimeBlockNoBounceMixin",
     "PhaseableBlockMixin",
     "BoatLerpMixin",
-    "EntityPushMixin"
+    "EntityPushMixin",
+    "RandomStrollGoalMixin"
   ],
   "injectors": {
     "defaultRequire": 1

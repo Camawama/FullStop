@@ -1,6 +1,14 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-09b (summoned-mob wall damage + hook mass floor + rapid double-bounces)
+**Build:** working tree, 2026-08-09c (living mounts + bubble HUD fix + barrier-crossing sonic boom)
+
+- [ ] **Jump onto a cow (entity collisions on).** *Expect:* it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
+- [ ] **Stack test: cow on cow (or two mobs on one).** *Expect:* the carrier is slower the heavier the stack.
+- [ ] **Ride/push a loaded mob into deep water.** *Expect:* the carrier rides low / gets pushed under proportionally to the load — cow-on-cow submerges the lower one; unridden mobs float exactly as vanilla.
+- [ ] **Saddled horse/pig regression.** *Expect:* steered mounts behave exactly as vanilla — no panic on mounting, no wandering while you steer.
+- [ ] **Go above the altitude threshold with NO helmet.** *Expect:* bubbles drain smoothly downward — no flickering pop animations, no bouncing up and down.
+- [ ] **Same with Respiration III.** *Expect:* bubbles drain ~4× slower but STILL go down steadily; spared ticks hold level, never rise. No blinking.
+- [ ] **Fly supersonic (343+ m/s, VS ship or command).** *Expect:* ONE boom exactly when crossing the barrier; silence while staying supersonic however long; slow below ~330 and accelerate past 343 again → exactly one more boom.
 
 - [ ] **`/summon minecraft:cow ~ ~1 ~ {Motion:[2.0,0.0,0.0]}` aimed at a wall a few blocks away.** *Expect:* the cow takes wall damage on impact (it was inside a 5-tick spawn immunity before). Falls unchanged.
 - [ ] **Throw the hook at ice and let it LATCH.** *Expect:* exactly ONE crack step per throw — the crack must not deepen further (or break through) while the hook sits anchored. Repeated separate throws still accumulate.

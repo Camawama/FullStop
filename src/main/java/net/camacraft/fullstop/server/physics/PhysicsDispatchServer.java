@@ -308,20 +308,38 @@ public class PhysicsDispatchServer {
 
     /** 343 m/s (speed of sound), squared for allocation- and sqrt-free comparison. */
     private static final double SONIC_BOOM_SPEED_SQR = 343.0 * 343.0;
+    /**
+     * Re-arm threshold, with hysteresis below the barrier: the boom state only
+     * clears once the entity is CLEARLY subsonic again, so speed jitter right
+     * at 343 m/s can't machine-gun booms.
+     */
+    private static final double RESUBSONIC_SPEED_SQR = 330.0 * 330.0;
 
+    /**
+     * A sonic boom is the CROSSING of the sound barrier, not a state: one boom
+     * fires on the subsonic→supersonic transition, then nothing for the rest
+     * of the supersonic flight — no matter how long it lasts — until the
+     * entity drops back below the barrier and breaks it again. (The old
+     * version re-boomed on a 1-second cooldown for as long as the speed held,
+     * which read as an arbitrary interval.) The two-consecutive-tick
+     * requirement stays: a respawn/teleport position jump reads as one huge
+     * single-tick velocity, while genuine supersonic flight sustains it.
+     */
     private static void sonicBoom(Entity entity, FullStopCapability fullstop) {
-        // Supersonic on two consecutive ticks: a real supersonic entity sustains its
-        // speed, while a respawn/teleport position jump reads as huge for one tick only.
-        if (fullstop.getCurrentScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR
-                && fullstop.getPreviousScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR
-                && fullstop.canSonicBoom()) {
+        double speedSqr = fullstop.getCurrentScaledVelocity().lengthSqr();
+        boolean sustainedSupersonic = speedSqr >= SONIC_BOOM_SPEED_SQR
+                && fullstop.getPreviousScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR;
+
+        if (sustainedSupersonic && !fullstop.isSupersonic()) {
             if (entity.level() instanceof ServerLevel serverLevel) {
                 serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
                 FSSoundPlayer.playSoundServer(entity, SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, 4.0f,
                         (1.0f + (entity.level().random.nextFloat() - entity.level().random.nextFloat()) * 0.2f) * 0.7f);
                 FSSoundPlayer.playSoundServer(entity, SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, 4.0f, 2.0f);
-                fullstop.setSonicBoomCooldown(20);
+                fullstop.setSupersonic(true);
             }
+        } else if (fullstop.isSupersonic() && speedSqr < RESUBSONIC_SPEED_SQR) {
+            fullstop.setSupersonic(false);
         }
     }
 
