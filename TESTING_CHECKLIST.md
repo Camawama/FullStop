@@ -1,7 +1,12 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-08h (vanilla push suppressed for the ex-rider/ex-boat pair — no more veer)
+**Build:** working tree, 2026-08-08i (stair corners + non-living rammers + debug ray symmetry + mod-entity tags)
 
+- [ ] **Jump repeatedly onto the CORNERS of stairs from 1-3 blocks up.** *Expect:* only normal (tiny/zero) fall damage — no phantom spikes, no deaths. Also hop along slab edges and up/down staircases at sprint.
+- [ ] **Spawn a fast boat at a STANDING player (dispenser/summon with Motion).** *Expect:* damage on hit, standing or moving — and the death message names the boat ("was hit by Boat"), not "experienced kinetic energy". Sprint into a parked boat fatally: "slammed into Boat".
+- [ ] **Rub along walls in ALL four directions with F3+V.** *Expect:* rays touching the wall stay YELLOW in every direction — north/west no longer flash-then-green.
+- [ ] **Tag a modded projectile (e.g. grappling hook) into `fullstop:bouncing_projectiles` via datapack, fire it at slime.** *Expect:* it bounces off instead of latching. Untagged projectiles (arrows) unchanged — they stick.
+- [ ] **Tag an entity into `fullstop:physics_blacklist`.** *Expect:* FullStop ignores it entirely (no bounces, no kinetic damage, no collisions).
 - [ ] **Shift-dismount a boat at speed (retest #4).** *Expect:* you fly out forward, the boat glides STRAIGHT on without you — no sideways veer, no speed dump into you. After ~2 s you and the boat push each other normally again (walk into it: it nudges).
 - [ ] **Dismount at speed, WAIT for the boat to fully stop, re-enter it.** *Expect:* the boat stays put — no ghost launch with its old speed. Then retest boarding a boat that IS moving: momentum still transfers.
 

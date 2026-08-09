@@ -76,6 +76,22 @@ public final class FullStopTags {
     /** Entities that never take kinetic damage (bosses, flying/agile/soft-bodied mobs). */
     public static final TagKey<EntityType<?>> KINETIC_IMMUNE = entityTag("kinetic_immune");
 
+    /**
+     * Entities FullStop ignores COMPLETELY — no velocity tracking, no
+     * collisions, no bounces, no damage. Empty by default; a blacklist for
+     * modded entities that manage their own physics and fight FullStop's.
+     */
+    public static final TagKey<EntityType<?>> PHYSICS_BLACKLIST = entityTag("physics_blacklist");
+
+    /**
+     * Projectile-type entities that get FullStop's collision physics (slime
+     * bounces above all). Projectiles are normally excluded — vanilla ones own
+     * their impacts (arrows stick, tridents return) — but modded projectiles
+     * like grappling hooks can opt in here: the one-tick-lookahead bounce
+     * redirects them BEFORE their own onHit fires. Empty by default.
+     */
+    public static final TagKey<EntityType<?>> BOUNCING_PROJECTILES = entityTag("bouncing_projectiles");
+
     private static TagKey<Block> blockTag(String name) {
         return TagKey.create(Registries.BLOCK, new ResourceLocation(FullStop.MODID, name));
     }

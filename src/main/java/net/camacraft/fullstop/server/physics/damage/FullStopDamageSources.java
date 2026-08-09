@@ -161,19 +161,29 @@ public final class FullStopDamageSources {
 
     // --- Entity-collision damage -------------------------------------------
 
-    /** The moving entity is treated as the attacker (kill credit goes to it). */
+    /**
+     * The moving entity is treated as the attacker (kill credit goes to it).
+     * Accepts ANY entity: a boat or minecart ramming someone must show up as
+     * "was hit by Boat", not the generic kinetic message — non-living attackers
+     * use the kinetic damage type with the attacker attached.
+     */
     public static DamageSource entityAttacker(DamageSources sources,
-                                              LivingEntity attacker,
+                                              Entity attacker,
                                               VelocityDisplay velocity,
                                               boolean mostlyDownward) {
-        DamageSource base = (attacker instanceof Player p)
-                ? sources.playerAttack(p)
-                : sources.mobAttack(attacker);
+        Holder<DamageType> type;
+        if (attacker instanceof Player p) {
+            type = sources.playerAttack(p).typeHolder();
+        } else if (attacker instanceof LivingEntity living) {
+            type = sources.mobAttack(living).typeHolder();
+        } else {
+            type = holder(attacker, KINETIC);
+        }
 
         // Passing the attacker through the real constructor (not a getEntity()
         // override) sets the direct entity, so kill credit, knockback attribution
         // and the mitigation event all see the attacker.
-        return new KineticSource(base.typeHolder(), attacker) {
+        return new KineticSource(type, attacker) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
@@ -188,9 +198,9 @@ public final class FullStopDamageSources {
         };
     }
 
-    /** Damage the moving entity does to itself by ramming another entity. */
+    /** Damage the moving entity does to itself by ramming another entity (any type — "slammed into Boat"). */
     public static DamageSource entityCollisionSelf(Entity entity,
-                                                   LivingEntity collided,
+                                                   Entity collided,
                                                    VelocityDisplay velocity,
                                                    boolean mostlyDownward,
                                                    boolean mostlyUpward) {
@@ -220,7 +230,7 @@ public final class FullStopDamageSources {
 
     /** Two fast movers hitting each other. */
     public static DamageSource entityMutualCollision(Entity entity,
-                                                     LivingEntity collided,
+                                                     Entity collided,
                                                      VelocityDisplay velocity) {
         return new KineticSource(holder(entity, KINETIC)) {
             @Override

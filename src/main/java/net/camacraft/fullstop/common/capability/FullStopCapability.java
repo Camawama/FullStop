@@ -395,6 +395,17 @@ public class FullStopCapability {
         double stoppingForceY;
         if (actualVelocity.y > 0 && (prevOnGround || prevPrevOnGround)) {
             stoppingForceY = calculateStoppingForceComponent(0.0, oldY);
+        } else if (oldY > 0 && (prevOnGround || prevPrevOnGround)
+                && oldY <= Math.max(13.0, entity.maxUpStep() * 20.0 + 1.0)) {
+            // The mirror case: a step/jump-scale upward spike already IN the
+            // history, recorded on a tick where onGround flickered false (stair
+            // and slab CORNERS do this — auto-step pops the entity up by as
+            // much as maxUpStep, 12 m/s, mid-move). Sign-flipping that spike
+            // against the next falling tick billed it as a violent bounce:
+            // hopping onto the corner of stairs dealt repeated phantom hits
+            // that could kill from a two-block drop. Near-ground upward motion
+            // at self-power scale is not momentum — measure against zero.
+            stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, 0.0);
         } else {
             stoppingForceY = calculateStoppingForceComponent(actualVelocity.y, oldY);
         }

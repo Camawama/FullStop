@@ -36,8 +36,13 @@ public class RaycastUtil {
 
     /** Ray length in blocks: how far the entity travelled going into the impact, plus a contact margin. */
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
-        // Projectiles have their own impact handling; FullStop does not raycast for them.
-        if (entity instanceof Projectile) {
+        // Projectiles own their impacts (arrows stick, tridents return), so
+        // FullStop does not raycast for them — unless a pack opts one in via
+        // fullstop:bouncing_projectiles (modded grappling hooks and the like),
+        // in which case the pre-contact bounce redirects it before its own
+        // onHit ever fires.
+        if (entity instanceof Projectile
+                && !entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.BOUNCING_PROJECTILES)) {
             return 0;
         }
         return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH) + 0.01;
@@ -60,8 +65,20 @@ public class RaycastUtil {
         return minY;
     }
 
+    /**
+     * Ray starts are inflated outward by this margin. floor() handedness: a
+     * corner sitting exactly ON a block boundary is traversed in the +axis
+     * cell, so flush wall contact only registered against walls on the
+     * SOUTH/EAST side — rubbing a NORTH/WEST wall ran the rays in the air
+     * column beside it (debug rays showed green while visibly touching).
+     * Pushing the starts a hair outward lands them in the adjacent cell on
+     * both sides. Half of the seam guard's MIN_CROSS_SECTION_OVERLAP, so the
+     * extra sliver can never turn a rub into a collision.
+     */
+    private static final double RAY_START_MARGIN = 5.0e-5;
+
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode) {
-        AABB box = entity.getBoundingBox();
+        AABB box = entity.getBoundingBox().inflate(RAY_START_MARGIN);
         double minX = box.minX;
         double minY = Math.min(effectiveFloorY(entity) + 0.1, box.maxY);
         double minZ = box.minZ;

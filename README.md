@@ -51,7 +51,7 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 ### Quality of Life
 - 💀 **Detailed Death Messages:** Death messages report the exact speed of the fatal impact.
 - 🚢 **Valkyrien Skies Compatibility:** Riding a moving ship doesn't count as your own velocity, and impacts against ship blocks are recognized.
-- 📦 **Data-Driven Tags:** Block behaviors (fragile, crackable, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code.
+- 📦 **Data-Driven Tags:** Block behaviors (fragile, crackable, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code. Entity tags too: blacklist modded entities from FullStop physics entirely (`fullstop:physics_blacklist`), or opt modded projectiles like grappling hooks into slime bounces (`fullstop:bouncing_projectiles`).
 - 🛠️ **Debug Mode:** Press `F3 + V` to visualize collision raycasts in real time. Red rays are collision-grade hits, yellow means touching, green is clear.
 
 ## Configuration

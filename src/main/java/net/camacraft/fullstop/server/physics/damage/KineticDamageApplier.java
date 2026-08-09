@@ -155,11 +155,10 @@ public class KineticDamageApplier {
 
         reactGolems(entity, collision, damage);
 
-        LivingEntity collidedExample = collision.collidingEntities.stream()
-                .filter(e -> e instanceof LivingEntity)
-                .map(e -> (LivingEntity) e)
-                .findFirst()
-                .orElse(null);
+        // ANY entity, not just living ones: filtering for LivingEntity here made
+        // a boat/minecart collider fall through to the generic "experienced
+        // kinetic energy" message instead of naming the vehicle.
+        Entity collidedExample = collision.collidingEntities.get(0);
 
         int colliders = validTargets.size();
         float splitEntityDamage = (float) damage / (colliders + 1);
@@ -194,16 +193,12 @@ public class KineticDamageApplier {
         boolean upward = fullstop.isMostlyUpward();
 
         DamageSource selfSource;
-        if (collidedExample != null && entity instanceof LivingEntity living) {
-            if (bothMovingFast) {
-                selfSource = FullStopDamageSources.entityMutualCollision(entity, collidedExample, displayVelocity);
-            } else if (otherHasMoreMomentum) {
-                selfSource = FullStopDamageSources.entityAttacker(sources, collidedExample, displayVelocity, downward);
-            } else {
-                selfSource = FullStopDamageSources.entityCollisionSelf(entity, collidedExample, displayVelocity, downward, upward);
-            }
+        if (bothMovingFast) {
+            selfSource = FullStopDamageSources.entityMutualCollision(entity, collidedExample, displayVelocity);
+        } else if (otherHasMoreMomentum) {
+            selfSource = FullStopDamageSources.entityAttacker(sources, collidedExample, displayVelocity, downward);
         } else {
-            selfSource = FullStopDamageSources.kineticSelf(entity, displayVelocity, downward, upward, false, false);
+            selfSource = FullStopDamageSources.entityCollisionSelf(entity, collidedExample, displayVelocity, downward, upward);
         }
 
         // Self-damage and dealt-damage are tracked separately: an immune or
@@ -240,26 +235,29 @@ public class KineticDamageApplier {
             }
         }
 
-        if (entity instanceof LivingEntity living) {
-            for (LivingEntity target : validTargets) {
-                DamageSource attackerSource;
-                if (otherHasMoreMomentum) {
-                    attackerSource = FullStopDamageSources.entityCollisionSelf(target, living, displayVelocity, downward, upward);
-                } else {
-                    attackerSource = FullStopDamageSources.entityAttacker(sources, living, velocity, downward);
-                }
+        // ANY mover damages what it rams. The old `instanceof LivingEntity` gate
+        // silently disabled this whole loop for boats, minecarts and falling
+        // blocks — a boat plowing into a standing player dealt nothing (the only
+        // damage a MOVING player saw came from their own victim-side pass, which
+        // a standing player never runs).
+        for (LivingEntity target : validTargets) {
+            DamageSource attackerSource;
+            if (otherHasMoreMomentum) {
+                attackerSource = FullStopDamageSources.entityCollisionSelf(target, entity, displayVelocity, downward, upward);
+            } else {
+                attackerSource = FullStopDamageSources.entityAttacker(sources, entity, velocity, downward);
+            }
 
-                double targetMass = Math.max(EntityStackUtils.getEntityMass(target), 0.001);
-                float targetScaledDamage = splitEntityDamage * (float) (stackMass / targetMass);
+            double targetMass = Math.max(EntityStackUtils.getEntityMass(target), 0.001);
+            float targetScaledDamage = splitEntityDamage * (float) (stackMass / targetMass);
 
-                if (DamageImmunityRules.isDamageImmune(target)) {
-                    continue;
-                }
-                targetScaledDamage = DamageMitigation.applyArmorReduction(target, targetScaledDamage, downward, upward);
+            if (DamageImmunityRules.isDamageImmune(target)) {
+                continue;
+            }
+            targetScaledDamage = DamageMitigation.applyArmorReduction(target, targetScaledDamage, downward, upward);
 
-                if (targetScaledDamage > 0) {
-                    anyHurt |= target.hurt(attackerSource, targetScaledDamage);
-                }
+            if (targetScaledDamage > 0) {
+                anyHurt |= target.hurt(attackerSource, targetScaledDamage);
             }
         }
         return anyHurt;

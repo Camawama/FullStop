@@ -65,6 +65,10 @@ public class DamageImmunityRules {
 
         if (entity.noPhysics || entity.isRemoved()) return true;
 
+        // Data-driven full opt-out for modded entities that manage their own
+        // physics (data/fullstop/tags/entity_types/physics_blacklist.json).
+        if (entity.getType().is(FullStopTags.PHYSICS_BLACKLIST)) return true;
+
         return entity instanceof LivingEntity livingEntity && livingEntity.isDeadOrDying();
     }
 }
