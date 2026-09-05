@@ -56,14 +56,10 @@ public final class BlockPhasing {
         applySlowingField(entity, velocity);
         velocity = entity.getDeltaMovement();
 
-        // Drag only applies once the entity is moving fast enough to actually
-        // phase INTO the block — the same threshold PhaseableBlockMixin uses to
-        // turn the block passable. Below it the block is solid and simply walked
-        // or rolled on, so a slow mover whose hitbox merely clips the sand it
-        // stands on (e.g. a dodge-roll across a dune) is no longer yanked to a
-        // halt every tick, which the server rejected as a rubber-band.
-        double thresholdNative = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.05;
-        if (phaseSpeedSqr(entity) < thresholdNative * thresholdNative) return;
+        // Drag only applies once the entity is CONFIRMED fast enough to
+        // actually phase INTO the block — the same gate PhaseableBlockMixin
+        // uses for passability, so drag and passability can never disagree.
+        if (!phaseConfirmed(entity)) return;
 
         AABB box = entity.getBoundingBox().deflate(0.01);
         BlockState engulfingState = null;
@@ -157,6 +153,31 @@ public final class BlockPhasing {
             }
         }
         return living.getDeltaMovement().lengthSqr();
+    }
+
+    /**
+     * THE phase gate, shared by PhaseableBlockMixin (passability) and the drag
+     * above so the two can never disagree. Two conditions:
+     * (1) the instantaneous speed is past phaseMinimumSpeed, AND
+     * (2) the MEASURED speed of the previous tick (position delta, from the
+     *     capability) confirms it at 80% of the threshold.
+     * The confirmation exists because (1) alone reads live deltaMovement at
+     * shape-query time: any one-tick spike — knockback, movement-system
+     * artifacts, whatever a mod writes into deltaMovement mid-tick — briefly
+     * turned nearby sand passable, letting a WALKING player wedge into a sand
+     * wall and get snapped back out by vanilla, over and over, pulsing the
+     * g-force overlay. A genuine dive/flight satisfies (2) automatically: the
+     * previous tick was nearly as fast.
+     */
+    public static boolean phaseConfirmed(LivingEntity living) {
+        double thresholdNative = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.05;
+        if (phaseSpeedSqr(living) < thresholdNative * thresholdNative) return false;
+
+        FullStopCapability cap = FullStopCapability.grabCapability(living);
+        if (cap == null || living.tickCount - cap.getLastTick() > 2) return false;
+
+        double confirmMps = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.8;
+        return cap.getPreviousScaledVelocity().lengthSqr() >= confirmMps * confirmMps;
     }
 
     /**

@@ -30,6 +30,12 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(BlockBehaviour.BlockStateBase.class)
 public abstract class PhaseableBlockMixin {
 
+    @org.spongepowered.asm.mixin.Unique
+    private static final org.slf4j.Logger FULLSTOP$LOGGER = com.mojang.logging.LogUtils.getLogger();
+
+    @org.spongepowered.asm.mixin.Unique
+    private static long fullstop$lastPhaseLog = Long.MIN_VALUE;
+
     @Inject(method = "getCollisionShape(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/shapes/CollisionContext;)Lnet/minecraft/world/phys/shapes/VoxelShape;",
             at = @At("HEAD"), cancellable = true)
     private void fullstop$phaseableCollision(BlockGetter level, BlockPos pos, CollisionContext context,
@@ -44,8 +50,27 @@ public abstract class PhaseableBlockMixin {
         if (!(entityContext.getEntity() instanceof LivingEntity living)) return;
         if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;
 
-        double thresholdNative = FullStopConfig.SERVER.phaseMinimumSpeed.get() * 0.05; // m/s → blocks/tick
-        if (BlockPhasing.phaseSpeedSqr(living) < thresholdNative * thresholdNative) return;
+        // Confirmed gate: instantaneous speed past the threshold AND the
+        // previous tick's MEASURED speed backing it up — a one-tick spike must
+        // never turn a wall passable (see BlockPhasing.phaseConfirmed).
+        if (!BlockPhasing.phaseConfirmed(living)) return;
+
+        // Diagnostic: phasing a PLAYER is a rare, deliberate event — log each
+        // activation (rate-limited) so "sand behaved weirdly" reports can be
+        // matched against whether phasing actually engaged, and at what speed.
+        if (living instanceof net.minecraft.world.entity.player.Player) {
+            long now = living.level().getGameTime();
+            if (now - fullstop$lastPhaseLog >= 20) {
+                fullstop$lastPhaseLog = now;
+                FULLSTOP$LOGGER.info("[FullStop] phaseable open for {} ({}): inst {} m/s, measured-prev {} m/s",
+                        living.getName().getString(),
+                        living.level().isClientSide ? "client" : "server",
+                        String.format("%.1f", Math.sqrt(BlockPhasing.phaseSpeedSqr(living)) * 20.0),
+                        String.format("%.1f", Math.sqrt(
+                                net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability(living)
+                                        .getPreviousScaledVelocity().lengthSqr())));
+            }
+        }
 
         // The RUNNING SURFACE stays solid: phasing the very sand underfoot
         // dropped a fast runner INTO their own floor — sink, engulf-drag below
