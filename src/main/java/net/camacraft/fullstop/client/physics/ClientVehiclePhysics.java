@@ -1,9 +1,15 @@
 package net.camacraft.fullstop.client.physics;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.PhysicsAspect;
+import net.camacraft.camafy.util.math.EntityRotation;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
+import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
@@ -67,13 +73,18 @@ public final class ClientVehiclePhysics {
         }
     }
 
-    /** Re-applies pending handoff momentum; runs every client tick before the physics. */
+    /**
+     * Re-applies pending handoff momentum; runs every client tick before the physics. Each seed
+     * is a MOTION write, skipped while another mod owns that entity's motion (or it's blacklisted).
+     */
     private static void tickSeeds(LocalPlayer player) {
         if (vehicleSeed != null) {
             Entity vehicle = player.getVehicle();
             if (vehicle != null && vehicle.getId() == vehicleSeedId
-                    && vehicle.getControllingPassenger() == player) {
-                vehicle.setDeltaMovement(vehicleSeed);
+                    && vehicle.getControllingPassenger() == player
+                    && !PhysicsClaims.handsOff(vehicle, PhysicsAspect.MOTION)) {
+                // seeds are observed WORLD motion; deltaMovement may be frame-local
+                Gravity.setWorldVelocity(vehicle, vehicleSeed, FullStopCapability.currentFrame(vehicle));
             }
             if (--vehicleSeedTicks <= 0 || vehicle == null) {
                 vehicleSeed = null;
@@ -81,8 +92,8 @@ public final class ClientVehiclePhysics {
         }
 
         if (riderSeed != null) {
-            if (!player.isPassenger()) {
-                player.setDeltaMovement(riderSeed);
+            if (!player.isPassenger() && !PhysicsClaims.handsOff(player, PhysicsAspect.MOTION)) {
+                Gravity.setWorldVelocity(player, riderSeed, FullStopCapability.currentFrame(player));
             }
             if (--riderSeedTicks <= 0) {
                 riderSeed = null;
@@ -97,8 +108,13 @@ public final class ClientVehiclePhysics {
         Entity vehicle = player.getVehicle();
         if (vehicle == null || vehicle.getControllingPassenger() != player) return;
 
+        // FullStop ignores blacklisted vehicles (MKW's karts) entirely, and leaves
+        // a vehicle's bounces to whichever mod claims them.
+        if (DamageImmunityRules.unphysableIgnoringAi(vehicle)) return;
+
         FullStopCapability cap = grabCapability(vehicle);
         if (cap == null) return;
+        if (PhysicsAspect.BOUNCE.in(cap.refreshClaims(vehicle))) return;
 
         // The vehicle's client-side capability measures the authoritative
         // positions — same pattern the debug renderer uses.
@@ -131,9 +147,11 @@ public final class ClientVehiclePhysics {
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, collision.collisionType);
         if (newV == null) return;
 
-        vehicle.setDeltaMovement(newV.scale(0.05));
+        Gravity.setWorldVelocity(vehicle, newV.scale(0.05), cap.getFrame());
         vehicle.hasImpulse = true;
         cap.setBounceCooldown(1); // matches BounceHandler's reduced refractory
+        // Heading lives in the vehicle's own frame (a gravity field may tilt it).
+        Vec3 localV = cap.getFrame().worldToLocal(newV);
 
         // The VEHICLE turns into the rebound — the ricochet equivalent of the
         // on-foot camera rotation; its heading streams to the server with the
@@ -141,9 +159,9 @@ public final class ClientVehiclePhysics {
         // DELTA so they keep facing the same way relative to the boat — but
         // SMOOTHLY, through the capability's gradual camera correction (the
         // same easing the on-foot bounce camera uses; a raw setYRot snapped).
-        if (collision.bouncy() && newV.horizontalDistance() > 3.0) {
+        if (collision.bouncy() && localV.horizontalDistance() > 3.0) {
             float oldYaw = vehicle.getYRot();
-            float newYaw = (float) Math.toDegrees(Math.atan2(-newV.x, newV.z));
+            float newYaw = EntityRotation.yaw(localV);
             vehicle.setYRot(newYaw);
             // Snap the boat's render interpolation too: a near-180° yaw lerp
             // makes the model visibly spin the long way around for a frame.
@@ -164,12 +182,15 @@ public final class ClientVehiclePhysics {
         if (collision.impactedHits.isEmpty()) return;
 
         // Angle from vertical: 0° = straight-down dive (plunges), ~90° = skimming.
-        double angle = Math.toDegrees(Math.acos(preV.normalize().dot(new Vec3(0, -1, 0))));
+        // "Vertical" is the vehicle's gravity frame's (a field may tilt it).
+        GravityFrame frame = cap.getFrame();
+        double angle = Math.toDegrees(Math.acos(preV.normalize().dot(frame.up().scale(-1))));
         if (angle < 65) return;
-        if (preV.y >= 0) return;
+        double vertical = frame.vertical(preV);
+        if (vertical >= 0) return;
 
-        Vec3 newV = new Vec3(preV.x * 0.9, -preV.y * 0.6, preV.z * 0.9);
-        vehicle.setDeltaMovement(newV.scale(0.05));
+        Vec3 newV = frame.horizontalPart(preV).scale(0.9).add(frame.up().scale(-vertical * 0.6));
+        Gravity.setWorldVelocity(vehicle, newV.scale(0.05), frame);
         vehicle.hasImpulse = true;
         cap.setWaterSkipCooldown(10);
     }

@@ -1,6 +1,6 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-08-09d (shallow slime bounces + stack crushing + pressure-wave sonic boom)
+**Build:** working tree, 2026-09-26 (ship weight from WeightRS + ship collisions + physics ownership / MKW compat; 2026-09-27: ship riders keep deck momentum, fast ship hits) — new sections **18-24** at the end; the list right below is from 2026-08-09d (shallow slime bounces + stack crushing + pressure-wave sonic boom)
 
 - [ ] **Hit a long slime wall at a SHALLOW angle (10-30°) at speed, repeatedly.** *Expect:* always deflected OUT along the wall, keeping most forward speed — never mirrored backwards, never a back-and-forth settle. Head-on hits unchanged (full mirror).
 - [ ] **Stack 3+ mobs (or drop an iron golem onto a cow).** *Expect:* the BOTTOM carrier starts taking periodic squish damage ("was squished too much" on death); a single similar-sized rider deals none. The stack sheds from the bottom up as carriers die.
@@ -247,7 +247,135 @@ Useful setup commands:
 - [ ] **Ray view ON in a busy area.** *Expect:* FPS no longer tanks (rays update per tick, not per frame) `[FIX]`.
 - [ ] **Ray view over water at speed.** *Expect:* water-surface hits now show `[FIX]` (note: rays are RAW clips — red rays on floors you walk on are normal and don't mean damage).
 
+## 18. Ship weight (formerly WeightRS) `[VS]`
+
+Needs Valkyrien Skies, `enableValkyrienSkiesCompat` and `enableShipWeight` (both on by default). Remove the WeightRS jar first.
+
+- [ ] **Launch with an old `config/weightrs-common.toml` present (WeightRS removed).** *Expect:* log "WeightRS is part of FullStop now: … renamed to weightrs-common.toml.migrated"; old-layout files also get a `.pre-camafy` backup and their weights appear in `config/camafy-weight.toml`. Launch again: no second import.
+- [ ] **Open a world for the first time after that.** *Expect:* log "Imported N WeightRS ship-weight setting(s) into …/serverconfig/fullstop-server.toml"; tuned WeightRS values (e.g. `gravity = 10`) show in the new "Ship Weight" section and `configVersion = 2`. Reopen: no second import. A value you already changed in FullStop's file is never overwritten.
+- [ ] **Keep the old WeightRS jar installed.** *Expect:* one log warning at startup ("WeightRS is installed: Full Stop's ship weight stays off…"); `/fullstop ship info` says "weight off (WeightRS installed)"; the ship sinks only as much as with WeightRS alone (nothing weighs twice); `/weightrs` is WeightRS's own command.
+- [ ] **Stand still on a small floating ship; bring 10 friends / spawn 20 cows on deck.** *Expect:* the deck sinks/tilts toward the load; walking to one edge tips it that way. Leaving the ship: it recovers.
+- [ ] **Drop a stack of iron blocks (items) on the deck.** *Expect:* the ship dips on the landing and stays lower while they lie there (`enableItemEntityPhysics`).
+- [ ] **Jump on the deck repeatedly.** *Expect:* a small dip on every jump (the jump's reaction), and a bump on every landing.
+- [ ] **Fall 10+ blocks onto a deck.** *Expect:* a clear slam (the momentum you lose), ONE push per landing — not two for the two-tick impact. FullStop fall damage as on the ground.
+- [ ] **Ride a boat / minecart / horse off a ledge onto a deck; drop a mob onto it.** *Expect:* each landing pushes the ship (WeightRS only handled living fall events; FullStop measures every body).
+- [ ] **`includePlayers = false`.** *Expect:* players weigh nothing and their jumps/landings push nothing; mobs still do.
+- [ ] **Under a Gravity Unbound field, walk on a ship's wall/underside.** *Expect:* the standing weight pushes along the field's pull, not world-down.
+- [ ] **`/fullstop weigh @e[type=cow,limit=1,sort=nearest]`, `/fullstop weigh held`, `/fullstop ship info`, `/weightrs weigh @s`, `/weightrs held`.** *Expect:* weights with body/carried/basis, the held stack's mass, the nearest ship's mass/speed/grace; the `/weightrs` aliases work (only while WeightRS is absent).
+- [ ] **`enableShipWeight = false` (edit the world's server config while playing).** *Expect:* within a tick or two the deck stops carrying any load (standing forces lapse on their own).
+
+## 19. Ship collisions — entities `[VS]`
+
+Setup: a ship you can drive (Eureka / VS helm), `/effect give @s resistance` for yourself while testing on foot. `debugShipCollisionLog = true` prints every hit.
+
+- [ ] **Ram a zombie standing in the open at ~8 m/s.** *Expect:* it is shoved away along the hull (no damage below the 10.5 m/s horizontal threshold); the ship barely slows.
+- [ ] **Ram a zombie at 20+ m/s.** *Expect:* it flies off, takes damage (≈ (speed − 10.5) × hull-block hardness factor × 1.07; oak-plank hull at 20 m/s ≈ 10), hull-block particles and a thud. Death message "was hit by a ship" (+ "(at X m/s)").
+- [ ] **Same while seated at the helm.** *Expect:* death message "was hit by <you>'s ship"; the kill counts for you; a mob that survives targets you.
+- [ ] **Pin a zombie between the hull and a stone wall, keep pushing.** *Expect:* no knockback, "was crushed by a ship", damage ×1.5, repeating about every half second while the hull presses.
+- [ ] **Survival player (second account or `/gamemode survival`) in the ship's path.** *Expect:* pushed and damaged like a mob; on a `pvp=false` server with a pilot seated, pushed but NOT damaged (the pilot is the attacker).
+- [ ] **Creative/spectator player, a mob tagged `fullstop:ship_immune`, a `fullstop:physics_blacklist` entity in the path.** *Expect:* never pushed, never damaged.
+- [ ] **Stand / sit / walk / jump on the moving ship's own deck, ride a boat parked on the deck.** *Expect:* never hit by your own ship `[REG]`.
+- [ ] **A light ship (a few blocks) rams an iron golem.** *Expect:* the ship visibly slows (reaction impulse); `reactionImpulses = false` → it doesn't.
+- [ ] **Assemble a ship right next to (or around) a mob; paste a moving ship; load a chunk with a moving ship; `/vs teleport` a ship.** *Expect:* no hits during the grace (`newShipGraceTicks`, 40 ticks for new ships, 10 after a teleport).
+- [ ] **Walk into a slowly drifting hull on foot.** *Expect:* ordinary FullStop wall contact (no ship "hit", no knockback) — the ship must supply most of the closing speed.
+- [ ] **Kinetic_immune mob (slime, cat) rammed at speed.** *Expect:* pushed, never damaged.
+- [ ] **A mob riding a horse, rammed at 20 m/s.** *Expect:* the horse takes full damage, the rider half, and the rider is thrown off on a hard hit.
+- [ ] **`damageEntities = false`.** *Expect:* ships still shove, never hurt.
+- [ ] **A survival player (second account) standing on open ground in front of a ship doing 80+ m/s** (`/fullstop ship info` shows its speed). *Expect:* the player is launched along the hull at about (1 + `entityRestitution`) × the ship's speed, ≈ 104 m/s at 80 m/s (F3 or a speedometer mod on their client) - not capped at 78 m/s - and dies from the hit; the body keeps flying and the death screen's camera follows it. With `debugShipCollisionLog = true` the hit line shows `kick` ≈ that speed.
+- [ ] **A zombie standing on open ground, rammed at 60, 80, 120 m/s.** *Expect:* hit every time (never flown through), killed, and the body flies on ahead of the ship. `debugShipCollisionLog` shows no `jumped` line for the ship unless it really teleported.
+- [ ] **A zombie on flat ground rammed by a ship pitched a few degrees nose-down.** *Expect:* launched, "was hit by a ship" - not "was crushed by a ship". Pinned against a wall it is still crushed; a ship settling down onto it from above still crushes it.
+
+## 20. Ship collisions — terrain, vegetation, impact sounds `[VS]`
+
+**Backend:** everything here works on all three of Valkyrien Skies' physics backends (`physicsBackend` in `<world>/serverconfig/valkyrienskies/vs-core-server.toml`, read when the world loads). On `KRUNCH_PHYSX` and `KRUNCH_JOLT` crashes come from VS's collision events; on the default `KRUNCH_CLASSIC`, which sends none at all, from Camafy's collision fallback (Camafy 0.1.2+). The log says which, once per world ("Camafy: ship collisions come from Valkyrien Skies' collision events" or "Camafy: Valkyrien Skies runs KRUNCH_CLASSIC … Camafy's collision fallback detects them instead"). Run the list on the default backend and on PhysX. On Jolt, VS reports one contact point per collision (PhysX five, the fallback up to eight), so a hull loses fewer blocks per tick there.
+
+Every block has a **toughness** = hardness × (Valkyrien Skies' mass for it ÷ 1000 kg) — leaves 0.04, grass 0.75, dirt 0.63, oak planks 1.0, logs 1.6, stone 3.75, cobblestone 4.8, deepslate 8.7, iron block 39, obsidian 250. At each contact only the WEAKER of the terrain block and the hull block there can break (the hull's only with `hullDamage`, on by default); equal toughness never breaks. Nothing breaks below `breakMinSpeed` (5 m/s). Watch the log with `debugShipCollisionLog = true`: "ship N (… kg at … m/s) vs Block{…} at …: terrain gives / hull Block{…} gives, cost … of … units -> broken/cracked/held", "holds (toughness hull … vs terrain …)", "swept N block(s)".
+
+- [ ] **Wooden ship (~150 t, about 300 planks) bumps a stone cliff at ≤ 3 m/s.** *Expect:* nothing breaks; a wood + stone thud.
+- [ ] **Same ship rams the cliff head-on at ~8 m/s.** *Expect:* a few (≈ 4) bow planks at the contact break and drop as items in the world (under the bow, not somewhere far off); the stone is untouched; the ship stays stopped.
+- [ ] **Wooden hull into stone / cobblestone / deepslate at ANY speed.** *Expect:* the rock never breaks (log: "hull … gives" or "holds").
+- [ ] **A 3×3×3 stone cube assembled ten blocks above grass, then dropped.** *Expect:* the grass under it breaks (a little dirt below too), the stone further down holds; grass AND stone landing sounds.
+- [ ] **Obsidian ship dropped onto / rammed into obsidian, any speed.** *Expect:* NOTHING breaks on either side; the ship stops dead.
+- [ ] **Obsidian ship into grass / dirt / stone / deepslate.** *Expect:* they break cheaply (grass ≈ 6 units, stone ≈ 30) and drop like mined blocks; the ship ploughs on, slowing a little per block.
+- [ ] **Glass portholes (fragile → toughness 0.02) hitting anything at ≥ 5 m/s.** *Expect:* the glass at the contact shatters; the terrain holds.
+- [ ] **`hullDamage = false`, ram stone with the wooden ship.** *Expect:* nothing breaks; the ship just stops.
+- [ ] **`massInfluence = 0`.** *Expect:* hardness alone decides again: an oak-plank hull (2.0) breaks stone (1.5).
+- [ ] **Iron-block hull into ice (crackable), slowly then faster.** *Expect:* persistent cracks that finish on a later hit, or it smashes outright.
+- [ ] **Any hull into bedrock / a `fullstop:ship_unbreakable` block / a chest / slime / honey.** *Expect:* those never break (a plank hull against bedrock still splinters). Chests - on the terrain or on the ship - only with `terrainBreakBlockEntities = true`.
+- [ ] **Ship with an iron hull ploughs into a dirt hill.** *Expect:* keeps going while everything it hits breaks, slowing each block (`terrainBreakDrag`), and stops when its energy runs out or it meets something that holds (then it STAYS stopped).
+- [ ] **A heavy iron ship head-on into stone at 15 m/s.** *Expect:* at most 12 blocks per tick for the ship, 24 per level (`terrainMaxBlocksPerTick`).
+- [ ] **A ship resting on the ground, sliding along it, rolling over a hill, or pressed into a wall by its engines.** *Expect:* nothing breaks, the hull never wears away, no sound after the first touch.
+- [ ] **`mobGriefing = false`, nobody at the helm, ram a wall / fly through a canopy.** *Expect:* nothing breaks, nothing is swept. Seated at the helm: both happen (you are acting). `unpilotedFollowsMobGriefing = false`: unpiloted ships break too.
+- [ ] **Ram a claim-protected area (FTB Chunks / Open Parties & Claims / similar) and a Game Start arena with block breaking off.** *Expect:* nothing breaks or is swept there (break event with the pilot or the "[Full Stop]" fake player; `MatchPolicies.mayAlter`).
+- [ ] **Two ships collide.** *Expect (default `shipVsShipBreaking = NONE`):* no ship block breaks, both hulls' sounds play. FRAGILE: only glass/snow on either ship breaks. FULL: the weaker of the two touching blocks by toughness.
+- [ ] **`breakTerrain = false`.** *Expect:* terrain never breaks and nothing is swept; hulls still take damage against tougher terrain (unless `hullDamage = false`); impacts still sound.
+
+Vegetation (`fullstop:ship_sweepable`):
+- [ ] **Fly a ship at 6+ m/s through an oak/birch/jungle canopy.** *Expect:* the leaves the hull passes through break (saplings, sticks, apples drop), the ship slows slightly (`sweepDrag`); flowers, tall grass, ferns, sugar cane, berry bushes and vines in its path go too.
+- [ ] **Drift through the same canopy at 2 m/s.** *Expect:* the ship slides through untouched (plain VS behaviour).
+- [ ] **A player-placed hedge or leaf roof.** *Expect:* untouched (`sweepPlacedLeaves = false`); with it on, cleared like natural leaves.
+- [ ] **Crops, kelp, seagrass, waterlogged leaves in the path.** *Expect:* never broken.
+- [ ] **A large ship ploughing a jungle at speed (performance).** *Expect:* no TPS drop worth noticing (spark); at most 32 blocks per ship and `sweepMaxBlocksPerTick` (64) per level each tick, so a very fast big ship may leave some canopy behind.
+
+Impact sounds:
+- [ ] **Drop a stone cube onto grass from 2, 5 and 10 blocks.** *Expect:* grass AND stone sounds at the contact each time, louder and deeper the higher the drop; from ~6 m/s a harder hit layer, from ~12 m/s a crunch; block-crack particles of both from 4 m/s.
+- [ ] **A heavy ship vs a light ship landing at the same speed.** *Expect:* the heavy one a little louder and deeper.
+- [ ] **A ship resting / sliding / grinding along terrain.** *Expect:* one sound when it touches down, then quiet (no machine-gun).
+- [ ] **`breakTerrain = false` and `hullDamage = false`.** *Expect:* impacts still sound.
+- [ ] **`impactSounds = false`.** *Expect:* silent. `impactSoundVolume = 2`: heard from twice as far. `impactParticles = false`: no particles.
+
+## 21. Ship collision checks in dev `[VS]`
+
+- [ ] **Automated: `gradlew runGameTestServer -PshipTests -PvsBackend=classic`, then `=physx` and `=jolt`** (headless; its own `run-gametest/` directory and a fresh flat world each run, started on the backend asked for, PhysX when none is given; needs Camafy 0.1.3, which `gradle.properties` asks for). *Expect:* "All N required tests passed" on each. The material tests check the toughness rule, the calibration and the sound mapping against VS's real block masses. The ship tests assemble real VS ships and crash them: a plank cube into a stone wall, a stone cube onto grass, obsidian onto obsidian, a 16x2x16 raft landing flat, a stone raft hopping five times (one burst of contacts per landing), a plank cube onto a static ship (ship-to-ship), and a plank cube through leaves fast and slow. They also check that a ship resting or sliding on the ground gets no fallback contact, and that Camafy used the source the backend calls for, only that one (on PhysX/Jolt the fallback never runs, so nothing is reported twice). Entity hits: a floating plank ship rammed into a villager at 8, 36 (twice, once with `damageEntities = false`), 60 and 80 m/s, plus 120 and 200 m/s as optional tests - each launch must match the rule within 5% and the ship must never enter jump grace; the pin check (open ground vs a wall ahead, pushes from level to straight down); `syncLaunchToPlayer`. Deck momentum (batch `fullstop_deck_momentum`, ship weight off for it): a raft stopped dead from 23 m/s throws the cow on its bare deck forward off the bow while a cow on honey and one in a VS seat stay; a raft braking gently, one resting on the ground and one turning at 0.5 rad/s throw nobody. Every contact is logged as a `[FullStop ship test] … contact …` line. `-PcollisionFallback=shadow` also logs what the fallback would have reported next to VS's events; `-PhideBackend` makes Camafy treat the backend as unknown (fallback until VS's first event).
+- [ ] **On the default `KRUNCH_CLASSIC` backend, crash a ship into terrain, drop one onto another ship, and slide one along the ground.** *Expect:* the crashes break and sound as on PhysX (wooden ship into stone at ~8 m/s loses bow planks and the stone holds; stone cube onto grass crushes it), the ship-on-ship drop sounds both hulls, and the slide is silent. With `-Dcamafy.debugCollisions=true` each crash logs `fallback: ship … slowed by … m/s` and a `via fallback` collision line. A ship scraping along a wall at a shallow angle may go unreported: the fallback only sees ships that suddenly slow down.
+- [ ] **Add `-Dcamafy.debugCollisions=true` to a dev run config (the ship tests set it), crash a ship into terrain and into another ship, then read the log.** *Expect:* `[camafy.debugCollisions]` lines per collision. Confirm (a) "point … m outside the ship's bounds" is about 0 (contact points are WORLD space); (b) for a ship that landed flat the normal is about (0,1,0) (from terrain toward the ship); (c) right after a slam, "approach X m/s" vs "ship's speed into it now": large approach with ~0 speed ⇒ VS measures before its solver; both ~0 (or both negative, the bounce) ⇒ after. Measured by the ship tests: PhysX measures AFTER its solver (a 12 m/s ram reports -3.4 m/s, the rebound), Jolt BEFORE (11.7 m/s); FullStop uses last tick's hull speed for contacts that just began, so both work.
+- [ ] **Place a stone wall in an area that was already loaded, then drive a ship into it (PhysX).** *Expect:* the ship stops at the wall. In the game-test server, blocks placed after VS loaded their chunk did not collide at all (ships passed through them, on every backend); if that happens in a real game too, it is a VS limitation to report, not Full Stop's.
+- [ ] **Camafy's one-time log of the learned normal convention.** *Expect:* it matches (b). If normals come out reversed, fix with `-Dcamafy.vsCollisionNormal=towardA` or `towardB` and report it.
+- [ ] **FullStop's `debugShipCollisionLog = true`.** *Expect:* one line per breaking decision (see §20), per sweep, and per entity hit ("ship N hit Zombie: approach … lost … kick … pinned=…").
+
+## 22. MKW Mobility compatibility (physics ownership) `[FIX]`
+
+Needs MKW Mobility with its Camafy physics claims (karts ALL; seated drivers IMPACT/G_FORCE/BOUNCE/CONTACT/BLOCKS, plus MOTION/ENVIRONMENT in races). `debugImpactLog = true` shows `claims=…` per impact.
+
+- [ ] **Drive a kart into walls at full speed, free roam and in a race.** *Expect:* no FullStop damage, thud or particles for the kart or its driver.
+- [ ] **Drive over glass, ice, snow, quartz track blocks; through doors, gates, buttons, note blocks.** *Expect:* FullStop never cracks, breaks, opens or presses anything for a kart.
+- [ ] **Race with boosts, hops, drifts, glides, slime kicks.** *Expect:* no blindness, nausea, vignette, FOV stretch or audio muffle from FullStop; no bounce-camera turns.
+- [ ] **Race on a track above Y 200.** *Expect:* no air loss or drowning muffle while racing (free roam: FullStop's altitude pressure applies as normal on foot).
+- [ ] **Free roam: hop off a moving kart.** *Expect:* you keep the kart's momentum; no phantom impact at the moment you leave the seat; a real crash afterwards hurts as usual.
+- [ ] **Fall off a kart from a height (free roam).** *Expect:* FullStop landing damage applies once you are off the kart.
+- [ ] **Hit by a kart / hazard (shell, banana) as a bystander.** *Expect:* MKW's damage only — FullStop doesn't scale it by speed (no ~6× hazard hits).
+- [ ] **`entityCollisionDamage = true`: run into a parked kart and a driven kart on foot.** *Expect:* no FullStop momentum exchange or collision damage with the kart or its driver.
+- [ ] **A mob run over by a kart, then flying into a wall.** *Expect:* Automobility's run-over hit, then FullStop's wall damage for the mob's flight (the mob is FullStop's).
+- [ ] **A VS ship rams a kart with a driver.** *Expect:* neither pushed nor damaged by the ship. A kart parked on a ship deck weighs on it; a kart landing on a deck thumps it.
+- [ ] **Ride a boat as a PASSENGER (second seat) while a player drives fast and turns.** *Expect:* no g-force blindness/nausea from the smooth ride (passengers replay the vehicle's motion now).
+
+## 23. Modpack rules `[FIX]`
+
+- [ ] **`entityCollisionDamage = true`, a player drives a boat into another player on a `pvp=false` server.** *Expect:* no damage. With pvp on: "was hit by <driver>'s Boat", kill credit to the driver; a mob hit that way targets the driver.
+- [ ] **`mobGriefing = false`: launch a mob into glass at speed; crash into glass yourself; fire your grappling hook into ice.** *Expect:* the mob breaks nothing; you and your hook still do.
+- [ ] **Crash into blocks inside a claim you don't own / a Game Start no-break arena.** *Expect:* nothing breaks or cracks (protection mods see a break event from you, or from "[Full Stop]" for mobs).
+- [ ] **`/gamerule drowningDamage false`, then high altitude / deep water.** *Expect:* no atmosphere/pressure damage to players (both are `#minecraft:is_drowning` now).
+- [ ] **Blackout at full g next to other HUD layers (Space Events telescope glare, MKW HUD).** *Expect:* the blackout darkens the whole screen, HUD and glare included.
+- [ ] **Gravity Unbound, non-default gravity: shift-dismount a moving boat.** *Expect:* no sideways veer (FullStop's push veto runs before Gravity Unbound's push rewrite).
+- [ ] **Gravity Unbound surface-cling release / gravity flip at speed.** *Expect:* no phantom impact damage (client-side discontinuities reach the server now).
+- [ ] **Client and server must both run this build** (network protocol 4). *Expect:* an older FullStop on either side is refused at login.
+
 ---
+
+## 24. Ship riders (deck momentum) `[VS]`
+
+Setup: a ship you can drive at 20+ m/s (Eureka / VS helm, or `/vs` commands), something solid to crash it into, `/effect give @s resistance`. `debugShipCollisionLog = true` logs every throw ("ship N threw …: deck lost (…) m/s, rider keeps (…) m/s").
+
+- [ ] **Stand on the bare deck (not seated) while someone crashes the ship into a cliff at 20+ m/s.** *Expect:* you keep going: thrown forward off the bow at about the ship's old speed, with a little lift, into the cliff (FullStop impact damage). At 20 m/s a thrown player or mob flies roughly 4-5 blocks (vanilla air drag takes 9% of it every tick), at 80 m/s much further. No rubber-band on your client.
+- [ ] **Same, standing on a slime or honey block on the deck.** *Expect:* you stay where you stand.
+- [ ] **Same, standing on Gravity Unbound gravity plating on the deck (floor, or plating on a wall you walk on), and again wearing Surface Cling boots.** *Expect:* you stay put in both cases.
+- [ ] **Same, seated in a helm or seat.** *Expect:* you stay seated. With `deckMomentumSeated = true`: thrown out of the seat and forward.
+- [ ] **Cruise, brake gently, turn gently, drift and rest on the ground with mobs and dropped items on deck.** *Expect:* nobody slides or is thrown. Brake or turn harder than 1 g (or lower `deckGrip`): riders slide the other way; a ship lurching forward hard leaves them sliding aft.
+- [ ] **Mobs, a boat with a passenger, and dropped items on the deck when the ship crashes.** *Expect:* all thrown forward (the boat with its passenger aboard); NoAI mobs and `fullstop:physics_blacklist` entities stay.
+- [ ] **Creative-flying above the deck, an MKW kart parked on the deck, a grappling player swinging from the ship.** *Expect:* never thrown by the deck.
+- [ ] **Jump on the deck and have the ship stop while you are in the air.** *Expect:* you keep flying forward at the ship's old speed (VS keeps carrying riders for a moment after they leave the deck; that carry is what stops).
+- [ ] **`/vs teleport` a moving ship with riders.** *Expect:* nobody is thrown (the teleport puts the ship in its short grace).
+- [ ] **`deckMomentum = false`.** *Expect:* the old behaviour: riders stop dead with the ship.
 
 ## Known cosmetic gaps (not bugs — no need to test)
 

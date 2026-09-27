@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.client.physics;
 
+import net.camacraft.camafy.util.math.EntityRotation;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
@@ -47,17 +48,18 @@ public final class CameraBounceHandler {
         fullstop.setBounceCooldown(1); // matches BounceHandler's reduced refractory
         fullstop.setJustBounced(true);
 
-        double newAngle = Math.atan2(-newV.x, newV.z);
-        fullstop.setTargetAngle(newAngle / Math.PI * 180);
+        // The camera's yaw/pitch live in the player's own frame: under a
+        // gravity field the world-space rebound must be read in that frame.
+        Vec3 aimV = fullstop.getFrame().worldToLocal(newV);
+
+        fullstop.setTargetAngle(EntityRotation.yaw(aimV));
 
         // Pitch is elytra-only: mid-flight a bounce genuinely redirects the
         // flyer, so the camera follows the new arc — but on foot, jumping into
         // a slime wall and having the view yanked up/down felt wrong. Yaw
         // (above) still tracks the rebound for everyone.
         if (player.isFallFlying()) {
-            double horizontalDistance = Math.sqrt(newV.x * newV.x + newV.z * newV.z);
-            double targetPitch = -Math.toDegrees(Math.atan2(newV.y, horizontalDistance));
-            fullstop.setTargetPitch(targetPitch);
+            fullstop.setTargetPitch(EntityRotation.pitch(aimV));
         }
     }
 }

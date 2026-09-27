@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.physics.EntityStack;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -65,7 +66,7 @@ public final class RideStackHandler {
 
         double vehicleMass = Math.max(EntityStackUtils.getEntityMass(mob), 0.001);
         double passengerMass = 0;
-        for (Entity passenger : EntityStackUtils.getPassengersRecursive(mob)) {
+        for (Entity passenger : EntityStack.passengersRecursive(mob)) {
             passengerMass += EntityStackUtils.getEntityMass(passenger);
         }
 

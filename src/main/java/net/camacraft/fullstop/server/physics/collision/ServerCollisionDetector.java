@@ -1,9 +1,11 @@
 package net.camacraft.fullstop.server.physics.collision;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.EntityCollisionRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.FallingBlockEntity;
@@ -25,7 +27,9 @@ public class ServerCollisionDetector {
         Collision.CollisionType impactType = blockCollision.collisionType;
         List<Entity> collidingEntities = List.of();
 
-        if (SERVER.entityCollisionDamage.get()) {
+        // A mover whose entity contacts another mod owns (an MKW kart's driver)
+        // collides with no one here; neither does anything such a mod owns.
+        if (SERVER.entityCollisionDamage.get() && !fullstop.isClaimed(PhysicsAspect.CONTACT)) {
             Level level = entity.level();
             AABB box = entity.getBoundingBox();
             Vec3 movement = fullstop.getPreviousNativeVelocity();
@@ -50,6 +54,7 @@ public class ServerCollisionDetector {
                             // player further.
                             && !recentRideExchange(entity, e)
                             && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
+                            && !PhysicsClaims.handsOff(e, PhysicsAspect.CONTACT)
             );
 
             if (!collidingEntities.isEmpty() && impactType.priority < Collision.CollisionType.ENTITY.priority) {

@@ -1,5 +1,7 @@
 package net.camacraft.fullstop.common.physics.math;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.physics.Impacts;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -15,7 +17,8 @@ public class VelocityMath {
         if (cap != null) {
             return cap.getCurrentScaledVelocity();
         }
-        return entity.getDeltaMovement().scale(20);
+        // deltaMovement may be in the entity's local frame (Gravity Unbound).
+        return Gravity.getWorldVelocity(entity, FullStopCapability.currentFrame(entity)).scale(20);
     }
 
     public static double calculateApproachVelocity(Entity attacker, Entity target) {
@@ -39,10 +42,7 @@ public class VelocityMath {
             targetPosition = target.getEyePosition();
         }
 
-        Vec3 velocityDifference = attackerVelocity.subtract(targetVelocity);
-        Vec3 directionToTarget = targetPosition.subtract(attackerPosition).normalize();
-
-        return directionToTarget.dot(velocityDifference);
+        return Impacts.closingSpeed(attackerPosition, attackerVelocity, targetPosition, targetVelocity);
     }
 
     public static boolean velocitiesAreSimilar(Vec3 v1, Vec3 v2, double threshold) {

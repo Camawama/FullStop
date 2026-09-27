@@ -1,9 +1,12 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.physics.EntityStack;
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.VelocityDisplay;
@@ -25,6 +28,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
+
+import org.jetbrains.annotations.Nullable;
 
 public class KineticDamageApplier {
 
@@ -98,8 +103,7 @@ public class KineticDamageApplier {
         if (downward) {
             // Riders press down on whatever they sit on: the bottom of the stack takes
             // its share of the whole stack's mass.
-            double totalMass = EntityStackUtils.getAllEntitiesInStack(entity).stream()
-                    .mapToDouble(EntityStackUtils::getEntityMass).sum();
+            double totalMass = EntityStack.sum(entity, EntityStackUtils::getEntityMass);
             double selfMass = Math.max(EntityStackUtils.getEntityMass(entity), 0.001);
 
             float crushFactor = (float) (totalMass / selfMass);
@@ -114,7 +118,7 @@ public class KineticDamageApplier {
 
             float passengerDamage = (float) damage * 0.5f;
             if (passengerDamage > 0) {
-                for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
+                for (Entity passenger : EntityStack.selfAndPassengers(entity)) {
                     if (passenger == entity) continue;
                     anyHurt |= hurtPassenger(passenger, customSource, passengerDamage, true, false);
                 }
@@ -128,16 +132,24 @@ public class KineticDamageApplier {
                 anyHurt |= entity.hurt(customSource, selfDamage);
             }
 
-            if (entity.isPassenger() && damage > 5) {
+            // Only a hit that actually landed throws the rider off: a hurt()
+            // cancelled by another mod (a racer's damage shield) or fully
+            // absorbed must not eject them anyway.
+            if (anyHurt && entity.isPassenger() && damage > 5
+                    && !PhysicsClaims.handsOff(entity, PhysicsAspect.IMPACT)) {
                 entity.stopRiding();
             }
         }
         return anyHurt;
     }
 
-    /** Passengers get the same immunity rules and armor mitigation as everyone else. */
+    /**
+     * Passengers get the same immunity rules and armor mitigation as everyone else - and none of
+     * it when FullStop ignores them or another mod owns their impacts (an MKW kart's driver).
+     */
     private static boolean hurtPassenger(Entity passenger, DamageSource source, float damage,
                                          boolean downward, boolean upward) {
+        if (PhysicsClaims.handsOff(passenger, PhysicsAspect.IMPACT)) return false;
         if (passenger instanceof LivingEntity living) {
             if (DamageImmunityRules.isDamageImmune(living)) return false;
             damage = DamageMitigation.applyArmorReduction(living, damage, downward, upward);
@@ -151,6 +163,8 @@ public class KineticDamageApplier {
                 .filter(e -> e instanceof LivingEntity)
                 .map(e -> (LivingEntity) e)
                 .filter(living -> !(living instanceof IronGolem))
+                // not what FullStop ignores or another mod owns the contacts of
+                .filter(living -> !PhysicsClaims.handsOff(living, PhysicsAspect.CONTACT))
                 .toList();
 
         reactGolems(entity, collision, damage);
@@ -213,8 +227,7 @@ public class KineticDamageApplier {
             selfSplitDamage = 0;
         }
 
-        double stackMass = EntityStackUtils.getAllEntitiesInStack(entity).stream()
-                .mapToDouble(EntityStackUtils::getEntityMass).sum();
+        double stackMass = EntityStack.sum(entity, EntityStackUtils::getEntityMass);
         double selfMass = Math.max(EntityStackUtils.getEntityMass(entity), 0.001);
 
         float selfDamage = selfSplitDamage;
@@ -229,7 +242,7 @@ public class KineticDamageApplier {
 
         if (downward && selfSplitDamage > 0) {
             float passengerDamage = selfSplitDamage * 0.5f;
-            for (Entity passenger : EntityStackUtils.getAllEntitiesInStack(entity)) {
+            for (Entity passenger : EntityStack.selfAndPassengers(entity)) {
                 if (passenger == entity) continue;
                 anyHurt |= hurtPassenger(passenger, selfSource, passengerDamage, downward, upward);
             }
@@ -259,6 +272,64 @@ public class KineticDamageApplier {
             if (targetScaledDamage > 0) {
                 anyHurt |= target.hurt(attackerSource, targetScaledDamage);
             }
+        }
+        return anyHurt;
+    }
+
+    /**
+     * A ship's hull hitting {@code root} (the bottom of a ride stack): full damage to it, half to
+     * each rider, the same immunity rules, armor mitigation, top-up cooldown and hard-hit
+     * dismount as every other kinetic impact. Riders another mod owns the impacts of are spared.
+     *
+     * @param hullAbove the hull came down on it (the helmet takes the armor share)
+     * @param hullBelow the hull rose into it (the boots do, Feather Falling included)
+     * @return whether any damage was dealt
+     */
+    public static boolean applyShipHit(Entity root, @Nullable FullStopCapability fullstop, DamageSource source,
+                                       double damage, boolean hullAbove, boolean hullBelow) {
+        if (damage < 1) return false;
+
+        long tick = root.tickCount;
+        double alreadyApplied = fullstop != null ? fullstop.getRecentAppliedDamage(tick) : 0.0;
+        if (alreadyApplied > 0) {
+            double topUp = damage - alreadyApplied;
+            if (topUp < 1) return false;
+            damage = topUp;
+        }
+        double totalThisImpact = alreadyApplied + damage;
+
+        boolean anyHurt = false;
+        float rootDamage = (float) damage;
+        if (root instanceof LivingEntity living) {
+            if (!DamageImmunityRules.isDamageImmune(living)) {
+                rootDamage = DamageMitigation.applyArmorReduction(living, rootDamage, hullBelow, hullAbove);
+                anyHurt |= rootDamage > 0 && root.hurt(source, rootDamage);
+            }
+        } else if (rootDamage > 0) {
+            // A boat or cart takes the hit like any attack (hard enough, it breaks).
+            anyHurt |= root.hurt(source, rootDamage);
+        }
+
+        float passengerDamage = (float) damage * 0.5f;
+        List<Entity> riders = new java.util.ArrayList<>();
+        for (Entity passenger : EntityStack.selfAndPassengers(root)) {
+            if (passenger == root) continue;
+            riders.add(passenger);
+            anyHurt |= hurtPassenger(passenger, source, passengerDamage, hullBelow, hullAbove);
+        }
+
+        // A hit that landed hard throws the riders off (not those another mod
+        // keeps seated, an MKW racer).
+        if (anyHurt && damage > 5) {
+            for (Entity rider : riders) {
+                if (rider.getVehicle() == root && !PhysicsClaims.handsOff(rider, PhysicsAspect.IMPACT)) {
+                    rider.stopRiding();
+                }
+            }
+        }
+
+        if (anyHurt && fullstop != null) {
+            fullstop.markDamageApplied(tick, DAMAGE_COOLDOWN_TICKS, totalThisImpact);
         }
         return anyHurt;
     }

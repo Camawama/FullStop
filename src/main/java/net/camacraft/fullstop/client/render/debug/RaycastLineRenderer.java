@@ -99,7 +99,8 @@ public final class RaycastLineRenderer {
         Vec3 direction = RaycastUtil.getRayDirection(fullstop);
         double rayLength = RaycastUtil.getRayLength(entity, fullstop);
         // Same ray layout the server uses, so the debug view matches reality.
-        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, net.camacraft.fullstop.FullStopConfig.SERVER.raycastMode.get());
+        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity,
+                net.camacraft.fullstop.FullStopConfig.SERVER.raycastMode.get(), fullstop.getFrame());
         Level level = entity.level();
 
         // Ray starts come from the tick-resolution bounding box; shifting them by
@@ -125,32 +126,15 @@ public final class RaycastLineRenderer {
             // touches it) shows YELLOW: touching, not colliding.
             boolean collisionGrade = false;
             if (hitBlock) {
-                Vec3 normal = Vec3.atLowerCornerOf(blockHit.getDirection().getNormal());
-                collisionGrade = direction.dot(normal) < -0.1
-                        && -preImpactVelocity.dot(normal)
-                                >= net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
-                // Same rule as the classifier: a side face on a block whose top
-                // is at (effective) foot level is the floor ahead, not a wall.
-                if (blockHit.getDirection().getAxis().isHorizontal()
-                        && blockHit.getBlockPos().getY() + 1.0 <= RaycastUtil.effectiveFloorY(entity) + 0.15) {
-                    collisionGrade = false;
-                }
-                // Same seam-graze rule as the classifier: rubbing along a surface
-                // must show yellow (touch), never red, at any speed.
-                if (!net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.crossSectionOverlaps(
-                        sweptBox, blockHit.getBlockPos(), blockHit.getDirection())) {
-                    collisionGrade = false;
-                }
-                // Same buried-face rule as the classifier: internal seams of a
-                // continuous wall are not real surfaces.
-                if (collisionGrade) {
-                    net.minecraft.core.BlockPos facingPos = blockHit.getBlockPos().relative(blockHit.getDirection());
-                    net.minecraft.world.level.block.state.BlockState facingState = level.getBlockState(facingPos);
-                    if (facingState.getBlock() == level.getBlockState(blockHit.getBlockPos()).getBlock()
-                            || facingState.isFaceSturdy(level, facingPos, blockHit.getDirection().getOpposite())) {
-                        collisionGrade = false;
-                    }
-                }
+                // The classifier's own face rules (approach speed, seam-graze
+                // cross-section (in ship space for ship blocks), floor-ahead,
+                // buried face), judged in the entity's gravity frame, so the
+                // debug view can never disagree with gameplay.
+                collisionGrade = net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.opposesAsSurface(
+                        level, entity, fullstop.getFrame(), direction, preImpactVelocity, sweptBox,
+                        RaycastUtil.effectiveFloorY(entity), blockHit.getBlockPos(), blockHit.getDirection())
+                        && !net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isBuriedFace(
+                                level, blockHit.getBlockPos(), level.getBlockState(blockHit.getBlockPos()), blockHit.getDirection());
             }
 
             float r = hitBlock ? (collisionGrade ? HIT_R : TOUCH_R) : MISS_R;

@@ -1,10 +1,12 @@
 package net.camacraft.fullstop.server.physics;
 
-import com.google.common.collect.Lists;
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.particle.CollisionParticleSpawner;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.camacraft.fullstop.server.physics.collision.ServerCollisionDetector;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageApplier;
@@ -13,6 +15,8 @@ import net.camacraft.fullstop.server.physics.effects.StatusEffectApplier;
 import net.camacraft.fullstop.server.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.server.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.server.physics.interaction.KineticBlockInteractions;
+import net.camacraft.fullstop.server.physics.ship.ShipImpulses;
+import net.camacraft.fullstop.server.physics.ship.ShipPhysicsServer;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvent;
@@ -70,10 +74,25 @@ public class PhysicsDispatchServer {
             KineticBlockInteractions.tickCracks(level);
 
             // Copy: handlers may mount/dismount entities, which mutates the entity list.
-            List<Entity> entities = Lists.newArrayList(level.getAllEntities());
+            // Every vehicle is processed before its passengers: a passenger of a
+            // client-driven vehicle replays the vehicle's per-client-tick steps
+            // (FullStopCapability.tick), which must already be known.
+            List<Entity> entities = new ArrayList<>();
+            for (Entity entity : level.getAllEntities()) {
+                if (entity.isPassenger()) continue;
+                if (entity.isVehicle()) {
+                    entity.getSelfAndPassengers().forEach(entities::add);
+                } else {
+                    entities.add(entity);
+                }
+            }
             for (Entity entity : entities) {
                 onEntityTick(entity);
             }
+
+            // Valkyrien Skies ships: weight on decks, hulls hitting entities and
+            // terrain. After the entity loop, so every capability is current.
+            ShipPhysicsServer.tick(level);
         }
     }
 
@@ -153,13 +172,17 @@ public class PhysicsDispatchServer {
         Entity vehicle = event.getEntityBeingMounted();
         Vec3 vehicleMotion = observedVehicleMotion(vehicle);
 
+        // Each velocity write below is a MOTION write on that entity: skipped for
+        // blacklisted entities and for anything another mod owns the motion of
+        // (MKW's karts; a racer's own motion while in a race).
         if (event.isMounting()) {
             // Boarding a MOVING boat keeps it moving: the new driver's client
             // otherwise starts simulating from the stale synced motion (~0).
             // First passenger only — a second rider must not reset the boat.
             if (vehicle instanceof Boat && vehicle.getFirstPassenger() == null
-                    && vehicleMotion.lengthSqr() > 1.0e-6) {
-                vehicle.setDeltaMovement(vehicleMotion);
+                    && vehicleMotion.lengthSqr() > 1.0e-6
+                    && !PhysicsClaims.handsOff(vehicle, PhysicsAspect.MOTION)) {
+                Gravity.setWorldVelocity(vehicle, vehicleMotion, FullStopCapability.currentFrame(vehicle));
             }
         } else {
             // Dismounting — including being thrown off a destroyed vehicle
@@ -167,16 +190,19 @@ public class PhysicsDispatchServer {
             // the vehicle's momentum instead of freezing in place.
             if (vehicleMotion.lengthSqr() > 1.0e-4) {
                 Entity rider = event.getEntityMounting();
-                rider.setDeltaMovement(vehicleMotion);
-                rider.hasImpulse = true;
+                if (!PhysicsClaims.handsOff(rider, PhysicsAspect.MOTION)) {
+                    // observed motion is world-space; deltaMovement may be frame-local
+                    Gravity.setWorldVelocity(rider, vehicleMotion, FullStopCapability.currentFrame(rider));
+                    rider.hasImpulse = true;
+                }
 
                 // ...and the VEHICLE keeps its momentum too. While ridden, the
                 // server-side boat zeroed its own deltaMovement every tick, so
                 // when the dismount hands simulation back to the server it
                 // resumed from zero — the boat froze the instant the driver
                 // left. Reseeding here lets it glide on under server physics.
-                if (vehicle.isAlive()) {
-                    vehicle.setDeltaMovement(vehicleMotion);
+                if (vehicle.isAlive() && !PhysicsClaims.handsOff(vehicle, PhysicsAspect.MOTION)) {
+                    Gravity.setWorldVelocity(vehicle, vehicleMotion, FullStopCapability.currentFrame(vehicle));
                 }
             }
         }
@@ -243,6 +269,16 @@ public class PhysicsDispatchServer {
 
         if (entity instanceof Mob mob && fullstop.isNoAiCached(mob)) return;
 
+        // Which parts of this entity's physics other mods own this tick (MKW's
+        // karts and their drivers, a grapple swing...): read once and cached on
+        // the capability for every system below and for the mixins. An entity
+        // another mod owns outright is not simulated at all.
+        int claims = fullstop.refreshClaims(entity);
+        if (claims == PhysicsAspect.ALL) {
+            fullstop.resetVelocity();
+            return;
+        }
+
         if (entity.tickCount != fullstop.getLastTick()) {
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
@@ -255,7 +291,14 @@ public class PhysicsDispatchServer {
 
         // G-force status effects depend on the smoothed average, not current speed,
         // so they must run before the speed gate (a hard stop leaves speed ~0).
-        StatusEffectApplier.applyForceEffects(entity, fullstop);
+        if (!PhysicsAspect.G_FORCE.in(claims)) {
+            StatusEffectApplier.applyForceEffects(entity, fullstop);
+        }
+
+        // A client-driven mover whose client ticks did not reach the server
+        // this tick has not moved: there is no impact to look for (and its
+        // zero position delta must not read as one).
+        if (!fullstop.hasFreshSample()) return;
 
         sonicBoom(entity, fullstop);
 
@@ -265,45 +308,114 @@ public class PhysicsDispatchServer {
             return;
         }
 
-        // Doors ahead open before they ever become collisions (no speed scrub).
-        KineticBlockInteractions.openDoorsAhead(entity, fullstop.getCurrentNativeVelocity());
+        boolean blocksFree = !PhysicsAspect.BLOCKS.in(claims);
+        boolean impactFree = !PhysicsAspect.IMPACT.in(claims);
 
-        // Buttons are shapeless, invisible to the collision rays — swept separately.
-        KineticBlockInteractions.pressButtonsInPath(entity, fullstop.getCurrentNativeVelocity());
+        if (blocksFree) {
+            // Doors ahead open before they ever become collisions (no speed scrub).
+            KineticBlockInteractions.openDoorsAhead(entity, fullstop.getCurrentNativeVelocity());
+
+            // Buttons are shapeless, invisible to the collision rays — swept separately.
+            KineticBlockInteractions.pressButtonsInPath(entity, fullstop.getCurrentNativeVelocity());
+        }
 
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
-        EntityCollisionHandler.handle(entity, fullstop, collision);
+        // A landing on a ship's deck pushes the ship: a force ON the ship, so it
+        // applies whoever owns this entity's own impact physics.
+        ShipImpulses.onEntityImpact(entity, fullstop, collision);
 
-        boolean significantImpact = !collision.fake() && fullstop.getStoppingForce() > MIN_AESTHETIC_STOPPING_FORCE;
+        if (!PhysicsAspect.CONTACT.in(claims)) {
+            EntityCollisionHandler.handle(entity, fullstop, collision);
+        }
+
+        boolean significantImpact = impactFree && !collision.fake()
+                && fullstop.getStoppingForce() > MIN_AESTHETIC_STOPPING_FORCE;
         if (significantImpact) {
             impactAesthetic(entity, collision);
             impactSound(entity, fullstop, collision);
         }
 
-        double damage = KineticDamageCalculator.calculateDamage(entity, fullstop, collision);
+        double damage = impactFree ? KineticDamageCalculator.calculateDamage(entity, fullstop, collision) : 0;
+        boolean debugLog = SERVER.debugImpactLog.get()
+                && (!collision.fake() || fullstop.getStoppingForce() > DEBUG_LOG_MIN_STOPPING_FORCE);
+        if (debugLog) {
+            debugImpact(entity, fullstop, collision, damage);
+        }
 
         boolean brokeBlock = false;
-        if (!collision.impactedPositions.isEmpty()) {
+        if (blocksFree && !collision.impactedPositions.isEmpty()) {
             KineticBlockInteractions.ImpactResult impactResult = KineticBlockInteractions.handleBlockImpacts(
                     entity, fullstop.getPreviousNativeVelocity(), collision.impactedPositions, collision.impactedHits);
             brokeBlock = impactResult.brokeBlock();
-            damage += impactResult.smashDamage();
+            if (impactFree) {
+                damage += impactResult.smashDamage();
+            }
         } else if (entity.level() instanceof ServerLevel serverLevel) {
             KineticBlockInteractions.clearCrack(entity, serverLevel);
         }
 
-        BounceHandler.apply(entity, fullstop, collision, brokeBlock);
+        if (!PhysicsAspect.BOUNCE.in(claims)) {
+            BounceHandler.apply(entity, fullstop, collision, brokeBlock);
+        }
 
         if (damage >= 1) {
             // Sound and sprain only when the applier actually hurt something —
             // it can bail on its cooldown or mitigate everything to zero, and a
             // big-fall thud with no damage reads as a bug.
-            if (KineticDamageApplier.apply(entity, fullstop, collision, damage)) {
+            boolean hurt = KineticDamageApplier.apply(entity, fullstop, collision, damage);
+            if (debugLog) {
+                LOGGER.info("[FullStop] impact applied={} ({} damage) to {}", hurt, String.format(java.util.Locale.ROOT, "%.2f", damage), entity.getName().getString());
+            }
+            if (hurt) {
                 impactDamageSound(entity, damage, collision);
                 StatusEffectApplier.applyDamageEffects(entity, fullstop, collision, damage);
             }
         }
+    }
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+
+    /** Below this speed lost (m/s) a tick without a raycast hit is not worth a debug line. */
+    private static final double DEBUG_LOG_MIN_STOPPING_FORCE = 4.0;
+
+    /**
+     * One line per significant impact tick (config debugImpactLog): everything
+     * the damage gate looked at, so an impact that should have hurt but did
+     * not can be diagnosed from the log alone.
+     */
+    private static void debugImpact(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
+        net.camacraft.camafy.compat.gravity.GravityFrame frame = fullstop.getFrame();
+        Vec3 up = frame.up();
+        Vec3 pre = fullstop.getPreImpactScaledVelocity();
+        StringBuilder faces = new StringBuilder();
+        for (int i = 0; i < collision.impactedHits.size(); i++) {
+            if (i > 0) faces.append(',');
+            faces.append(collision.impactedHits.get(i).getDirection().getName());
+            if (i < collision.blockStates.size()) {
+                faces.append(':').append(net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(collision.blockStates.get(i).getBlock()));
+            }
+        }
+        LOGGER.info("[FullStop] impact {} frame={} up=({}) pre={} m/s (v={} h={}) lost total={} vertical={} horizontal={} world=({},{},{}) "
+                        + "evidence[recentV={} recentH={} onGround={} ship={}] immune={} claims={} collision={} faces=[{}] entities={} damage={}",
+                entity.getName().getString(),
+                frame.isDefault() ? "default" : "rotated",
+                String.format(java.util.Locale.ROOT, "%.2f,%.2f,%.2f", up.x, up.y, up.z),
+                String.format(java.util.Locale.ROOT, "%.1f", pre.length()),
+                String.format(java.util.Locale.ROOT, "%.1f", frame.vertical(pre)),
+                String.format(java.util.Locale.ROOT, "%.1f", frame.horizontalDistance(pre)),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getStoppingForce()),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getVerticalStoppingForce()),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getHorizontalStoppingForce()),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getAxisStoppingForce(net.minecraft.core.Direction.Axis.X)),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getAxisStoppingForce(net.minecraft.core.Direction.Axis.Y)),
+                String.format(java.util.Locale.ROOT, "%.1f", fullstop.getAxisStoppingForce(net.minecraft.core.Direction.Axis.Z)),
+                fullstop.hadRecentVerticalHit(), fullstop.hadRecentHorizontalHit(), entity.onGround(),
+                net.camacraft.fullstop.common.compat.ShipCompat.anyShipBlock(entity.level(), collision.impactedPositions),
+                fullstop.getIsDamageImmune(),
+                Integer.toBinaryString(fullstop.getClaims()),
+                collision.collisionType, faces, collision.collidingEntities.size(),
+                String.format(java.util.Locale.ROOT, "%.2f", damage));
     }
 
     /** 343 m/s (speed of sound), squared for allocation- and sqrt-free comparison. */

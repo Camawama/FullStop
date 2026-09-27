@@ -1,7 +1,9 @@
 package net.camacraft.fullstop.server.physics.pressure;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
@@ -27,6 +29,9 @@ public class PressureHandler {
         if (living instanceof Player player && (player.isCreative() || player.isSpectator())) return;
         if (living.canBreatheUnderwater()) return;
         if (living.getMobType() == MobType.UNDEAD) return; // the undead don't breathe
+        // Pressure is ENVIRONMENT physics: not for blacklisted entities, nor while
+        // another mod owns it (MKW racers on tracks above the thin-air line).
+        if (PhysicsClaims.cachedHandsOff(living, PhysicsAspect.ENVIRONMENT)) return;
 
         handleAltitude(living);
         handleDepth(living);

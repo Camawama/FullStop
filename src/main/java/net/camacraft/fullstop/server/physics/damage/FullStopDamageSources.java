@@ -1,8 +1,8 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.util.color.Argb;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.common.physics.rules.EquipmentRules;
-import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.core.Holder;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -16,7 +16,9 @@ import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
@@ -36,6 +38,8 @@ public final class FullStopDamageSources {
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "pressure"));
     public static final ResourceKey<DamageType> ATMOSPHERE =
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "atmosphere"));
+    public static final ResourceKey<DamageType> SHIP =
+            ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "ship"));
 
     private FullStopDamageSources() {
     }
@@ -54,6 +58,30 @@ public final class FullStopDamageSources {
         protected KineticSource(Holder<DamageType> type, Entity attacker) {
             super(type, attacker);
         }
+
+        /**
+         * @param direct  the body that physically struck (the boat, the hook, the ship's pilot seat)
+         * @param causing who answers for it (see {@link #responsible}); kill credit and the host's
+         *                PvP/team rules see this one
+         */
+        protected KineticSource(Holder<DamageType> type, @Nullable Entity direct, @Nullable Entity causing) {
+            super(type, direct, causing);
+        }
+    }
+
+    /**
+     * Who answers for a hit {@code mover} delivers: a projectile's owner, else whoever steers the
+     * mover (the player driving the boat, riding the horse), else the mover itself. This is the
+     * damage source's causing entity: vanilla's PvP and team checks, kill credit, mob anger and
+     * minigame hosts' rules (grace, safe regions, friendly fire) all look at it, so ramming
+     * someone with a boat is the driver's attack, not an ownerless accident.
+     */
+    public static Entity responsible(Entity mover) {
+        if (mover instanceof Projectile projectile && projectile.getOwner() != null) {
+            return projectile.getOwner();
+        }
+        Entity controller = mover.getControllingPassenger();
+        return controller != null ? controller : mover;
     }
 
     private static Holder<DamageType> holder(Entity entity, ResourceKey<DamageType> key) {
@@ -86,14 +114,16 @@ public final class FullStopDamageSources {
 
         int rgb;
         if (t < 0.33) {
-            rgb = MathUtils.lerpColor(green, yellow, t / 0.33);
+            rgb = Argb.lerpRgb((float) (t / 0.33), green, yellow);
         } else if (t < 0.66) {
-            rgb = MathUtils.lerpColor(yellow, red, (t - 0.33) / 0.33);
+            rgb = Argb.lerpRgb((float) ((t - 0.33) / 0.33), yellow, red);
         } else {
-            rgb = MathUtils.lerpColor(red, darkRed, (t - 0.66) / 0.34);
+            rgb = Argb.lerpRgb((float) ((t - 0.66) / 0.34), red, darkRed);
         }
 
-        return new VelocityDisplay(String.format("(going %.2f m/s)", speedMps), TextColor.fromRgb(rgb));
+        // lerpRgb returns an opaque 0xFFRRGGBB; keep the text colour plain RGB as
+        // it always was (TextColor would carry the alpha byte into its serialized form).
+        return new VelocityDisplay(String.format("(going %.2f m/s)", speedMps), TextColor.fromRgb(rgb & 0xFFFFFF));
     }
 
     /** Variant for mutual collisions: "(at X m/s)" reads better than "(going X m/s)". */
@@ -159,6 +189,57 @@ public final class FullStopDamageSources {
         };
     }
 
+    // --- Ship hits ------------------------------------------------------------
+
+    /**
+     * A Valkyrien Skies ship's hull hitting an entity. Carries the side the hull came from, so
+     * Kinetic Protection covers the right piece of armor (the helmet for a hull coming down, the
+     * boots for one rising from below).
+     */
+    public abstract static class ShipSource extends KineticSource {
+        private final boolean hullAbove;
+        private final boolean hullBelow;
+
+        protected ShipSource(Holder<DamageType> type, @Nullable Entity pilot, boolean hullAbove, boolean hullBelow) {
+            // No direct entity (a ship isn't one); the pilot is who answers for it.
+            super(type, null, pilot);
+            this.hullAbove = hullAbove;
+            this.hullBelow = hullBelow;
+        }
+
+        public boolean hullAbove() {
+            return hullAbove;
+        }
+
+        public boolean hullBelow() {
+            return hullBelow;
+        }
+    }
+
+    /**
+     * Damage a ship's hull deals to what it hits ({@code fullstop:ship}). The pilot, when there
+     * is one and creditPilot is on, is the attacker: kill credit, and the server's PvP and team
+     * rules apply as for any attack.
+     *
+     * @param crushed the victim was pinned between the hull and something that didn't give
+     */
+    public static DamageSource ship(Entity victim, @Nullable Entity pilot, VelocityDisplay velocity, boolean crushed,
+                                    boolean hullAbove, boolean hullBelow) {
+        return new ShipSource(holder(victim, SHIP), pilot, hullAbove, hullBelow) {
+            @Override
+            @NotNull
+            public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
+                String key = crushed ? "death.fullstop.ship.crushed" : "death.fullstop.ship.hit";
+                Component suffix = velocitySuffix(velocity);
+                if (pilot != null && pilot != dead) {
+                    return Component.translatable(key + ".player", dead.getDisplayName(), pilot.getDisplayName())
+                            .append(suffix);
+                }
+                return Component.translatable(key, dead.getDisplayName()).append(suffix);
+            }
+        };
+    }
+
     // --- Entity-collision damage -------------------------------------------
 
     /**
@@ -181,9 +262,12 @@ public final class FullStopDamageSources {
         }
 
         // Passing the attacker through the real constructor (not a getEntity()
-        // override) sets the direct entity, so kill credit, knockback attribution
-        // and the mitigation event all see the attacker.
-        return new KineticSource(type, attacker) {
+        // override) sets the direct entity, so knockback attribution and the
+        // mitigation event see the body that struck; the causing entity is who
+        // answers for it (the driver of a boat, the owner of a hook), so kill
+        // credit and PvP/host rules see them.
+        Entity causing = responsible(attacker);
+        return new KineticSource(type, attacker, causing) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
@@ -192,6 +276,12 @@ public final class FullStopDamageSources {
                         .withStyle(s -> s.withColor(velocity.color()));
 
                 String key = mostlyDownward ? "death.fullstop.entity.crushed_by" : "death.fullstop.entity.hit_by";
+                if (causing != attacker && causing != victim) {
+                    // "was hit by Steve's Boat"
+                    return Component.translatable(key + ".owned", victim.getDisplayName(), attackerName,
+                                    causing.getDisplayName())
+                            .append(velocitySuffix(velocity));
+                }
                 return Component.translatable(key, victim.getDisplayName(), attackerName)
                         .append(velocitySuffix(velocity));
             }

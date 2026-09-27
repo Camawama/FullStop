@@ -1,9 +1,14 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.EntityStack;
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
@@ -49,24 +54,32 @@ public final class EntityCollisionHandler {
         if (collision.collisionType != Collision.CollisionType.ENTITY) return;
         if (collision.collidingEntities.isEmpty()) return;
 
-        Vec3 v1Initial = entity.hasImpulse ? entity.getDeltaMovement() : fullstop.getCurrentNativeVelocity();
+        // All world-space: deltaMovement may live in the entity's local gravity
+        // frame (Gravity Unbound), so it is read and written through Gravity.
+        GravityFrame frame = fullstop.getFrame();
+        Vec3 v1Initial = entity.hasImpulse ? Gravity.getWorldVelocity(entity, frame) : fullstop.getCurrentNativeVelocity();
         double m1 = EntityStackUtils.getEntityMass(entity);
         if (m1 <= 0) return;
 
         List<CollisionCandidate> candidates = new ArrayList<>();
 
-        Vec3 entityCenterOffset = new Vec3(0, entity.getBbHeight() / 2, 0);
+        Vec3 entityCenterOffset = frame.up().scale(entity.getBbHeight() / 2);
         Vec3 entityCenter = entity.position().add(entityCenterOffset);
 
         for (Entity other : collision.collidingEntities) {
             if (other == entity || !other.isAlive()) continue;
+            // Never exchange momentum with something FullStop ignores or another
+            // mod owns the contacts of (an MKW kart and its driver).
+            if (PhysicsClaims.handsOff(other, PhysicsAspect.CONTACT)) continue;
 
             // Measured velocity, mirroring v1Initial: a server-side player's raw
             // deltaMovement is ~always zero (movement is client-authoritative),
             // which made every player read as a stationary wall — anything that
             // grazed one dumped its whole momentum into the "impact".
+            FullStopCapability otherCap = grabCapability(other);
+            GravityFrame otherFrame = otherCap != null ? otherCap.getFrame() : GravityFrame.DEFAULT;
             Vec3 v2 = other.hasImpulse
-                    ? other.getDeltaMovement()
+                    ? Gravity.getWorldVelocity(other, otherFrame)
                     : VelocityMath.entityVelocity(other).scale(0.05);
 
             Vec3 relativeVelocity = v1Initial.subtract(v2);
@@ -127,7 +140,7 @@ public final class EntityCollisionHandler {
             }
 
             if (valid) {
-                candidates.add(new CollisionCandidate(other, normal, currentDistSq, v2, hitPos, passedThrough));
+                candidates.add(new CollisionCandidate(other, normal, currentDistSq, v2, hitPos, passedThrough, otherFrame));
             }
         }
 
@@ -138,17 +151,18 @@ public final class EntityCollisionHandler {
         CollisionCandidate closest = candidates.get(0);
 
         // Auto-mounting is a player-only convenience; mobs stacking on each other was chaos.
+        // "Above" and "falling" as the mover's frame sees them.
+        double yDiff = frame.vertical(entity.position().subtract(closest.other.position()));
+        double vertical = frame.vertical(v1Initial);
         if (entity instanceof Player) {
-            double yDiff = entity.getY() - closest.other.getY();
-            if (yDiff > closest.other.getBbHeight() * 0.5 && v1Initial.y < -0.2) {
+            if (yDiff > closest.other.getBbHeight() * 0.5 && vertical < -0.2) {
                 if (tryStartRidingSafely(entity, closest.other, fullstop)) {
                     return;
                 }
             }
         }
         if (closest.other instanceof Player) {
-            double yDiff = entity.getY() - closest.other.getY();
-            if (yDiff < -entity.getBbHeight() * 0.5 && v1Initial.y > 0.2) {
+            if (yDiff < -entity.getBbHeight() * 0.5 && vertical > 0.2) {
                 if (canRideSafely(closest.other, entity)) {
                     if (closest.other.startRiding(entity, true)) {
                         applyMountPanic(entity, closest.other);
@@ -230,7 +244,7 @@ public final class EntityCollisionHandler {
 
             v1 = v1.add(impulseOnSelf.scale(1 / m1));
 
-            other.setDeltaMovement(v2.add(impulseOnOther.scale(1 / m2)));
+            Gravity.setWorldVelocity(other, v2.add(impulseOnOther.scale(1 / m2)), c.otherFrame);
             other.hasImpulse = true;
             other.hurtMarked = true; // without this, living entities never sync the push to clients
             PacketHandler.syncMotionToControllingDriver(other);
@@ -238,7 +252,7 @@ public final class EntityCollisionHandler {
         }
 
         if (anyCollision) {
-            entity.setDeltaMovement(v1);
+            Gravity.setWorldVelocity(entity, v1, frame);
             entity.hasImpulse = true;
             entity.hurtMarked = true;
             PacketHandler.syncMotionToControllingDriver(entity);
@@ -305,7 +319,7 @@ public final class EntityCollisionHandler {
         FullStopCapability riderCap = grabCapability(rider);
         if (riderCap != null && riderCap.getDismountCooldown() > 0) return false;
 
-        if (EntityStackUtils.isInPassengerChain(rider, vehicle) || EntityStackUtils.isInPassengerChain(vehicle, rider)) return false;
+        if (EntityStack.isInPassengerChain(rider, vehicle) || EntityStack.isInPassengerChain(vehicle, rider)) return false;
 
         return true;
     }
@@ -317,14 +331,17 @@ public final class EntityCollisionHandler {
         final Vec3 v2;
         final Vec3 hitPos;
         final boolean passedThrough;
+        final GravityFrame otherFrame;
 
-        CollisionCandidate(Entity other, Vec3 normal, double distSq, Vec3 v2, Vec3 hitPos, boolean passedThrough) {
+        CollisionCandidate(Entity other, Vec3 normal, double distSq, Vec3 v2, Vec3 hitPos, boolean passedThrough,
+                           GravityFrame otherFrame) {
             this.other = other;
             this.normal = normal;
             this.distSq = distSq;
             this.v2 = v2;
             this.hitPos = hitPos;
             this.passedThrough = passedThrough;
+            this.otherFrame = otherFrame;
         }
     }
 }

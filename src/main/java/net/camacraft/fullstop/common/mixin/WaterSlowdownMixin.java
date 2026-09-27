@@ -1,7 +1,9 @@
 package net.camacraft.fullstop.common.mixin;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.EquipmentRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.common.sound.FSSoundPlayer;
 import net.minecraft.sounds.SoundSource;
@@ -30,6 +32,12 @@ public class WaterSlowdownMixin {
 
         FullStopCapability cap = FullStopCapability.grabCapability(entity);
         if (cap != null && cap.getWaterSkipCooldown() > 0) {
+            return;
+        }
+
+        // Water drag is ENVIRONMENT physics: not for blacklisted entities, nor
+        // while another mod owns it (cached claims; this runs every travel()).
+        if (PhysicsClaims.cachedHandsOff(entity, PhysicsAspect.ENVIRONMENT)) {
             return;
         }
 

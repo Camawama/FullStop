@@ -3,9 +3,6 @@ package net.camacraft.fullstop;
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
-import java.util.Arrays;
-import java.util.List;
-
 public class FullStopConfig {
     public static final float DEFAULT_SQUASH = 6.90F;
     public static final float DEFAULT_EXPONENTIATION = 1.40F;
@@ -20,7 +17,7 @@ public class FullStopConfig {
     // same run plus a jump crossed it — which read as "wall damage only works
     // when my feet leave the ground".
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_HORIZONTAL = 10.5f;
-    // ≈ the impact speed of a 3-block fall, vanilla's safe-fall limit.
+    // Just above the impact speed of a 3-block fall (12.3 m/s), vanilla's safe-fall limit.
     public static final float DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL = 12.77F;
 
     public static final ForgeConfigSpec SERVER_SPEC;
@@ -57,6 +54,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue sandBlasting;
         public final ForgeConfigSpec.BooleanValue enableGravityBlocks;
         public final ForgeConfigSpec.BooleanValue enableValkyrienSkiesCompat;
+        public final ForgeConfigSpec.BooleanValue enableGravityUnboundCompat;
         public final ForgeConfigSpec.DoubleValue phaseMinimumSpeed;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdHorizontal;
         public final ForgeConfigSpec.DoubleValue velocityDamageThresholdVertical;
@@ -65,9 +63,13 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue hardnessAffectsDamage;
         public final ForgeConfigSpec.DoubleValue minimumSolidImpactDamage;
         public final ForgeConfigSpec.IntValue crackHealSeconds;
-        public final ForgeConfigSpec.ConfigValue<List<? extends String>> entityWeights;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
+        public final ForgeConfigSpec.BooleanValue debugImpactLog;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
+        public final ForgeConfigSpec.DoubleValue minGForceThreshold;
+        public final ForgeConfigSpec.DoubleValue maxGForceThreshold;
+        public final ForgeConfigSpec.DoubleValue spinNauseaThreshold;
+        public final ForgeConfigSpec.DoubleValue minimumFallDistance;
         public final ForgeConfigSpec.BooleanValue enablePressureSimulation;
         public final ForgeConfigSpec.BooleanValue altitudePressureAffectsMobs;
         public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
@@ -78,6 +80,61 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue pressureDamageAmount;
         public final ForgeConfigSpec.IntValue pressureDamageTickRate;
         public final ForgeConfigSpec.DoubleValue dripstoneDamageMultiplier;
+        public final ForgeConfigSpec.IntValue configVersion;
+
+        // Ship Weight (from WeightRS; the key names are WeightRS's so its settings import)
+        public final ForgeConfigSpec.BooleanValue enableShipWeight;
+        public final ForgeConfigSpec.BooleanValue includePlayers;
+        public final ForgeConfigSpec.DoubleValue gravity;
+        public final ForgeConfigSpec.DoubleValue minPhysicsWeightKg;
+        public final ForgeConfigSpec.BooleanValue enableItemEntityPhysics;
+        public final ForgeConfigSpec.BooleanValue enableStandingWeight;
+        public final ForgeConfigSpec.BooleanValue enableJumpImpulse;
+        public final ForgeConfigSpec.BooleanValue enableFallImpact;
+        public final ForgeConfigSpec.DoubleValue jumpImpulseMultiplier;
+        public final ForgeConfigSpec.DoubleValue fallImpactMultiplier;
+        public final ForgeConfigSpec.DoubleValue minFallDistance;
+        public final ForgeConfigSpec.DoubleValue maxForceNewtons;
+
+        // Ship Collisions
+        public final ForgeConfigSpec.BooleanValue enableShipCollisions;
+        public final ForgeConfigSpec.BooleanValue damageEntities;
+        public final ForgeConfigSpec.DoubleValue pushMinSpeed;
+        public final ForgeConfigSpec.DoubleValue entityDamageMultiplier;
+        public final ForgeConfigSpec.DoubleValue entityRestitution;
+        public final ForgeConfigSpec.DoubleValue pinnedDamageMultiplier;
+        public final ForgeConfigSpec.BooleanValue creditPilot;
+        public final ForgeConfigSpec.BooleanValue reactionImpulses;
+        public final ForgeConfigSpec.BooleanValue breakTerrain;
+        public final ForgeConfigSpec.BooleanValue hullDamage;
+        public final ForgeConfigSpec.DoubleValue massInfluence;
+        public final ForgeConfigSpec.DoubleValue breakMinSpeed;
+        public final ForgeConfigSpec.DoubleValue terrainEnergyFraction;
+        public final ForgeConfigSpec.DoubleValue breakCostMultiplier;
+        public final ForgeConfigSpec.DoubleValue terrainBreakDrag;
+        public final ForgeConfigSpec.IntValue terrainMaxBlocksPerTick;
+        public final ForgeConfigSpec.BooleanValue terrainBlockDrops;
+        public final ForgeConfigSpec.BooleanValue terrainBreakBlockEntities;
+        public final ForgeConfigSpec.BooleanValue unpilotedFollowsMobGriefing;
+        public final ForgeConfigSpec.EnumValue<ShipVsShipBreaking> shipVsShipBreaking;
+        public final ForgeConfigSpec.BooleanValue sweepVegetation;
+        public final ForgeConfigSpec.DoubleValue sweepMinSpeed;
+        public final ForgeConfigSpec.BooleanValue sweepPlacedLeaves;
+        public final ForgeConfigSpec.DoubleValue sweepDrag;
+        public final ForgeConfigSpec.IntValue sweepMaxBlocksPerTick;
+        public final ForgeConfigSpec.BooleanValue impactSounds;
+        public final ForgeConfigSpec.DoubleValue impactSoundMinSpeed;
+        public final ForgeConfigSpec.DoubleValue impactSoundVolume;
+        public final ForgeConfigSpec.BooleanValue impactParticles;
+        public final ForgeConfigSpec.IntValue newShipGraceTicks;
+        public final ForgeConfigSpec.IntValue maxHitChecksPerTick;
+        public final ForgeConfigSpec.BooleanValue debugShipCollisionLog;
+
+        // Ship Riders
+        public final ForgeConfigSpec.BooleanValue deckMomentum;
+        public final ForgeConfigSpec.DoubleValue deckGrip;
+        public final ForgeConfigSpec.DoubleValue deckThrowLift;
+        public final ForgeConfigSpec.BooleanValue deckMomentumSeated;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -117,6 +174,31 @@ public class FullStopConfig {
                     .comment("Default: true")
                     .define("enableGForceEffects", true);
 
+            this.minGForceThreshold = builder
+                    .comment("Sustained felt acceleration (m/s per tick above the 1 g everyone feels at rest) at which the",
+                            "g-force effects start: tunnel vision, muffled audio. Gameplay-relevant, so it is a SERVER setting:",
+                            "the Clarity and Vertigo potions scale it per player, clients cannot.",
+                            "Reference: a hard elytra pull-out is about 3, a firework kick briefly 15+, a slime launch 20+.")
+                    .translation("config.fullstop.server.minGForceThreshold")
+                    .comment("Default: 2.5")
+                    .defineInRange("minGForceThreshold", 2.5, 0.0, 100.0);
+
+            this.maxGForceThreshold = builder
+                    .comment("Sustained felt acceleration at which the blackout is complete: the screen goes black and the",
+                            "player is BLINDED (a G-LOC that outlasts the g-force itself), with nausea that lingers after the",
+                            "blindness fades. Nausea alone starts halfway between the two thresholds.")
+                    .translation("config.fullstop.server.maxGForceThreshold")
+                    .comment("Default: 7.0")
+                    .defineInRange("maxGForceThreshold", 7.0, 0.0, 100.0);
+
+            this.spinNauseaThreshold = builder
+                    .comment("Sustained turning rate (degrees per tick, smoothed over about two seconds) past which a player",
+                            "gets dizzy (nausea) - spinning the view round and round, or running in tight circles at speed.",
+                            "A quick 180 never reaches it; a couple of full spins do. Clarity/Vertigo scale it. 0 disables.")
+                    .translation("config.fullstop.server.spinNauseaThreshold")
+                    .comment("Default: 8.0")
+                    .defineInRange("spinNauseaThreshold", 8.0, 0.0, 180.0);
+
             this.enableGravityBlocks = builder
                     .comment("When true, blocks tagged fullstop:gravity_affected (slime and honey by default) fall like sand when nothing supports them.",
                             "Blocks also tagged fullstop:sticky cling to any touching block, not just the one below.")
@@ -131,6 +213,21 @@ public class FullStopConfig {
                     .translation(key("enableValkyrienSkiesCompat"))
                     .comment("Default: true")
                     .define("enableValkyrienSkiesCompat", true);
+
+            this.enableGravityUnboundCompat = builder
+                    .comment("When true and Gravity Unbound is installed, FullStop measures impacts in each entity's gravity frame:",
+                            "a fall along a gravity field's pull is a FALL (vertical threshold, boots, Feather Falling) whichever world",
+                            "axis it happens along, walls and floors are classified relative to the field, and velocity is exchanged",
+                            "with the mod in world space. Turn off to test FullStop behavior as if Gravity Unbound were not installed.")
+                    .translation(key("enableGravityUnboundCompat"))
+                    .comment("Default: true")
+                    .define("enableGravityUnboundCompat", true);
+
+            this.configVersion = builder
+                    .comment("Bookkeeping, not a setting: which one-time migrations have already run on this file",
+                            "(2 = WeightRS's ship-weight settings were imported). Leave it alone.")
+                    .translation(key("configVersion"))
+                    .defineInRange("configVersion", 0, 0, Integer.MAX_VALUE);
 
             builder.pop();
             builder.push("Projectile settings");
@@ -169,6 +266,15 @@ public class FullStopConfig {
                     .translation(key("velocityDamageThresholdVertical"))
                     .comment("Default: 12.77")
                     .defineInRange("velocityDamageThresholdVertical", DEFAULT_VELOCITY_DAMAGE_THRESHOLD_VERTICAL, 0, 100);
+
+            this.minimumFallDistance = builder
+                    .comment("KINETIC mode: the same vertical threshold expressed as a fall height in blocks - falls (and any other",
+                            "impact along gravity) up to this many blocks never deal damage. When set above 0 it REPLACES",
+                            "velocityDamageThresholdVertical (3.0 blocks is vanilla's limit, about 12.3 m/s, a little under the",
+                            "12.77 m/s default; 4.0 blocks is about 14.2 m/s, 5.0 about 15.9 m/s). 0 keeps using the m/s value above.")
+                    .translation(key("minimumFallDistance"))
+                    .comment("Default: 0.0")
+                    .defineInRange("minimumFallDistance", 0.0, 0.0, 256.0);
 
             this.fallDamageMode = builder
                     .comment("How kinetic impact damage is computed.",
@@ -261,20 +367,18 @@ public class FullStopConfig {
                     .translation(key("dripstoneDamageMultiplier"))
                     .defineInRange("dripstoneDamageMultiplier", 2.0, 1.0, 100.0);
 
-            this.entityWeights = builder
-                    .comment("Define custom weights (multipliers) for specific entities. Format: \"entity_id,multiplier\"")
-                    .translation(key("entityWeights"))
-                    .defineList("entityWeights", Arrays.asList(
-                            "minecraft:iron_golem,8.0",
-                            "minecraft:skeleton,0.333",
-                            "minecraft:skeleton_horse,0.333",
-                            "minecraft:ghast,0.125"
-                    ), o -> o instanceof String);
-
             this.raycastMode = builder
                     .comment("Experimental: Choose the raycast mode for collision detection. FULL_SWEEP may have significant performance impact.")
                     .translation(key("raycastMode"))
                     .defineEnum("raycastMode", RaycastMode.CORNERS_AND_CENTERS);
+
+            this.debugImpactLog = builder
+                    .comment("Diagnostics: log every significant impact decision to the server log - the entity, its gravity frame,",
+                            "the speed lost (in the frame and per world axis), the collision evidence the damage gate saw, what the",
+                            "rays hit, and the damage computed and applied. For reporting impacts that should have hurt but did not.")
+                    .translation(key("debugImpactLog"))
+                    .comment("Default: false")
+                    .define("debugImpactLog", false);
 
             builder.pop();
             builder.push("Pressure Simulation");
@@ -325,6 +429,376 @@ public class FullStopConfig {
                     .defineInRange("pressureDamageTickRate", 40, 1, 200);
 
             builder.pop();
+            builder.comment("How entities weigh on Valkyrien Skies ships (formerly the WeightRS mod; its settings are imported",
+                            "automatically). Needs Valkyrien Skies and enableValkyrienSkiesCompat. How heavy things ARE (entity",
+                            "weights, densities, carried items, the blacklist) is Camafy's weight model: config/camafy-weight.toml.",
+                            "Weight on a deck counts everything an entity carries plus its riders; impact damage elsewhere in",
+                            "FullStop uses body mass only.")
+                    .push("Ship Weight");
+
+            this.enableShipWeight = builder
+                    .comment("Master switch: entities standing on ships push them down (m*g), jumping off kicks them, and landing",
+                            "on them slams them. Stays OFF while the old WeightRS mod is installed (so nothing weighs twice).")
+                    .translation(key("enableShipWeight"))
+                    .comment("Default: true")
+                    .define("enableShipWeight", true);
+
+            this.includePlayers = builder
+                    .comment("Whether players (and players riding things) weigh on ships.")
+                    .translation(key("includePlayers"))
+                    .comment("Default: true")
+                    .define("includePlayers", true);
+
+            this.gravity = builder
+                    .comment("Gravitational acceleration (m/s^2) for standing weight (m*g). Valkyrien Skies pulls ships at 10;",
+                            "set 10 for exact parity. Under a Gravity Unbound field it is scaled by the field's strength and",
+                            "pushes along the field's pull.")
+                    .translation(key("gravity"))
+                    .comment("Default: 9.81")
+                    .defineInRange("gravity", 9.81, 0.0, 100.0);
+
+            this.minPhysicsWeightKg = builder
+                    .comment("Entities lighter than this (kg, with what they carry and their riders) don't weigh on ships.")
+                    .translation(key("minPhysicsWeightKg"))
+                    .comment("Default: 1.0")
+                    .defineInRange("minPhysicsWeightKg", 1.0, 0.0, 1.0E6);
+
+            this.enableItemEntityPhysics = builder
+                    .comment("Whether dropped items weigh down (and land on) ships.")
+                    .translation(key("enableItemEntityPhysics"))
+                    .comment("Default: true")
+                    .define("enableItemEntityPhysics", true);
+
+            this.enableStandingWeight = builder
+                    .comment("Entities standing on a ship continuously push it down with m*g.")
+                    .translation(key("enableStandingWeight"))
+                    .comment("Default: true")
+                    .define("enableStandingWeight", true);
+
+            this.enableJumpImpulse = builder
+                    .comment("Jumping off a ship kicks it the other way (the jump's reaction impulse).")
+                    .translation(key("enableJumpImpulse"))
+                    .comment("Default: true")
+                    .define("enableJumpImpulse", true);
+
+            this.enableFallImpact = builder
+                    .comment("Landing on a ship (or slamming into its hull) pushes it with the momentum the entity loses, m*dv.",
+                            "Measured by FullStop's own impact tracking, so it works for players, mobs, boats and carts alike.")
+                    .translation(key("enableFallImpact"))
+                    .comment("Default: true")
+                    .define("enableFallImpact", true);
+
+            this.jumpImpulseMultiplier = builder
+                    .comment("Scales the jump reaction impulse.")
+                    .translation(key("jumpImpulseMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("jumpImpulseMultiplier", 1.0, 0.0, 100.0);
+
+            this.fallImpactMultiplier = builder
+                    .comment("Scales the landing/impact impulse.")
+                    .translation(key("fallImpactMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("fallImpactMultiplier", 1.0, 0.0, 100.0);
+
+            this.minFallDistance = builder
+                    .comment("Landings softer than a fall from this height (blocks) push nothing; the height is converted to",
+                            "vanilla's landing speed for it (1 block is about 7 m/s).")
+                    .translation(key("minFallDistance"))
+                    .comment("Default: 1.0")
+                    .defineInRange("minFallDistance", 1.0, 0.0, 100.0);
+
+            this.maxForceNewtons = builder
+                    .comment("Cap (newtons) on any single force FullStop applies to a ship - standing weight, landings, jumps and",
+                            "ship-collision reactions and slowdowns alike. An impulse is delivered over one 1/60 s physics step,",
+                            "so it is capped at this / 60 newton-seconds. The safety valve against yeeting ships into orbit.")
+                    .translation(key("maxForceNewtons"))
+                    .comment("Default: 5.0E7")
+                    .defineInRange("maxForceNewtons", 5.0E7, 0.0, 1.0E12);
+
+            builder.pop();
+            builder.comment("What moving Valkyrien Skies ships do to what they hit. Needs Valkyrien Skies and",
+                            "enableValkyrienSkiesCompat. Entities riding a ship, creative/spectator players, entities tagged",
+                            "fullstop:ship_immune and anything another mod owns the contacts of (MKW Mobility's karts and their",
+                            "drivers) are never hit.")
+                    .push("Ship Collisions");
+
+            this.enableShipCollisions = builder
+                    .comment("Master switch for everything in this section.")
+                    .translation(key("enableShipCollisions"))
+                    .comment("Default: true")
+                    .define("enableShipCollisions", true);
+
+            this.damageEntities = builder
+                    .comment("Whether a ship hitting an entity (players included) deals kinetic damage. When off, ships still",
+                            "shove what they hit.")
+                    .translation(key("damageEntities"))
+                    .comment("Default: true")
+                    .define("damageEntities", true);
+
+            this.pushMinSpeed = builder
+                    .comment("Slowest hull speed (m/s, at the point of contact) that counts as a hit at all. Damage follows the",
+                            "same speed thresholds as any other impact (velocityDamageThresholdHorizontal/Vertical).")
+                    .translation(key("pushMinSpeed"))
+                    .comment("Default: 1.0")
+                    .defineInRange("pushMinSpeed", 1.0, 0.0, 100.0);
+
+            this.entityDamageMultiplier = builder
+                    .comment("Multiplies the damage a ship deals to an entity (after kineticDamageMultiplier).")
+                    .translation(key("entityDamageMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("entityDamageMultiplier", 1.0, 0.0, 100.0);
+
+            this.entityRestitution = builder
+                    .comment("How bouncy a ship hit is: 0 = the entity is carried along at the hull's speed, 1 = fully elastic.",
+                            "0.3 matches FullStop's body-on-body collisions.")
+                    .translation(key("entityRestitution"))
+                    .comment("Default: 0.3")
+                    .defineInRange("entityRestitution", 0.3, 0.0, 1.0);
+
+            this.pinnedDamageMultiplier = builder
+                    .comment("Damage multiplier when the entity is pinned between the hull and a wall (or another ship) and can't",
+                            "be pushed away: crushed. Repeats while the hull keeps pressing.")
+                    .translation(key("pinnedDamageMultiplier"))
+                    .comment("Default: 1.5")
+                    .defineInRange("pinnedDamageMultiplier", 1.5, 0.0, 100.0);
+
+            this.creditPilot = builder
+                    .comment("When a player is seated on the ship, the hit is theirs: kill credit, and the server's PvP and team",
+                            "rules apply as for any attack.")
+                    .translation(key("creditPilot"))
+                    .comment("Default: true")
+                    .define("creditPilot", true);
+
+            this.reactionImpulses = builder
+                    .comment("Whatever a ship hits pushes back on the ship (momentum is conserved): a heavy ship barely notices a",
+                            "zombie, a light one is slowed by a golem.")
+                    .translation(key("reactionImpulses"))
+                    .comment("Default: true")
+                    .define("reactionImpulses", true);
+
+            this.breakTerrain = builder
+                    .comment("Ships crashing into terrain break what they hit, as FullStop's impacts do for fast entities. At each",
+                            "contact only the WEAKER of the two touching blocks can give - the terrain block, or the ship's own block",
+                            "there (hullDamage) - by toughness = hardness x (block mass / 1000 kg)^massInfluence: a stone hull crushes",
+                            "grass, a wooden hull rammed into stone loses planks while the stone holds, obsidian against obsidian holds.",
+                            "Also switches vegetation sweeping (below) on and off.",
+                            "Works on every Valkyrien Skies physics backend (physicsBackend in the world's vs-core-server.toml): on",
+                            "KRUNCH_PHYSX and KRUNCH_JOLT the crashes come from VS's collision events; on the default, KRUNCH_CLASSIC,",
+                            "which sends none, Camafy detects them itself (a ship that suddenly slows has its hull probed for what it",
+                            "hit; a glancing scrape that barely slows it can go unnoticed).")
+                    .translation(key("breakTerrain"))
+                    .comment("Default: true")
+                    .define("breakTerrain", true);
+
+            this.hullDamage = builder
+                    .comment("Whether a ship's own blocks break where they hit tougher terrain (a wooden hull against stone, a glass",
+                            "porthole against anything): they drop like mined blocks and the ship stays stopped. Off: hulls never break.")
+                    .translation(key("hullDamage"))
+                    .comment("Default: true")
+                    .define("hullDamage", true);
+
+            this.massInfluence = builder
+                    .comment("How much a block's weight counts toward its toughness = hardness x (mass / 1000 kg)^massInfluence, with",
+                            "Valkyrien Skies' own mass for the block (its vs_mass data: stone 2500 kg, oak planks 500, grass block 1250,",
+                            "obsidian 5000, leaves 200; 1000 for blocks it doesn't list). At 1: leaves 0.04, grass 0.75, planks 1.0,",
+                            "logs 1.6, stone 3.75, cobblestone 4.8, deepslate 8.7, iron block 39, obsidian 250. At 0 hardness alone",
+                            "decides (oak planks, 2.0, then beat stone, 1.5).")
+                    .translation(key("massInfluence"))
+                    .comment("Default: 1.0")
+                    .defineInRange("massInfluence", 1.0, 0.0, 4.0);
+
+            this.breakMinSpeed = builder
+                    .comment("Slowest speed into the contact (m/s) at which anything breaks, terrain or hull. Slower hits only make",
+                            "noise (and a ship resting or rolling on the ground never grinds anything away).")
+                    .translation(key("breakMinSpeed"))
+                    .comment("Default: 5.0")
+                    .defineInRange("breakMinSpeed", 5.0, 0.0, 1000.0);
+
+            this.terrainEnergyFraction = builder
+                    .comment("Share of the ship's kinetic energy into the terrain (1/2 * mass * speed^2, per tick) available for",
+                            "breaking blocks. Energy is in FullStop's units: one unit is about 46 kJ; what a block costs is",
+                            "breakCostMultiplier's business.")
+                    .translation(key("terrainEnergyFraction"))
+                    .comment("Default: 0.5")
+                    .defineInRange("terrainEnergyFraction", 0.5, 0.0, 10.0);
+
+            this.breakCostMultiplier = builder
+                    .comment("What breaking a block costs, in energy units per point of toughness. The weaker block costs",
+                            "  toughness(weaker) x breakCostMultiplier x r / (r - 1),   r = toughness(stronger) / toughness(weaker)",
+                            "so against a far tougher striker about toughness x this (grass under an obsidian hull: 0.75 x 8 = 6 units),",
+                            "near-equal materials many times more, and equal ones never break. fullstop:fragile blocks (glass, snow)",
+                            "count as hardness 0.01; unbreakable blocks never break; cracks on fullstop:crackable blocks (ice) lower",
+                            "what is left. At 8 a 150 t wooden ship bumping stone at 3 m/s at most cracks a plank, and at 8 m/s",
+                            "loses about four; a 3x3x3 stone cube dropped ten blocks onto grass crushes the grass it lands on.",
+                            "Swept vegetation costs toughness x this, with no contest (a leaf 0.32 units).")
+                    .translation(key("breakCostMultiplier"))
+                    .comment("Default: 8.0")
+                    .defineInRange("breakCostMultiplier", 8.0, 0.0, 10000.0);
+
+            this.terrainBreakDrag = builder
+                    .comment("How much each broken terrain block slows the ship: the energy spent (times this) is taken out of its",
+                            "momentum into the terrain. When everything the ship hit broke, it keeps going with what is left;",
+                            "if anything held (or its own hull gave way), the ship stays stopped.")
+                    .translation(key("terrainBreakDrag"))
+                    .comment("Default: 2.0")
+                    .defineInRange("terrainBreakDrag", 2.0, 0.0, 100.0);
+
+            this.terrainMaxBlocksPerTick = builder
+                    .comment("Most blocks (terrain and hull) ship crashes may break per level per tick, and at most 12 per ship.",
+                            "Swept vegetation has its own cap, sweepMaxBlocksPerTick.")
+                    .translation(key("terrainMaxBlocksPerTick"))
+                    .comment("Default: 24")
+                    .defineInRange("terrainMaxBlocksPerTick", 24, 0, 4096);
+
+            this.terrainBlockDrops = builder
+                    .comment("Broken blocks - terrain, hull and swept vegetation - drop items like mined blocks (the doTileDrops",
+                            "gamerule still applies). A hull block's drops land in the world where the ship is.")
+                    .translation(key("terrainBlockDrops"))
+                    .comment("Default: true")
+                    .define("terrainBlockDrops", true);
+
+            this.terrainBreakBlockEntities = builder
+                    .comment("Whether ships may break blocks with block entities (chests, furnaces, spawners...) - in the terrain or",
+                            "in their own hull.")
+                    .translation(key("terrainBreakBlockEntities"))
+                    .comment("Default: false")
+                    .define("terrainBreakBlockEntities", false);
+
+            this.unpilotedFollowsMobGriefing = builder
+                    .comment("A ship nobody is seated on only breaks blocks where mobGriefing allows it. A piloted ship is the",
+                            "pilot acting, like a player's own crash. Protection mods and minigame arenas are asked either way.")
+                    .translation(key("unpilotedFollowsMobGriefing"))
+                    .comment("Default: true")
+                    .define("unpilotedFollowsMobGriefing", true);
+
+            this.shipVsShipBreaking = builder
+                    .comment("Ships hitting ships: NONE never breaks a ship's blocks; FRAGILE breaks only fullstop:fragile blocks",
+                            "(glass); FULL breaks the weaker of the two contacting blocks by the same toughness rule as terrain.",
+                            "Either way the collision sounds.")
+                    .translation(key("shipVsShipBreaking"))
+                    .comment("Default: NONE")
+                    .defineEnum("shipVsShipBreaking", ShipVsShipBreaking.NONE);
+
+            this.sweepVegetation = builder
+                    .comment("Moving ships plough through tree canopies and soft plants (block tag fullstop:ship_sweepable: leaves,",
+                            "saplings, flowers, tall grass, ferns, vines, sugar cane, berry bushes...) wherever the hull passes,",
+                            "breaking them with drops. Valkyrien Skies lets ships pass through leaves, so without this they ghost",
+                            "through trees. Needs breakTerrain.")
+                    .translation(key("sweepVegetation"))
+                    .comment("Default: true")
+                    .define("sweepVegetation", true);
+
+            this.sweepMinSpeed = builder
+                    .comment("Slowest hull speed (m/s) that clears vegetation. A ship drifting slower slides through it untouched.")
+                    .translation(key("sweepMinSpeed"))
+                    .comment("Default: 4.0")
+                    .defineInRange("sweepMinSpeed", 4.0, 0.0, 1000.0);
+
+            this.sweepPlacedLeaves = builder
+                    .comment("Whether ships also clear leaves players placed (hedges, leaf roofs, decoration). Natural leaves always go.")
+                    .translation(key("sweepPlacedLeaves"))
+                    .comment("Default: false")
+                    .define("sweepPlacedLeaves", false);
+
+            this.sweepDrag = builder
+                    .comment("How much sweeping slows the ship: this share of the energy the plants cost comes out of its momentum.",
+                            "0 = canopies don't slow ships at all.")
+                    .translation(key("sweepDrag"))
+                    .comment("Default: 0.25")
+                    .defineInRange("sweepDrag", 0.25, 0.0, 10.0);
+
+            this.sweepMaxBlocksPerTick = builder
+                    .comment("Performance cap: most vegetation blocks ships clear per level per tick (and at most 32 per ship).")
+                    .translation(key("sweepMaxBlocksPerTick"))
+                    .comment("Default: 64")
+                    .defineInRange("sweepMaxBlocksPerTick", 64, 0, 4096);
+
+            this.impactSounds = builder
+                    .comment("Ships hitting terrain or each other sound like it: BOTH blocks' own sounds at the contact (a stone",
+                            "cube landing on grass plays grass and stone), louder and deeper the harder the hit and the heavier the",
+                            "ship. Works with block breaking off. Only new contacts sound; resting and sliding ships are quiet.",
+                            "Works on every VS physics backend, like block breaking (see breakTerrain).")
+                    .translation(key("impactSounds"))
+                    .comment("Default: true")
+                    .define("impactSounds", true);
+
+            this.impactSoundMinSpeed = builder
+                    .comment("Slowest impact (m/s into the contact) that makes a sound.")
+                    .translation(key("impactSoundMinSpeed"))
+                    .comment("Default: 1.5")
+                    .defineInRange("impactSoundMinSpeed", 1.5, 0.0, 1000.0);
+
+            this.impactSoundVolume = builder
+                    .comment("Volume multiplier for ship impact sounds (above 1 they also carry further).")
+                    .translation(key("impactSoundVolume"))
+                    .comment("Default: 1.0")
+                    .defineInRange("impactSoundVolume", 1.0, 0.0, 4.0);
+
+            this.impactParticles = builder
+                    .comment("Block-crack particles from both blocks at ship impacts of 4 m/s and more.")
+                    .translation(key("impactParticles"))
+                    .comment("Default: true")
+                    .define("impactParticles", true);
+
+            this.newShipGraceTicks = builder
+                    .comment("Ticks a newly seen ship (assembled, loaded, pasted, split off) is harmless, so assembly and chunk",
+                            "loads never count as crashes. Teleported ships get a shorter grace of their own.")
+                    .translation(key("newShipGraceTicks"))
+                    .comment("Default: 40")
+                    .defineInRange("newShipGraceTicks", 40, 0, 1200);
+
+            this.maxHitChecksPerTick = builder
+                    .comment("Performance cap: most entities checked against ship hulls per level per tick.")
+                    .translation(key("maxHitChecksPerTick"))
+                    .comment("Default: 256")
+                    .defineInRange("maxHitChecksPerTick", 256, 0, 100000);
+
+            this.debugShipCollisionLog = builder
+                    .comment("Diagnostics: log every ship hit, terrain-breaking decision and rider thrown off a deck to the server log.")
+                    .translation(key("debugShipCollisionLog"))
+                    .comment("Default: false")
+                    .define("debugShipCollisionLog", false);
+
+            builder.pop();
+            builder.comment("What happens to whatever rides a Valkyrien Skies ship when the ship changes speed or direction",
+                            "hard. Needs Valkyrien Skies and enableValkyrienSkiesCompat.")
+                    .push("Ship Riders");
+
+            this.deckMomentum = builder
+                    .comment("Riders keep the momentum a ship loses. When a deck stops, slows, lurches or swerves harder than",
+                            "riders can hold on (deckGrip), they keep the difference: a ship that crashes throws what stands on it",
+                            "forward off the deck, into whatever is ahead (FullStop's ordinary impacts apply). Players, mobs, dropped",
+                            "items, boats and carts alike. Never thrown: riders anchored to the deck - standing on a fullstop:sticky",
+                            "block (slime, honey), on Gravity Unbound's gravity plating, or clinging with its Surface Cling boots -",
+                            "seated riders (see deckMomentumSeated), creative-flying players, NoAI mobs, fullstop:physics_blacklist",
+                            "entities, and bodies another mod moves (MKW karts, grappling players).")
+                    .translation(key("deckMomentum"))
+                    .comment("Default: true")
+                    .define("deckMomentum", true);
+
+            this.deckGrip = builder
+                    .comment("How hard a deck may change speed under a rider's feet (m/s^2) before the rider stops holding on.",
+                            "9.81 = 1 g: a ship braking, speeding up or turning more gently than that carries everyone along as",
+                            "before; beyond it riders keep the difference. Higher = stickier decks.")
+                    .translation(key("deckGrip"))
+                    .comment("Default: 9.81")
+                    .defineInRange("deckGrip", 9.81, 0.0, 1000.0);
+
+            this.deckThrowLift = builder
+                    .comment("A thrown rider also gets this share of the speed it kept as lift (along its up), so ground",
+                            "friction doesn't just skid it to a halt on the deck. 0 = it slides.")
+                    .translation(key("deckThrowLift"))
+                    .comment("Default: 0.15")
+                    .defineInRange("deckThrowLift", 0.15, 0.0, 2.0);
+
+            this.deckMomentumSeated = builder
+                    .comment("Whether seated riders (a ship's seats, helm or chairs) are thrown out of their seats too. Off: seat",
+                            "belts - they stay seated whatever the ship does.")
+                    .translation(key("deckMomentumSeated"))
+                    .comment("Default: false")
+                    .define("deckMomentumSeated", false);
+
+            builder.pop();
         }
 
         private static String key(String valueName) {
@@ -335,8 +809,6 @@ public class FullStopConfig {
     public static class ClientConfigValues {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue rotateCameraOnlyWhenFlying;
-        public final ForgeConfigSpec.DoubleValue minGForceThreshold;
-        public final ForgeConfigSpec.DoubleValue maxGForceThreshold;
 
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
@@ -353,17 +825,9 @@ public class FullStopConfig {
                     .comment("Default: false")
                     .define("rotateCameraOnlyWhenFlying", false);
 
-            this.minGForceThreshold = builder
-                    .comment("The G-force value at which visual effects start to appear")
-                    .translation("config.fullstop.client.minGForceThreshold")
-                    .comment("Default: 2.5")
-                    .defineInRange("minGForceThreshold", 2.5, 0.0, 100.0);
-
-            this.maxGForceThreshold = builder
-                    .comment("The G-force value at which visual effects reach maximum intensity")
-                    .translation("config.fullstop.client.maxGForceThreshold")
-                    .comment("Default: 7.0")
-                    .defineInRange("maxGForceThreshold", 7.0, 0.0, 100.0);
+            // The g-force thresholds used to live here. They gate a gameplay
+            // mechanic (blackouts, nausea, the potions that shift them), so a
+            // client must not be able to move them: they are server settings now.
 
             builder.pop();
         }
@@ -373,6 +837,15 @@ public class FullStopConfig {
         CORNERS_ONLY,
         CORNERS_AND_CENTERS,
         FULL_SWEEP
+    }
+
+    public enum ShipVsShipBreaking {
+        /** Ships never break each other's blocks. */
+        NONE,
+        /** Only fullstop:fragile blocks (glass, snow) break when ships collide. */
+        FRAGILE,
+        /** The weaker (by toughness) of the two contacting blocks breaks. */
+        FULL
     }
 
     public enum FallDamageMode {

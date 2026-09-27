@@ -90,10 +90,28 @@ public final class FullStopTags {
      * their impacts (arrows stick, tridents return) — but modded projectiles
      * like grappling hooks can opt in here: the one-tick-lookahead reactions
      * fire BEFORE the projectile's own onHit does. How hard a light projectile
-     * hits is tuned via the entityWeights config (mass drives block breaking).
+     * hits is tuned via its weight in Camafy's config/camafy-weight.toml (mass
+     * drives block breaking).
      * Empty by default.
      */
     public static final TagKey<EntityType<?>> PHYSICS_PROJECTILES = entityTag("physics_projectiles");
+
+    /**
+     * Blocks a Valkyrien Skies ship never breaks, however hard it hits them, and that never break
+     * off a hull either: infinitely tough. Contains #minecraft:wither_immune.
+     */
+    public static final TagKey<Block> SHIP_UNBREAKABLE = blockTag("ship_unbreakable");
+
+    /**
+     * Soft vegetation a moving Valkyrien Skies ship ploughs straight through, breaking it (leaves,
+     * saplings, flowers, tall grass, vines, sugar cane, berry bushes...). VS lets ships pass
+     * through leaves without a collision, so FullStop checks the hull against these itself. No
+     * water plants: breaking those would leave water where a hull just was.
+     */
+    public static final TagKey<Block> SHIP_SWEEPABLE = blockTag("ship_sweepable");
+
+    /** Entities a moving Valkyrien Skies ship never hits (no push, no damage). Empty by default. */
+    public static final TagKey<EntityType<?>> SHIP_IMMUNE = entityTag("ship_immune");
 
     private static TagKey<Block> blockTag(String name) {
         return TagKey.create(Registries.BLOCK, new ResourceLocation(FullStop.MODID, name));

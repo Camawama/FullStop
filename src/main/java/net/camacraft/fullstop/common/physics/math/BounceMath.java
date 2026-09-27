@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.physics.math;
 
+import net.camacraft.camafy.physics.Impacts;
 import net.camacraft.fullstop.common.data.Collision;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -40,7 +41,7 @@ public final class BounceMath {
      * the surface) always count, so high-speed grazes still bounce.
      */
     public static boolean isDirectImpact(Vec3 velocityMps, Vec3 normal) {
-        double approach = -velocityMps.dot(normal);
+        double approach = Impacts.approachSpeed(velocityMps, normal);
         if (approach < MIN_IMPACT_SPEED_MPS) return false;
         return approach >= ALWAYS_IMPACT_SPEED_MPS
                 || approach >= velocityMps.length() * MIN_DIRECTNESS;
@@ -60,7 +61,7 @@ public final class BounceMath {
         double bestOpposition = 0;
         for (BlockHitResult hit : hits) {
             Vec3 n = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
-            double opposition = -velocityMps.dot(n);
+            double opposition = Impacts.approachSpeed(velocityMps, n);
             if (opposition > bestOpposition) {
                 bestOpposition = opposition;
                 best = n;
@@ -78,16 +79,19 @@ public final class BounceMath {
      */
     @Nullable
     public static Vec3 bounceVelocity(Vec3 velocityMps, Vec3 normal, Collision.CollisionType type) {
+        // Restitution: the share of the speed INTO the surface given back out of
+        // it (1 = perfectly elastic). Friction: the share of the speed along it
+        // that survives.
         double restitution;
         double friction;
 
         switch (type) {
             case SLIME -> {
-                restitution = -1.0;
+                restitution = 1.0;
                 friction = 1.0;
             }
             case BED -> {
-                restitution = -0.66;
+                restitution = 0.66;
                 friction = 0.66;
             }
             case HONEY -> {
@@ -100,12 +104,6 @@ public final class BounceMath {
             }
         }
 
-        double vDotN = velocityMps.dot(normal);
-        if (vDotN >= 0) return null;
-
-        Vec3 vNormal = normal.scale(vDotN);
-        Vec3 vTangential = velocityMps.subtract(vNormal);
-
-        return vTangential.scale(friction).add(vNormal.scale(restitution));
+        return Impacts.bounce(velocityMps, normal, restitution, friction);
     }
 }

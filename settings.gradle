@@ -5,6 +5,13 @@ pluginManagement {
             name = 'MinecraftForge'
             url = 'https://maven.minecraftforge.net/'
         }
+        // ParchmentMC's canonical host (maven.parchmentmc.org -> cluster.ldtteam.com)
+        // goes down periodically; this is the same content served from LDTTeam's
+        // Artifactory. Listed first so builds don't hang on the dead host.
+        maven {
+            name = 'ParchmentMC (LDTTeam mirror)'
+            url = 'https://ldtteam.jfrog.io/artifactory/parchmentmc-public/'
+        }
         maven {
             name = 'ParchmentMC'
             url = 'https://maven.parchmentmc.org'

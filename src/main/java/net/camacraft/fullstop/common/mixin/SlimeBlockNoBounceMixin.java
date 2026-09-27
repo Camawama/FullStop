@@ -1,6 +1,8 @@
 package net.camacraft.fullstop.common.mixin;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.SlimeBlock;
@@ -21,6 +23,8 @@ public abstract class SlimeBlockNoBounceMixin {
         // Entities FullStop never simulates (dropped items, XP orbs) keep their
         // vanilla bounce — suppressing it for them replaced it with nothing.
         if (DamageImmunityRules.unphysableIgnoringAi(entity)) return;
+        // ...and so do entities whose bounces another mod owns (cached claims).
+        if (PhysicsClaims.cachedClaimed(entity, PhysicsAspect.BOUNCE)) return;
 
         entity.setDeltaMovement(entity.getDeltaMovement().multiply(1.0D, 0.0D, 1.0D));
         ci.cancel();

@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.network;
 
+import net.camacraft.camafy.physics.PhysicsOwnership;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
@@ -19,6 +20,11 @@ import static net.camacraft.fullstop.common.capability.FullStopCapability.Provid
  *
  * The value only ever REFINES the server's own measurement — the capability
  * discards it whenever it exceeds the measured position delta.
+ *
+ * It is also the server's CLOCK for the client: one of these arrives per
+ * client tick, moved or not, always ahead of that tick's move packet, so the
+ * capability can measure per client tick instead of per server tick (see the
+ * sampling notes in FullStopCapability).
  */
 public class PlayerDeltaPacket {
     /** Sanity bound: 100 blocks/tick (2000 m/s). Real anti-inflation happens in the capability. */
@@ -33,17 +39,25 @@ public class PlayerDeltaPacket {
     // (which silently cancelled ALL wall damage for players).
     private final boolean horizontalCollision;
     private final boolean verticalCollision;
+    // Another mod moved the target on the CLIENT in a way that isn't real
+    // velocity (Camafy's PhysicsOwnership.markDiscontinuity: a Gravity Unbound
+    // surface-cling release step, say). The server never sees client-side
+    // marks, and it measures players from exactly these client ticks, so the
+    // mark is carried over and re-made on the server copy.
+    private final boolean discontinuity;
 
-    public PlayerDeltaPacket(Vec3 delta, boolean forVehicle, boolean horizontalCollision, boolean verticalCollision) {
+    public PlayerDeltaPacket(Vec3 delta, boolean forVehicle, boolean horizontalCollision, boolean verticalCollision,
+                             boolean discontinuity) {
         this.delta = delta;
         this.forVehicle = forVehicle;
         this.horizontalCollision = horizontalCollision;
         this.verticalCollision = verticalCollision;
+        this.discontinuity = discontinuity;
     }
 
     public PlayerDeltaPacket(FriendlyByteBuf buffer) {
         this(new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
-                buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean());
+                buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean());
     }
 
     public void encode(FriendlyByteBuf buffer) {
@@ -53,6 +67,7 @@ public class PlayerDeltaPacket {
         buffer.writeBoolean(this.forVehicle);
         buffer.writeBoolean(this.horizontalCollision);
         buffer.writeBoolean(this.verticalCollision);
+        buffer.writeBoolean(this.discontinuity);
     }
 
     public void handle(Supplier<NetworkEvent.Context> ctx) {
@@ -79,19 +94,21 @@ public class PlayerDeltaPacket {
                 // vehicle types the client actually controls (not rail-bound carts).
                 if (vehicle != null && vehicle.getControllingPassenger() == sendingPlayer
                         && (vehicle instanceof LivingEntity || vehicle instanceof Boat)) {
+                    if (this.discontinuity) {
+                        PhysicsOwnership.markDiscontinuity(vehicle);
+                    }
+                    // one client tick of the vehicle's motion: opens the sample the
+                    // driver's move-vehicle packet completes (see FullStopCapability)
                     vehicle.getCapability(DELTAV_CAP)
-                            .ifPresent(cap -> {
-                                cap.setCurrentNativeVelocity(this.delta);
-                                cap.reportClientCollisions(this.horizontalCollision, this.verticalCollision);
-                            });
+                            .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision));
                 }
             }
         } else if (!sendingPlayer.isPassenger()) {
+            if (this.discontinuity) {
+                PhysicsOwnership.markDiscontinuity(sendingPlayer);
+            }
             sendingPlayer.getCapability(DELTAV_CAP)
-                    .ifPresent(cap -> {
-                        cap.setCurrentNativeVelocity(this.delta);
-                        cap.reportClientCollisions(this.horizontalCollision, this.verticalCollision);
-                    });
+                    .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision));
         }
         ctx.get().setPacketHandled(true);
     }

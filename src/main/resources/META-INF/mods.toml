@@ -29,11 +29,30 @@ versionRange="${minecraft_version_range}"
 ordering="NONE"
 side="BOTH"
 
+# Camafy, the shared library: the weight model, Valkyrien Skies and gravity
+# mod compat, and the audio muffle all come from it.
+[[dependencies.fullstop]]
+modId="camafy"
+mandatory=true
+versionRange="${camafy_version_range}"
+ordering="AFTER"
+side="BOTH"
+
 # Soft dependency: FullStop ships ship-motion compensation and ship-block impact
 # support that only activates when Valkyrien Skies is present.
 [[dependencies.fullstop]]
 modId="valkyrienskies"
 mandatory=false
 versionRange="[2.4,)"
+ordering="AFTER"
+side="BOTH"
+
+# Soft dependency: with Gravity Unbound present, impacts are measured in each
+# entity's gravity frame (falls along a field's pull count as falls, whichever
+# world axis they happen along) and velocity is exchanged in world space.
+[[dependencies.fullstop]]
+modId="gravityunbound"
+mandatory=false
+versionRange="[1.0,)"
 ordering="AFTER"
 side="BOTH"

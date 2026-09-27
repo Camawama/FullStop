@@ -1,8 +1,11 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.FastRaycast;
 import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
-import net.camacraft.fullstop.common.physics.math.FastRaycast;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.core.BlockPos;
@@ -62,6 +65,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Blocks reacting to high-speed impacts: door-likes fling open, note blocks play,
@@ -287,16 +292,20 @@ public class KineticBlockInteractions {
             return ImpactResult.NONE;
         }
 
+        // Which way is down for this entity (a gravity field may tilt it).
+        FullStopCapability cap = FullStopCapability.grabCapability(entity);
+        GravityFrame frame = cap != null ? cap.getFrame() : GravityFrame.DEFAULT;
+
         double totalMass = EntityStackUtils.getEntityMass(entity);
         if (entity instanceof LivingEntity living) {
             totalMass += living.getAttributeValue(Attributes.ARMOR) / 20.0;
         }
         // Tagged physics projectiles are DENSE (a metal hook, not a
-        // volume-scaled body): mass = hitbox volume makes a 0.125-cube hook
-        // weigh 0.002, whose kinetic energy can't crack ice at any speed —
-        // even large entityWeights multipliers barely register. Floor their
-        // mass at half a block so speed decides what they smash; entityWeights
-        // still raises it further.
+        // volume-scaled body): a volume-based mass makes a 0.125-cube hook
+        // weigh ~0.002, whose kinetic energy can't crack ice at any speed —
+        // even large weight overrides barely register. Floor their mass at
+        // half a block so speed decides what they smash; a heavier Camafy
+        // weight (config/camafy-weight.toml) still raises it further.
         if (entity instanceof net.minecraft.world.entity.projectile.Projectile
                 && entity.getType().is(FullStopTags.PHYSICS_PROJECTILES)) {
             totalMass = Math.max(totalMass, 0.5);
@@ -308,11 +317,9 @@ public class KineticBlockInteractions {
         // projectile (grappling hook) or the vehicle they drive is the player
         // acting on the world — mobGriefing=false must not veto it, same as
         // vanilla doesn't veto player-lit TNT. Mob-thrown projectiles and
-        // mob-driven vehicles stay gated.
-        boolean isPlayer = entity instanceof Player
-                || (entity instanceof net.minecraft.world.entity.projectile.Projectile projectile
-                        && projectile.getOwner() instanceof Player)
-                || entity.getControllingPassenger() instanceof Player;
+        // mob-driven vehicles stay gated, through Forge's mob-griefing event
+        // (asked once per pass, and only if a block gets that far).
+        Boolean mayGrief = null;
         FakePlayer fakePlayer = null;
         boolean blockBroken = false;
         double smashDamage = 0;
@@ -387,8 +394,11 @@ public class KineticBlockInteractions {
                 continue;
             }
 
-            if (!level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING) && !isPlayer) continue;
+            if (mayGrief == null) mayGrief = BlockAlterRules.mayGrief(level, entity);
+            if (!mayGrief) continue;
             if (velocityMag < MIN_VELOCITY_REQUIRED) continue;
+            // A minigame host's no-change regions: no break, no crack, no path.
+            if (!BlockAlterRules.mayAlter(level, pos, entity)) continue;
 
             // Only speed INTO the hit face can smash or crack a block. Total
             // speed alone let a boat gliding across packed ice shatter it — huge
@@ -407,33 +417,17 @@ public class KineticBlockInteractions {
 
             // Crackable blocks (the ice family) remember damage from earlier
             // hits: prior cracks lower the energy needed to finish the block.
-            BlockPos crackPos = null;
-            CrackData crackData = null;
-            float priorFraction = 0;
-            if (state.is(FullStopTags.CRACKABLE)) {
-                crackPos = pos.immutable();
-                crackData = CrackData.get(level);
-                AccumulatedCrack prior = crackData.cracks.get(crackPos);
-                if (prior != null && prior.block() == state.getBlock()) {
-                    // Same impact re-detected on a later tick: skip this block
-                    // entirely (no re-crack, no cheapened break-through).
-                    if (level.getGameTime() - prior.lastHitTime() < CRACK_IMPACT_DEDUP_TICKS) {
-                        continue;
-                    }
-                    if (crackStillValid(prior, level.getGameTime())) {
-                        priorFraction = prior.fraction();
-                    }
-                }
-            }
+            CrackHistory crack = crackHistory(level, pos, state);
+            // Same impact re-detected on a later tick: skip this block
+            // entirely (no re-crack, no cheapened break-through).
+            if (crack != null && crack.sameImpact()) continue;
+            float priorFraction = crack != null ? crack.priorFraction() : 0;
             double effectiveBreakCost = breakCost * (1.0 - priorFraction);
 
-            if (kineticEnergy >= effectiveBreakCost) {
+            // Claim/protection mods get their say through the break event.
+            if (kineticEnergy >= effectiveBreakCost && BlockAlterRules.breakEventAllows(level, pos, state, entity)) {
                 if (level.destroyBlock(pos, true, entity)) {
-                    if (crackPos != null) {
-                        crackData.cracks.remove(crackPos);
-                        crackData.setDirty();
-                        level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
-                    }
+                    forgetCrack(level, pos, crack);
                     blockBroken = true;
                     kineticEnergy -= effectiveBreakCost;
                     if (!isFragile) kineticEnergy *= ENERGY_DAMPING_FACTOR;
@@ -449,7 +443,7 @@ public class KineticBlockInteractions {
                     // teleport out.
                     if (!ShipCompat.isShipBlock(level, pos)) {
                         Vec3 newVelocity = impactVelocity.normalize().scale(newVelocityMag);
-                        entity.setDeltaMovement(newVelocity);
+                        Gravity.setWorldVelocity(entity, newVelocity, frame);
                         entity.hasImpulse = true;
                         entity.setOnGround(false);
                         entity.verticalCollision = false;
@@ -460,7 +454,7 @@ public class KineticBlockInteractions {
             }
 
             if (kineticEnergy > GRASS_PATH_THRESHOLD) {
-                if (impactVelocity.normalize().y < -0.5 && state.is(Blocks.GRASS_BLOCK)) {
+                if (frame.vertical(impactVelocity.normalize()) < -0.5 && state.is(Blocks.GRASS_BLOCK)) {
                     level.playSound(null, pos, SoundEvents.SHOVEL_FLATTEN, SoundSource.BLOCKS, 1.0f, 1.0f);
                     level.setBlockAndUpdate(pos, Blocks.DIRT_PATH.defaultBlockState());
                 }
@@ -471,18 +465,9 @@ public class KineticBlockInteractions {
             double partialThreshold = 0.15;
             double damageRatio = kineticEnergy / breakCost;
             if (!blockBroken && damageRatio > partialThreshold) {
-                if (crackPos != null) {
-                    // Persistent path: the damage sticks to the BLOCK. Capped at
-                    // 0.95 so a heavily cracked block still needs one (trivial)
-                    // finishing hit instead of silently sitting at ≥100%.
-                    float accumulated = Math.min(priorFraction + (float) damageRatio, 0.95f);
-                    crackData.cracks.put(crackPos,
-                            new AccumulatedCrack(accumulated, level.getGameTime(), state.getBlock()));
-                    crackData.setDirty();
-                    level.destroyBlockProgress(crackOverlayId(pos), pos,
-                            Mth.clamp((int) (accumulated * 9.0f), 1, 9));
-                    level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
-                            1.0f, 0.8f + level.random.nextFloat() * 0.3f);
+                if (crack != null) {
+                    // Persistent path: the damage sticks to the BLOCK.
+                    accumulateCrack(level, pos, state, crack, damageRatio);
                 } else if (damageRatio < 1.0) {
                     // Transient per-entity overlay for everything else.
                     int crackStage = (int) (((damageRatio - partialThreshold) / (1.0 - partialThreshold)) * 9);
@@ -502,7 +487,7 @@ public class KineticBlockInteractions {
         if (blockBroken) {
             // Speed actually lost punching through counts like any other stopping force.
             double speedLostMps = (velocityMag - remainingVelocityMag) * 20;
-            boolean mostlyVertical = Math.abs(impactVelocity.y) > impactVelocity.horizontalDistance();
+            boolean mostlyVertical = Math.abs(frame.vertical(impactVelocity)) > frame.horizontalDistance(impactVelocity);
             double threshold = mostlyVertical
                     ? FullStopConfig.SERVER.velocityDamageThresholdVertical.get()
                     : FullStopConfig.SERVER.velocityDamageThresholdHorizontal.get();
@@ -510,6 +495,110 @@ public class KineticBlockInteractions {
         }
 
         return new ImpactResult(blockBroken, blockBroken ? smashDamage : 0);
+    }
+
+    /**
+     * A crackable block's remembered damage (see {@link CrackData}), shared by entity and ship
+     * impacts.
+     *
+     * @param priorFraction damage already on the block, 0..0.95 (0 once healed)
+     * @param sameImpact    the block was hit within {@link #CRACK_IMPACT_DEDUP_TICKS}: one physical
+     *                      impact detected again, which must neither re-crack nor cheapen it
+     */
+    public record CrackHistory(BlockPos pos, CrackData data, float priorFraction, boolean sameImpact) {}
+
+    /** The crack history of a {@code fullstop:crackable} block, or null for any other block. */
+    @Nullable
+    static CrackHistory crackHistory(ServerLevel level, BlockPos pos, BlockState state) {
+        if (!state.is(FullStopTags.CRACKABLE)) return null;
+        BlockPos crackPos = pos.immutable();
+        CrackData crackData = CrackData.get(level);
+        float priorFraction = 0;
+        boolean sameImpact = false;
+        AccumulatedCrack prior = crackData.cracks.get(crackPos);
+        if (prior != null && prior.block() == state.getBlock()) {
+            if (level.getGameTime() - prior.lastHitTime() < CRACK_IMPACT_DEDUP_TICKS) {
+                sameImpact = true;
+            } else if (crackStillValid(prior, level.getGameTime())) {
+                priorFraction = prior.fraction();
+            }
+        }
+        return new CrackHistory(crackPos, crackData, priorFraction, sameImpact);
+    }
+
+    /** A broken block's crack record and overlay go with it. */
+    static void forgetCrack(ServerLevel level, BlockPos pos, @Nullable CrackHistory crack) {
+        if (crack == null) return;
+        crack.data().cracks.remove(crack.pos());
+        crack.data().setDirty();
+        level.destroyBlockProgress(crackOverlayId(pos), pos, -1);
+    }
+
+    /**
+     * Adds a sub-break hit to a crackable block's persistent crack, with its overlay and a hit
+     * sound. Capped at 0.95 so a heavily cracked block still needs one (trivial) finishing hit
+     * instead of silently sitting at 100% or more.
+     */
+    static void accumulateCrack(ServerLevel level, BlockPos pos, BlockState state, CrackHistory crack, double damageRatio) {
+        float accumulated = Math.min(crack.priorFraction() + (float) damageRatio, 0.95f);
+        crack.data().cracks.put(crack.pos(),
+                new AccumulatedCrack(accumulated, level.getGameTime(), state.getBlock()));
+        crack.data().setDirty();
+        level.destroyBlockProgress(crackOverlayId(pos), pos,
+                Mth.clamp((int) (accumulated * 9.0f), 1, 9));
+        level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
+                1.0f, 0.8f + level.random.nextFloat() * 0.3f);
+    }
+
+    /**
+     * What {@link #smashBlock} did: whether the block broke, the energy (FullStop units) that
+     * took, and whether it cracked instead.
+     */
+    public record SmashOutcome(boolean broken, double spent, boolean cracked) {
+        public static final SmashOutcome HELD = new SmashOutcome(false, 0, false);
+    }
+
+    /**
+     * One block struck with {@code energy} FullStop energy units available - the same rules as
+     * an entity's impact: it breaks when the energy covers {@code cost} (lowered by the block's
+     * accumulated cracks, see {@link #crackHistory}), otherwise hits of 15% or more crack it
+     * (persistently for {@code fullstop:crackable} blocks, as a fading overlay for the rest).
+     * The caller has already asked the mob-griefing and minigame-host questions
+     * ({@link BlockAlterRules}); the break event is posted here, right before the break.
+     *
+     * @param cost  what breaking the undamaged block costs, FullStop units
+     * @param drops whether it drops like a mined block (doTileDrops still applies)
+     * @param cause who answers for the break (a ship's pilot), or null for FullStop's fake player
+     */
+    public static SmashOutcome smashBlock(ServerLevel level, BlockPos pos, BlockState state, double cost,
+                                          double energy, boolean drops, @Nullable Entity cause) {
+        if (!(cost >= 0.0) || state.isAir()) return SmashOutcome.HELD;
+        CrackHistory crack = crackHistory(level, pos, state);
+        if (crack != null && crack.sameImpact()) return SmashOutcome.HELD;
+        double priorFraction = crack != null ? crack.priorFraction() : 0;
+        double effectiveCost = cost * (1.0 - priorFraction);
+
+        if (energy >= effectiveCost) {
+            if (BlockAlterRules.breakEventAllows(level, pos, state, cause) && level.destroyBlock(pos, drops, cause)) {
+                forgetCrack(level, pos, crack);
+                return new SmashOutcome(true, effectiveCost, false);
+            }
+            return SmashOutcome.HELD;
+        }
+
+        double damageRatio = cost > 0 ? energy / cost : 0;
+        if (damageRatio > 0.15) {
+            if (crack != null) {
+                accumulateCrack(level, pos, state, crack, damageRatio);
+            } else {
+                // No entity to key it to: the position's own overlay id, which
+                // fades on its own on the client once nothing refreshes it.
+                int crackStage = (int) (((damageRatio - 0.15) / (1.0 - 0.15)) * 9);
+                level.destroyBlockProgress(crackOverlayId(pos), pos, Mth.clamp(crackStage, 0, 9));
+            }
+            return new SmashOutcome(false, 0, true);
+        }
+        return SmashOutcome.HELD;
     }
 
     /**
@@ -556,7 +645,11 @@ public class KineticBlockInteractions {
         if (!(entity.level() instanceof ServerLevel level) || !entity.isAlive()) return;
         if (entity instanceof Player player && player.isSpectator()) return;
 
-        Vec3 horizontal = new Vec3(nativeVelocity.x, 0, nativeVelocity.z);
+        // Across the entity's gravity frame: on a plated wall "horizontal" is
+        // along the wall.
+        FullStopCapability doorCap = FullStopCapability.grabCapability(entity);
+        GravityFrame doorFrame = doorCap != null ? doorCap.getFrame() : GravityFrame.DEFAULT;
+        Vec3 horizontal = doorFrame.horizontalPart(nativeVelocity);
         if (horizontal.length() * 20 < DOOR_OPEN_MIN_SPEED_MPS) return;
 
         Vec3 direction = horizontal.normalize();
@@ -698,7 +791,7 @@ public class KineticBlockInteractions {
             BlockHitResult hitResult = impactedHits.get(i);
 
             if (state.getBlock() instanceof PointedDripstoneBlock && hitResult.getDirection().getAxis().isHorizontal()) {
-                if (level.getGameRules().getBoolean(GameRules.RULE_MOBGRIEFING)) {
+                if (BlockAlterRules.mayGrief(level, entity) && BlockAlterRules.mayBreak(level, pos, state, entity)) {
                     level.playSound(null, pos, SoundEvents.POINTED_DRIPSTONE_BREAK, SoundSource.BLOCKS, 1.0f, 1.0f);
                     FallingBlockEntity fallingSpike = FallingBlockEntity.fall(level, pos, state);
                     // Vanilla handles the impact from here: hurtEntities gives the spike
@@ -720,6 +813,7 @@ public class KineticBlockInteractions {
         }
 
         if (fallingState.getBlock() instanceof PointedDripstoneBlock) {
+            if (!BlockAlterRules.mayBreak(level, pos, state, fallingBlock)) return false;
             level.destroyBlock(pos, true);
             level.levelEvent(PARTICLES_DESTROY_BLOCK, pos, Block.getId(state));
             fallingBlock.discard();
@@ -729,7 +823,8 @@ public class KineticBlockInteractions {
         float fallingHardness = fallingState.getDestroySpeed(level, fallingBlock.blockPosition());
         float hitHardness = state.getDestroySpeed(level, pos);
 
-        if (fallingState.is(BlockTags.SAND) && FullStopConfig.SERVER.sandBlasting.get()) {
+        if (fallingState.is(BlockTags.SAND) && FullStopConfig.SERVER.sandBlasting.get()
+                && BlockAlterRules.mayAlter(level, pos, fallingBlock)) {
             boolean blasted = false;
             if (state.getBlock() instanceof WeatheringCopper) {
                 Optional<BlockState> previous = WeatheringCopper.getPrevious(state);

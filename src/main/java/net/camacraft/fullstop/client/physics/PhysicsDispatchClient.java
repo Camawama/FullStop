@@ -1,5 +1,8 @@
 package net.camacraft.fullstop.client.physics;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
@@ -7,6 +10,7 @@ import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.Entity;
@@ -34,21 +38,30 @@ public class PhysicsDispatchClient {
         FullStopCapability cap = grabCapability(event.player);
         if (cap == null) return;
 
-        Vec3 playerDelta = event.player.getDeltaMovement();
+        // WORLD-space: the server compares this against its own world-space
+        // position measurement, and under a Gravity Unbound field the raw
+        // deltaMovement is in the player's local frame.
+        Vec3 playerDelta = Gravity.getWorldVelocity(event.player, cap.getFrame());
         cap.setCurrentNativeVelocity(playerDelta);
 
         // Collision flags ride along: the server can't measure them for players
         // (move packets arrive pre-clipped), and without them the kinetic-damage
-        // evidence gate can never pass horizontally.
+        // evidence gate can never pass horizontally. (Under a rotated gravity
+        // frame the flags are the FRAME's — exactly what the server's
+        // frame-measured stopping force needs.)
         if (event.player.isPassenger()) {
             Entity vehicle = event.player.getVehicle();
             if (vehicle != null) {
-                PacketHandler.sendToServer(new PlayerDeltaPacket(vehicle.getDeltaMovement(), true,
-                        vehicle.horizontalCollision, vehicle.verticalCollision));
+                FullStopCapability vehicleCap = grabCapability(vehicle);
+                GravityFrame vehicleFrame = vehicleCap != null ? vehicleCap.getFrame() : GravityFrame.DEFAULT;
+                boolean vehicleJumped = vehicleCap != null && vehicleCap.takeUnsentDiscontinuity(vehicle);
+                PacketHandler.sendToServer(new PlayerDeltaPacket(Gravity.getWorldVelocity(vehicle, vehicleFrame), true,
+                        vehicle.horizontalCollision, vehicle.verticalCollision, vehicleJumped));
             }
         } else {
             PacketHandler.sendToServer(new PlayerDeltaPacket(playerDelta, false,
-                    event.player.horizontalCollision, event.player.verticalCollision));
+                    event.player.horizontalCollision, event.player.verticalCollision,
+                    cap.takeUnsentDiscontinuity(event.player)));
         }
     }
 
@@ -68,6 +81,11 @@ public class PhysicsDispatchClient {
         if (player == null || event.getEntityMounting() != player) return;
 
         Entity vehicle = event.getEntityBeingMounted();
+        // FullStop never writes a blacklisted vehicle's motion (MKW's karts), so
+        // boarding one seeds nothing. Stepping OFF one still hands the rider its
+        // momentum, like any vehicle: the rider is FullStop's again (tickSeeds
+        // checks the rider's own claims when it applies the seed).
+        if (event.isMounting() && vehicle.getType().is(FullStopTags.PHYSICS_BLACKLIST)) return;
         // Phase-robust motion source: pos − xOld or the capability measurement,
         // whichever is live at this point in the tick (see observedVehicleMotion).
         Vec3 observedMotion = net.camacraft.fullstop.server.physics.PhysicsDispatchServer.observedVehicleMotion(vehicle);
@@ -86,6 +104,14 @@ public class PhysicsDispatchClient {
         FullStopCapability fullstop = grabCapability(player);
         if (fullstop == null) return;
 
+        // The same ownership read as the server's, for the client-side systems
+        // (vignette, muffle, bounce camera, driven-vehicle bounces, the mixins).
+        int claims = fullstop.refreshClaims(player);
+        if (claims == PhysicsAspect.ALL) {
+            fullstop.resetVelocity();
+            return;
+        }
+
         if (player.tickCount != fullstop.getLastTick()) {
             fullstop.tick(player);
             fullstop.setLastTick(player.tickCount);
@@ -95,7 +121,8 @@ public class PhysicsDispatchClient {
         // (detectBlocks reads SERVER config values, hence the isLoaded guard.)
         boolean cameraAllowed = FullStopConfig.CLIENT.rotateCamera.get()
                 && (!FullStopConfig.CLIENT.rotateCameraOnlyWhenFlying.get() || player.isFallFlying())
-                && !player.isPassenger();
+                && !player.isPassenger()
+                && !PhysicsAspect.BOUNCE.in(claims);
         if (cameraAllowed && FullStopConfig.SERVER_SPEC.isLoaded()) {
             Collision collision = CommonCollisionDetector.detectBlocks(player, fullstop);
             CameraBounceHandler.apply(player, fullstop, collision);

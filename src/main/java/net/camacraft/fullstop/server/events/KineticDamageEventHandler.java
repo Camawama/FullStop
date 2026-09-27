@@ -1,7 +1,9 @@
 package net.camacraft.fullstop.server.events;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
@@ -83,6 +85,15 @@ public class KineticDamageEventHandler {
         // old early return skipped dampening/protection/reflective entirely.
         boolean skipVelocityScaling = direct instanceof AbstractArrow && !SERVER.wildMode.get();
 
+        // Nor is a hit re-scaled when either body's contacts belong to another
+        // mod (MKW's hazards and karts, their drivers): its speed is that mod's
+        // to price in, and a scripted kart speed would multiply it wildly.
+        if (!fullstopKinetic && !skipVelocityScaling
+                && (PhysicsClaims.handsOff(event.getEntity(), PhysicsAspect.CONTACT)
+                        || PhysicsClaims.handsOff(direct, PhysicsAspect.CONTACT))) {
+            skipVelocityScaling = true;
+        }
+
         float newDamage = (fullstopKinetic || skipVelocityScaling) ? event.getAmount() : calcNewDamage(event);
 
         // Apply Kinetic Dampening Attribute (leather armor grants it; see above)
@@ -131,8 +142,15 @@ public class KineticDamageEventHandler {
         boolean mostlyUpward;
         boolean mostlyHorizontal;
 
-        Entity attacker = source.getEntity();
-        if (fullstopKinetic && attacker != null && attacker != entity) {
+        // The body that physically struck (the boat, not the player steering it):
+        // the responsible player is only the source's causing entity.
+        Entity attacker = source.getDirectEntity() != null ? source.getDirectEntity() : source.getEntity();
+        if (source instanceof FullStopDamageSources.ShipSource shipHit) {
+            // A ship's hull: the side it came from, not the pilot's own motion.
+            mostlyDownward = shipHit.hullBelow();
+            mostlyUpward = shipHit.hullAbove();
+            mostlyHorizontal = !mostlyDownward && !mostlyUpward;
+        } else if (fullstopKinetic && attacker != null && attacker != entity) {
             // Rammed by a mover: the hit direction is the attacker's motion, seen
             // from the victim's frame — something falling ON you strikes your head
             // (helmet), something rising from below strikes your feet (boots).

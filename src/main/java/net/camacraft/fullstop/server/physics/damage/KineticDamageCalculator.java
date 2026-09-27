@@ -1,19 +1,18 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.VanillaFall;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
-import net.camacraft.fullstop.common.physics.math.VanillaFallMath;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
-import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -23,6 +22,8 @@ import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.PointedDripstoneBlock;
 import net.minecraft.world.level.block.state.BlockState;
+
+import java.util.List;
 
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
@@ -72,7 +73,10 @@ public class KineticDamageCalculator {
         // Evidence is per axis: onGround corroborates only VERTICAL deceleration.
         // Letting it stand in for horizontal evidence billed "wall damage" to any
         // grounded stop with no wall at all (ice runway into soul sand, boat
-        // dismounts, cobwebs).
+        // dismounts, cobwebs). "Vertical" and "horizontal" are the entity's
+        // gravity FRAME's: under Gravity Unbound the flags, onGround and the
+        // stopping-force decomposition are all measured in that frame, so a
+        // fall onto a plated wall is a vertical impact with vertical evidence.
         boolean verticalEvidence = fullstop.hadRecentVerticalHit() || entity.onGround() || shipEvidence;
         boolean horizontalEvidence = fullstop.hadRecentHorizontalHit() || shipEvidence
                 || hasFlushStopAgainstWall(entity, fullstop, collision);
@@ -85,8 +89,7 @@ public class KineticDamageCalculator {
         // Vanilla subtracts Jump Boost levels from the effective fall distance.
         double jumpBonus = 0;
         if (vanillaParity && entity instanceof LivingEntity living) {
-            MobEffectInstance jump = living.getEffect(MobEffects.JUMP);
-            if (jump != null) jumpBonus = jump.getAmplifier() + 1;
+            jumpBonus = VanillaFall.jumpBoostBonus(living);
         }
 
         double horizontalExceedance;
@@ -96,17 +99,19 @@ public class KineticDamageCalculator {
             // damage ((distance - 3) points). Wall crashes use the same mapping so
             // hitting a wall at 20-block-fall speed hurts like a 20-block fall.
             horizontalExceedance = (!blockImpact || horizontalEvidence)
-                    ? Math.max(VanillaFallMath.equivalentFallDistance(fullstop.getHorizontalStoppingForce()) - 3.0, 0)
+                    ? Math.max(VanillaFall.equivalentFallDistance(fullstop.getHorizontalStoppingForce())
+                            - VanillaFall.SAFE_FALL_DISTANCE, 0)
                     : 0;
             verticalExceedance = (!blockImpact || verticalEvidence)
-                    ? Math.max(VanillaFallMath.equivalentFallDistance(fullstop.getVerticalStoppingForce()) - 3.0 - jumpBonus, 0)
+                    ? Math.max(VanillaFall.equivalentFallDistance(fullstop.getVerticalStoppingForce())
+                            - VanillaFall.SAFE_FALL_DISTANCE - jumpBonus, 0)
                     : 0;
         } else {
             horizontalExceedance = (!blockImpact || horizontalEvidence)
                     ? Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0)
                     : 0;
             verticalExceedance = (!blockImpact || verticalEvidence)
-                    ? Math.max(fullstop.getVerticalStoppingForce() - SERVER.velocityDamageThresholdVertical.get(), 0)
+                    ? Math.max(fullstop.getVerticalStoppingForce() - verticalThresholdMps(), 0)
                     : 0;
         }
 
@@ -122,7 +127,7 @@ public class KineticDamageCalculator {
                     if (verticalEvidence && fullstop.getVerticalStoppingForce() > 4.0) {
                         if (vanillaParity) {
                             // Vanilla: causeFallDamage(distance + 2, 2.0) → ((d + 2 − 3 − jump) × mult).
-                            double dist = VanillaFallMath.equivalentFallDistance(fullstop.getVerticalStoppingForce());
+                            double dist = VanillaFall.equivalentFallDistance(fullstop.getVerticalStoppingForce());
                             return Math.max(dist - 1.0 - jumpBonus, 0.5)
                                     * SERVER.dripstoneDamageMultiplier.get()
                                     * SERVER.kineticDamageMultiplier.get();
@@ -160,7 +165,7 @@ public class KineticDamageCalculator {
                     .average()
                     .orElse(0.0);
             double threshold = isDownwardImpact
-                    ? SERVER.velocityDamageThresholdVertical.get()
+                    ? verticalThresholdMps()
                     : SERVER.velocityDamageThresholdHorizontal.get();
             damage = Math.max(averageRelativeSpeed - threshold, 0);
         } else {
@@ -171,8 +176,41 @@ public class KineticDamageCalculator {
 
         if (damage <= 0) return 0;
 
+        return finishDamage(entity, damage, isDownwardImpact, collision.blockStates,
+                collision.collisionType == Collision.CollisionType.SOLID, vanillaParity);
+    }
+
+    /**
+     * Damage for an impact that took {@code lostMps} of speed off the victim against
+     * {@code struck} - the same model as any other kinetic impact (the configured thresholds
+     * or vanilla parity, the struck blocks' hardness and softness, the solid-impact floor,
+     * kineticDamageMultiplier), for callers that measured the impact themselves: a ship's hull
+     * hitting an entity. Immunity is the caller's to check.
+     *
+     * @param vertical whether the impact was along the victim's up/down (the vertical threshold)
+     */
+    public static double damageForSpeedLost(Entity victim, double lostMps, boolean vertical, List<BlockState> struck) {
+        boolean vanillaParity = SERVER.fallDamageMode.get() == FullStopConfig.FallDamageMode.VANILLA_PARITY;
+        double damage;
+        if (vanillaParity) {
+            damage = Math.ceil(Math.max(VanillaFall.equivalentFallDistance(lostMps) - VanillaFall.SAFE_FALL_DISTANCE, 0));
+        } else {
+            double threshold = vertical ? verticalThresholdMps() : SERVER.velocityDamageThresholdHorizontal.get();
+            damage = Math.max(lostMps - threshold, 0);
+        }
+        if (damage <= 0) return 0;
+        return finishDamage(victim, damage, false, struck, true, vanillaParity);
+    }
+
+    /**
+     * The shared tail of every kinetic damage figure: water dives and belly flops, soft blocks,
+     * then (KINETIC mode) block hardness, the 1.07 scale and the solid-impact floor, and finally
+     * kineticDamageMultiplier.
+     */
+    private static double finishDamage(Entity entity, double damage, boolean isDownwardImpact,
+                                       List<BlockState> blockStates, boolean solid, boolean vanillaParity) {
         boolean hitWater = false;
-        for (BlockState state : collision.blockStates) {
+        for (BlockState state : blockStates) {
             if (state.is(Blocks.WATER)) {
                 hitWater = true;
                 break;
@@ -185,7 +223,7 @@ public class KineticDamageCalculator {
             damage *= isBellyFlop(entity) ? 1.2 : 0.05;
         }
 
-        for (BlockState state : collision.blockStates) {
+        for (BlockState state : blockStates) {
             if (state.is(FullStopTags.SOFT_LANDING)) {
                 damage *= 0.3;
                 break;
@@ -202,10 +240,10 @@ public class KineticDamageCalculator {
         if (!vanillaParity) {
             if (SERVER.hardnessAffectsDamage.get()) {
                 double averageHardness = 1.0;
-                if (!collision.blockStates.isEmpty()) {
+                if (!blockStates.isEmpty()) {
                     double totalHardness = 0;
                     int count = 0;
-                    for (BlockState state : collision.blockStates) {
+                    for (BlockState state : blockStates) {
                         // Water's block hardness is 100 (bedrock-tier) — meaningless for an
                         // impact; its softness is already handled by the dive/flop factor.
                         if (state.is(Blocks.WATER)) continue;
@@ -238,12 +276,27 @@ public class KineticDamageCalculator {
             // scratch — landing spot choice should matter, but a real overspeed
             // landing is never free.
             double minimumSolid = SERVER.minimumSolidImpactDamage.get();
-            if (collision.collisionType == Collision.CollisionType.SOLID && damage > 0 && minimumSolid > 0) {
+            if (solid && damage > 0 && minimumSolid > 0) {
                 damage = Math.max(damage, minimumSolid);
             }
         }
 
         return damage * SERVER.kineticDamageMultiplier.get();
+    }
+
+    /**
+     * The KINETIC-mode vertical threshold (m/s): the impact speed of a
+     * {@code minimumFallDistance}-block fall when that is set, else the raw
+     * {@code velocityDamageThresholdVertical}. Both describe the same limit;
+     * the height form is what most people actually mean ("falls under N
+     * blocks are free").
+     */
+    public static double verticalThresholdMps() {
+        double blocks = SERVER.minimumFallDistance.get();
+        if (blocks > 0) {
+            return VanillaFall.impactSpeedForFallDistance(blocks);
+        }
+        return SERVER.velocityDamageThresholdVertical.get();
     }
 
     /**
@@ -259,28 +312,29 @@ public class KineticDamageCalculator {
     private static boolean hasFlushStopAgainstWall(Entity entity, FullStopCapability fullstop, Collision collision) {
         AABB box = entity.getBoundingBox();
         Vec3 current = fullstop.getCurrentScaledVelocity();
+        GravityFrame frame = fullstop.getFrame();
 
         for (BlockHitResult hit : collision.impactedHits) {
             Direction face = hit.getDirection();
-            if (!face.getAxis().isHorizontal()) continue;
+            // A wall as the FRAME sees it: the four side faces in the vanilla
+            // frame; under a rotated frame whichever world faces stand across
+            // the frame's up (floors and ceilings carry their own evidence).
+            if (!frame.isWallFace(face)) continue;
+            Direction.Axis axis = face.getAxis();
 
-            // Speed must actually have been lost on this face's axis this tick.
-            if (fullstop.getAxisStoppingForce(face.getAxis())
-                    < CommonCollisionDetector.MIN_APPROACH_SPEED_MPS) continue;
+            // Speed must actually have been lost on this face's (world) axis this tick.
+            if (fullstop.getAxisStoppingForce(axis) < CommonCollisionDetector.MIN_APPROACH_SPEED_MPS) continue;
 
             BlockPos pos = hit.getBlockPos();
-            double facePlane;
-            double entitySide;
-            double residualMps;
-            if (face.getAxis() == Direction.Axis.X) {
-                facePlane = face == Direction.WEST ? pos.getX() : pos.getX() + 1.0;
-                entitySide = face == Direction.WEST ? box.maxX : box.minX;
-                residualMps = Math.abs(current.x);
-            } else {
-                facePlane = face == Direction.NORTH ? pos.getZ() : pos.getZ() + 1.0;
-                entitySide = face == Direction.NORTH ? box.maxZ : box.minZ;
-                residualMps = Math.abs(current.z);
-            }
+            // Ship faces are addressed in shipyard coordinates — no world plane
+            // to compare against (ship impacts are their own evidence, see
+            // shipEvidence in calculateDamage).
+            if (ShipCompat.isShipBlock(entity.level(), pos)) continue;
+
+            boolean negativeFace = face.getAxisDirection() == Direction.AxisDirection.NEGATIVE;
+            double facePlane = negativeFace ? pos.get(axis) : pos.get(axis) + 1.0;
+            double entitySide = negativeFace ? box.max(axis) : box.min(axis);
+            double residualMps = Math.abs(current.get(axis));
 
             if (Math.abs(entitySide - facePlane) > 0.1) continue; // not actually against the face
             if (residualMps > 1.5) continue;                      // still moving through — not a stop

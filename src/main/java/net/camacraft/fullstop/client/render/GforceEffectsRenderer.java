@@ -5,11 +5,12 @@ import com.mojang.blaze3d.vertex.BufferBuilder;
 import com.mojang.blaze3d.vertex.DefaultVertexFormat;
 import com.mojang.blaze3d.vertex.Tesselator;
 import com.mojang.blaze3d.vertex.VertexFormat;
+import net.camacraft.camafy.physics.PhysicsAspect;
+import net.camacraft.camafy.util.anim.Easing;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
-import net.camacraft.fullstop.common.util.MathUtils;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.LocalPlayer;
@@ -59,7 +60,8 @@ public class GforceEffectsRenderer {
         float targetFovModifier = 1.0f;
 
         FullStopCapability cap = FullStopCapability.grabCapability(player);
-        if (cap != null) {
+        // Nothing while another mod owns the felt g (an MKW racer): it eases back to 1.
+        if (cap != null && !cap.isClaimed(PhysicsAspect.G_FORCE)) {
             double gForce = cap.getRawRunningAverageDelta();
             // Capped: sustained g-force (spinning fast in circles) used to grow
             // this unbounded until the FOV crossed 180° and the view flipped
@@ -80,20 +82,27 @@ public class GforceEffectsRenderer {
         }
     }
 
-    @SubscribeEvent
+    /**
+     * LOW: other mods' HUD layers (Space Events' telescope glare, overlays drawn at NORMAL) come
+     * first, so the blackout darkens them too instead of being painted over.
+     */
+    @SubscribeEvent(priority = EventPriority.LOW)
     public static void onRenderGuiPost(RenderGuiEvent.Post event) {
         float gForceIntensity = 0.0f;
         float drowningIntensity = 0.0f;
 
         LocalPlayer player = effectTarget();
         if (player != null) {
-            if (FullStopConfig.SERVER.enableGForceEffects.get()) {
-                FullStopCapability cap = FullStopCapability.grabCapability(player);
+            // Another mod owning the felt g (G_FORCE) or the air supply
+            // (ENVIRONMENT) of this player turns that half of the overlay off.
+            FullStopCapability cap = FullStopCapability.grabCapability(player);
+            int claims = cap != null ? cap.getClaims() : 0;
+            if (FullStopConfig.SERVER.enableGForceEffects.get() && !PhysicsAspect.G_FORCE.in(claims)) {
                 if (cap != null) {
                     double gForce = cap.getRunningAverageDelta();
                     GForceThresholds.Range thresholds = GForceThresholds.effective(player,
-                            FullStopConfig.CLIENT.minGForceThreshold.get(),
-                            FullStopConfig.CLIENT.maxGForceThreshold.get());
+                            FullStopConfig.SERVER.minGForceThreshold.get(),
+                            FullStopConfig.SERVER.maxGForceThreshold.get());
 
                     if (gForce > thresholds.min()) {
                         // max(…, 0.001): min == max in the config would be 0/0 = NaN,
@@ -107,7 +116,7 @@ public class GforceEffectsRenderer {
 
             int airSupply = player.getAirSupply();
             int maxAir = player.getMaxAirSupply();
-            if (airSupply < maxAir) {
+            if (airSupply < maxAir && !PhysicsAspect.ENVIRONMENT.in(claims)) {
                 float intensity = 1.0f - ((float) airSupply / (float) maxAir);
                 drowningIntensity = intensity * intensity * intensity;
             }
@@ -133,7 +142,7 @@ public class GforceEffectsRenderer {
             int screenWidth = guiGraphics.guiWidth();
             int screenHeight = guiGraphics.guiHeight();
 
-            float easedIntensity = MathUtils.easeOutCubic(currentIntensity);
+            float easedIntensity = Easing.outCubic(currentIntensity);
 
             renderTunnelVision(screenWidth, screenHeight, easedIntensity);
             renderBlackout(screenWidth, screenHeight, easedIntensity);
@@ -143,6 +152,11 @@ public class GforceEffectsRenderer {
     private static void renderBlackout(int screenWidth, int screenHeight, float intensity) {
         float alpha = intensity * 0.95f;
         if (alpha > 0) {
+            // No depth test: at z=-90 the blackout sat BEHIND anything another
+            // HUD layer wrote to the depth buffer (a telescope glare) and behind
+            // the HUD itself - a G-LOC must cover everything on screen.
+            RenderSystem.disableDepthTest();
+            RenderSystem.depthMask(false);
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             RenderSystem.setShader(GameRenderer::getPositionColorShader);
@@ -156,6 +170,8 @@ public class GforceEffectsRenderer {
             bufferbuilder.vertex(0.0D, 0.0D, -90.0D).color(0f, 0f, 0f, alpha).endVertex();
             tesselator.end();
 
+            RenderSystem.depthMask(true);
+            RenderSystem.enableDepthTest();
             RenderSystem.disableBlend();
         }
     }

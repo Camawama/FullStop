@@ -1,8 +1,11 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.physics.Impacts;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
@@ -110,7 +113,8 @@ public final class BounceHandler {
             newV = newV.scale(0.8); // carriers lose energy so they eventually settle and place
         }
 
-        entity.setDeltaMovement(newV.scale(0.05));
+        // World-space rebound into the entity's (possibly local-frame) motion.
+        Gravity.setWorldVelocity(entity, newV.scale(0.05), fullstop.getFrame());
         entity.hurtMarked = true;
         fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
 
@@ -138,10 +142,12 @@ public final class BounceHandler {
         if (preV.lengthSqr() < minSkipSpeed * minSkipSpeed) return;
 
         if (collision.impactedHits.isEmpty()) return;
-        // Water surfaces are only ever detected on their UP face, but a mixed
-        // shore collision (WATER outranks SOLID in type priority) can put a wall
-        // hit first in the list — the skip must always reflect off the surface.
-        Vec3 normal = new Vec3(0, 1, 0);
+        // Water surfaces are only ever detected on their surface face (UP in
+        // the vanilla frame; under a gravity field, the face across the field),
+        // but a mixed shore collision (WATER outranks SOLID in type priority)
+        // can put a wall hit first in the list — the skip must always reflect
+        // off the surface.
+        Vec3 normal = waterSurfaceNormal(collision);
 
         // Water normals are always UP, so this angle is measured from VERTICAL:
         // 0° is a straight-down dive, 90° is skimming parallel to the surface.
@@ -151,20 +157,26 @@ public final class BounceHandler {
         double angle = Math.toDegrees(Math.acos(preV.normalize().dot(normal.scale(-1))));
         if (angle < 65) return;
 
-        double vDotN = preV.dot(normal);
-        if (vDotN >= 0) return;
+        double restitution = 0.6; // Energy returned vertically
+        double friction = 0.9;    // Energy kept horizontally
 
-        double restitution = -0.6; // Energy returned vertically
-        double friction = 0.9;     // Energy kept horizontally
+        Vec3 newV = Impacts.bounce(preV, normal, restitution, friction);
+        if (newV == null) return; // not moving into the surface
 
-        Vec3 vNormal = normal.scale(vDotN);
-        Vec3 vTangential = preV.subtract(vNormal);
-
-        Vec3 newV = vTangential.scale(friction).add(vNormal.scale(restitution));
-
-        entity.setDeltaMovement(newV.scale(0.05));
+        Gravity.setWorldVelocity(entity, newV.scale(0.05), fullstop.getFrame());
         entity.hurtMarked = true;
         fullstop.setWaterSkipCooldown(10); // 10 ticks of water immunity
         fullstop.setJustBounced(true);
+    }
+
+    /** The face normal of the water surface that was hit (UP unless a gravity field tilts the liquid). */
+    public static Vec3 waterSurfaceNormal(Collision collision) {
+        int n = Math.min(collision.blockStates.size(), collision.impactedHits.size());
+        for (int i = 0; i < n; i++) {
+            if (collision.blockStates.get(i).getFluidState().is(FluidTags.WATER)) {
+                return Vec3.atLowerCornerOf(collision.impactedHits.get(i).getDirection().getNormal());
+            }
+        }
+        return new Vec3(0, 1, 0);
     }
 }

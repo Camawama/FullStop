@@ -34,6 +34,30 @@ public final class GForceThresholds {
         return vertigoLevel - clarityLevel;
     }
 
+    /** The configured effect thresholds, scaled by the entity's clarity/vertigo. */
+    public static Range configured(LivingEntity entity) {
+        return effective(entity,
+                net.camacraft.fullstop.FullStopConfig.SERVER.minGForceThreshold.get(),
+                net.camacraft.fullstop.FullStopConfig.SERVER.maxGForceThreshold.get());
+    }
+
+    /** Sustained g at which nausea sets in: halfway between the vignette's start and the full blackout. */
+    public static double nauseaLevel(Range range) {
+        return range.min() + 0.5 * (range.max() - range.min());
+    }
+
+    /** Sustained g at which the blackout is complete and the entity is blinded (G-LOC). */
+    public static double blackoutLevel(Range range) {
+        return range.max();
+    }
+
+    /** The spin-nausea threshold (degrees per tick, smoothed) scaled by clarity/vertigo; 0 when disabled. */
+    public static double spinNauseaLevel(LivingEntity entity) {
+        double base = net.camacraft.fullstop.FullStopConfig.SERVER.spinNauseaThreshold.get();
+        if (base <= 0) return 0;
+        return effective(entity, base, base).min();
+    }
+
     /** Applies clarity/vertigo scaling to a configured min/max g-force threshold pair. */
     public static Range effective(LivingEntity entity, double baseMin, double baseMax) {
         int netLevel = netEffectLevel(entity);

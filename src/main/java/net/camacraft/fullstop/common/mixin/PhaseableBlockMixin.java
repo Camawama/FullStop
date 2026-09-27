@@ -1,8 +1,10 @@
 package net.camacraft.fullstop.common.mixin;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.physics.BlockPhasing;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.level.BlockGetter;
@@ -49,6 +51,10 @@ public abstract class PhaseableBlockMixin {
         if (!(context instanceof EntityCollisionContext entityContext)) return;
         if (!(entityContext.getEntity() instanceof LivingEntity living)) return;
         if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;
+
+        // Another mod owns this entity's block contact (an MKW racer): blocks stay
+        // solid. The CACHED claims only - this may run off the main thread.
+        if (PhysicsClaims.cachedClaimed(living, PhysicsAspect.BLOCKS)) return;
 
         // Confirmed gate: instantaneous speed past the threshold AND the
         // previous tick's MEASURED speed backing it up — a one-tick spike must

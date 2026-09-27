@@ -12,11 +12,15 @@ import net.minecraft.world.phys.Vec3;
 public class CollisionParticleSpawner {
 
     public static void spawnParticle(Level level, Vec3 pos, Collision collision, BlockState blockState) {
+        spawnParticle(level, pos, collision.collisionType, blockState);
+    }
+
+    public static void spawnParticle(Level level, Vec3 pos, Collision.CollisionType collisionType, BlockState blockState) {
         if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
 
-        ParticleOptions particleType = switch (collision.collisionType) {
+        ParticleOptions particleType = switch (collisionType) {
             case HONEY -> ParticleTypes.FALLING_HONEY;
             case SOLID, BED, SLIME -> blockState != null ? new BlockParticleOption(ParticleTypes.BLOCK, blockState) : null;
             case ENTITY -> ParticleTypes.CLOUD;

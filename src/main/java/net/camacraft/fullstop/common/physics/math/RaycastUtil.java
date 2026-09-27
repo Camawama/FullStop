@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.common.physics.math;
 
+import net.camacraft.camafy.compat.gravity.GravityFrame;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.minecraft.world.entity.Entity;
@@ -80,6 +81,23 @@ public class RaycastUtil {
     private static final double RAY_START_MARGIN = 5.0e-5;
 
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode) {
+        return getRayStarts(entity, mode, GravityFrame.DEFAULT);
+    }
+
+    /**
+     * Ray starts in the entity's gravity frame. In the default frame these are
+     * the bounding box's corners, face centers and edge midpoints (bottom row
+     * raised 0.1 above the effective floor). Under a rotated frame the stored
+     * AABB is only the world-aligned ENVELOPE of the tilted body (a capsule
+     * under Gravity Unbound): its corners hang in the air around the body and
+     * its floor is a side, not the feet — so the same layout is built on the
+     * entity's own width × height box in ITS frame and rotated into the world
+     * about the feet point.
+     */
+    public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame) {
+        if (!frame.isDefault()) {
+            return getRotatedRayStarts(entity, mode, frame);
+        }
         AABB box = entity.getBoundingBox().inflate(RAY_START_MARGIN);
         double minX = box.minX;
         double minY = Math.min(effectiveFloorY(entity) + 0.1, box.maxY);
@@ -142,5 +160,71 @@ public class RaycastUtil {
         points.add(new Vec3(maxX, cenY, maxZ)); // East South Edge
 
         return points;
+    }
+
+    private static List<Vec3> getRotatedRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame) {
+        // The entity's box in its own frame, feet at the origin, inflated by
+        // the same margin as the vanilla path; bottom row raised 0.1 like the
+        // vanilla minY so the rays never start inside the surface stood on.
+        double half = entity.getBbWidth() / 2.0 + RAY_START_MARGIN;
+        double top = entity.getBbHeight() + RAY_START_MARGIN;
+        double bottom = Math.min(0.1, top);
+        double middle = entity.getBbHeight() / 2.0;
+        Vec3 feet = entity.position();
+
+        List<Vec3> points = new ArrayList<>(switch (mode) {
+            case CORNERS_ONLY -> 8;
+            case CORNERS_AND_CENTERS -> 15;
+            case FULL_SWEEP -> 27;
+        });
+
+        // 8 corners
+        addRotated(points, feet, frame, -half, bottom, -half);
+        addRotated(points, feet, frame, -half, bottom, half);
+        addRotated(points, feet, frame, -half, top, -half);
+        addRotated(points, feet, frame, -half, top, half);
+        addRotated(points, feet, frame, half, bottom, -half);
+        addRotated(points, feet, frame, half, bottom, half);
+        addRotated(points, feet, frame, half, top, -half);
+        addRotated(points, feet, frame, half, top, half);
+
+        if (mode == FullStopConfig.RaycastMode.CORNERS_ONLY) {
+            return points;
+        }
+
+        // 6 face centers + 1 center
+        addRotated(points, feet, frame, -half, middle, 0);
+        addRotated(points, feet, frame, half, middle, 0);
+        addRotated(points, feet, frame, 0, bottom, 0);
+        addRotated(points, feet, frame, 0, top, 0);
+        addRotated(points, feet, frame, 0, middle, -half);
+        addRotated(points, feet, frame, 0, middle, half);
+        addRotated(points, feet, frame, 0, middle, 0);
+
+        if (mode == FullStopConfig.RaycastMode.CORNERS_AND_CENTERS) {
+            return points;
+        }
+
+        // 12 edge midpoints
+        addRotated(points, feet, frame, 0, bottom, -half);
+        addRotated(points, feet, frame, 0, bottom, half);
+        addRotated(points, feet, frame, -half, bottom, 0);
+        addRotated(points, feet, frame, half, bottom, 0);
+
+        addRotated(points, feet, frame, 0, top, -half);
+        addRotated(points, feet, frame, 0, top, half);
+        addRotated(points, feet, frame, -half, top, 0);
+        addRotated(points, feet, frame, half, top, 0);
+
+        addRotated(points, feet, frame, -half, middle, -half);
+        addRotated(points, feet, frame, -half, middle, half);
+        addRotated(points, feet, frame, half, middle, -half);
+        addRotated(points, feet, frame, half, middle, half);
+
+        return points;
+    }
+
+    private static void addRotated(List<Vec3> points, Vec3 feet, GravityFrame frame, double x, double y, double z) {
+        points.add(feet.add(frame.localToWorld(x, y, z)));
     }
 }

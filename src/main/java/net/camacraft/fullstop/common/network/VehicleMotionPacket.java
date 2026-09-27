@@ -11,7 +11,9 @@ import java.util.function.Supplier;
 
 /**
  * Server → client: apply a motion change to a vehicle the receiving player is
- * driving.
+ * driving, or to the receiving player itself when the motion is faster than
+ * vanilla's own motion packet can carry (it clamps each axis to 3.9 blocks a
+ * tick; the doubles here aren't clamped).
  *
  * <p>Player-controlled vehicles are client-authoritative: the server-side
  * {@code Boat.tick} zeroes its own deltaMovement every tick when it isn't the

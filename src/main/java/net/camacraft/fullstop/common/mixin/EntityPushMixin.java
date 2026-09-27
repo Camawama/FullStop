@@ -19,8 +19,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * player). FullStop's own entity-collision system already exempts the pair
  * (ServerCollisionDetector.recentRideExchange); this extends the same grace to
  * the vanilla push, on both logical sides.
+ *
+ * <p>Priority 900 (below the default 1000): Mixin resolves every HEAD injection
+ * point before applying any, then inserts the callbacks in ascending priority,
+ * so a lower number runs FIRST. Gravity Unbound's EntityMixin (default 1000)
+ * HEAD-cancels push() to re-implement it under non-default gravity; at equal
+ * priority the order depended on config load order and this veto could be
+ * skipped. Running first, the veto holds in every gravity frame, and when it
+ * doesn't cancel, Gravity Unbound's push runs as before.
  */
-@Mixin(Entity.class)
+@Mixin(value = Entity.class, priority = 900)
 public abstract class EntityPushMixin {
 
     @Inject(method = "push(Lnet/minecraft/world/entity/Entity;)V", at = @At("HEAD"), cancellable = true)

@@ -1,23 +1,30 @@
 package net.camacraft.fullstop;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.client.physics.PhysicsDispatchClient;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.compat.LegacyWeightRS;
+import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.BlockPhasing;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.physics.math.VelocityMath;
-import net.camacraft.fullstop.common.physics.rules.EntityWeight;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.registry.ModPotions;
 import net.camacraft.fullstop.server.CancelEvents;
+import net.camacraft.fullstop.server.command.FullStopCommand;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.camacraft.fullstop.server.physics.interaction.GravityBlockHandler;
 import net.camacraft.fullstop.server.physics.pressure.PressureHandler;
+import net.camacraft.fullstop.server.physics.ship.ShipTerrainImpacts;
+import net.camacraft.fullstop.server.physics.ship.ShipWeightHandler;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.RegisterCommandsEvent;
 import net.minecraftforge.event.entity.EntityJoinLevelEvent;
 import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
@@ -45,8 +52,6 @@ public class FullStop
         ModAttributes.register(modEventBus);
         ModEnchantments.register(modEventBus);
         modEventBus.addListener(this::commonSetup);
-        modEventBus.addListener(this::onConfigLoad);
-        modEventBus.addListener(this::onConfigReload);
 
         MinecraftForge.EVENT_BUS.register(FullStop.class);
 
@@ -62,8 +67,15 @@ public class FullStop
         MinecraftForge.EVENT_BUS.register(BlockPhasing.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
+        MinecraftForge.EVENT_BUS.register(ShipWeightHandler.class);
+        MinecraftForge.EVENT_BUS.addListener((RegisterCommandsEvent e) -> FullStopCommand.register(e.getDispatcher()));
+
+        // WeightRS's weight model into Camafy's config, before any config loads.
+        LegacyWeightRS.bootstrap();
 
         ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
+        modEventBus.addListener(this::onConfigLoading);
+        modEventBus.addListener(this::onConfigReloading);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event) {
@@ -71,19 +83,25 @@ public class FullStop
             PacketHandler.register();
             ModPotions.registerBrewingRecipes();
         });
-    }
-
-    public void onConfigLoad(ModConfigEvent.Loading event) {
-        if (event.getConfig().getType() == ModConfig.Type.SERVER) {
-            EntityWeight.loadConfigWeights();
+        if (ShipCompat.WEIGHTRS_PRESENT) {
+            LOGGER.warn("[FullStop] WeightRS is installed: Full Stop's ship weight stays off so entities don't weigh on "
+                    + "ships twice. Its features are part of Full Stop now - remove WeightRS; its settings import automatically.");
         }
     }
 
-    public void onConfigReload(ModConfigEvent.Reloading event) {
-        if (event.getConfig().getType() == ModConfig.Type.SERVER) {
-            EntityWeight.loadConfigWeights();
-        }
+    private void onConfigLoading(ModConfigEvent.Loading event) {
+        if (event.getConfig().getSpec() != SERVER_SPEC) return;
+        // A world's server config: WeightRS's ship-weight settings, once per world.
+        LegacyWeightRS.onServerConfigLoading(event.getConfig());
+        ShipTerrainImpacts.syncSubscription();
     }
+
+    private void onConfigReloading(ModConfigEvent.Reloading event) {
+        if (event.getConfig().getSpec() != SERVER_SPEC) return;
+        ShipTerrainImpacts.syncSubscription();
+    }
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     @SubscribeEvent(priority = EventPriority.LOWEST)
     public static void onEntityJoinLevel(EntityJoinLevelEvent event) {
@@ -96,6 +114,10 @@ public class FullStop
         if (!(SERVER.projectilesHaveMomentum.get())) return;
         if (!(event.getEntity() instanceof Projectile projectile) || projectile.level().isClientSide) return;
         if (projectile.getOwner() == null) return;
+        // Inheriting the owner's velocity is a MOTION write, and the owner's
+        // velocity is only the owner's when no other mod scripts it (an MKW racer).
+        if (PhysicsClaims.handsOff(projectile, PhysicsAspect.MOTION)
+                || PhysicsClaims.handsOff(projectile.getOwner(), PhysicsAspect.MOTION)) return;
 
         Vec3 ownerVelocity = VelocityMath.entityVelocity(projectile.getOwner()).scale((double) 1 / 20);
         if (ownerVelocity.equals(Vec3.ZERO)) return;

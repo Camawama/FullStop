@@ -6,6 +6,7 @@
     "minecraft:big_dripleaf",
     "minecraft:small_dripleaf",
     "minecraft:moss_block",
+    {"id": "minecraft:pale_moss_block", "required": false},
     "minecraft:sponge",
     "minecraft:wet_sponge"
   ]

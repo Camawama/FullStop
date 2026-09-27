@@ -1,10 +1,11 @@
 package net.camacraft.fullstop.common.physics.collision;
 
+import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.physics.FastRaycast;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
-import net.camacraft.fullstop.common.physics.math.FastRaycast;
 import net.camacraft.fullstop.common.physics.math.RaycastUtil;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -104,6 +105,11 @@ public class CommonCollisionDetector {
             return Collision.NONE;
         }
 
+        // Which way is up for THIS entity. Every floor/wall/ceiling judgement
+        // below is made against it: under a Gravity Unbound field the world's
+        // UP face may be a wall to the entity and a WEST face its floor.
+        GravityFrame frame = fullstop.getFrame();
+
         // Every ray lies inside the ray-start envelope swept along the travel
         // direction. If that volume is provably all air — and no VS ship (whose
         // blocks live outside the world grid) is near it — no clip can hit
@@ -116,8 +122,13 @@ public class CommonCollisionDetector {
         // Effective floor, not the raw box floor: a riding passenger's box dips
         // below their vehicle's hull into the floor layer (see effectiveFloorY).
         double effectiveFloor = RaycastUtil.effectiveFloorY(entity);
-        AABB rayEnvelope = new AABB(box.minX, Math.min(effectiveFloor + 0.1, box.maxY), box.minZ,
-                box.maxX, box.maxY, box.maxZ);
+        // Under a rotated frame the box is only the tilted body's world-aligned
+        // envelope and its floor is a side, not the feet: sweep the whole
+        // envelope (conservative — it can only say "might hit" more often).
+        AABB rayEnvelope = frame.isDefault()
+                ? new AABB(box.minX, Math.min(effectiveFloor + 0.1, box.maxY), box.minZ,
+                        box.maxX, box.maxY, box.maxZ)
+                : box;
         AABB swept = rayEnvelope.expandTowards(direction.scale(rayLength)).inflate(0.001);
         boolean worldBlocksNearby = FastRaycast.mayHitAnything(level, swept);
         boolean shipsNearby = ShipCompat.anyShipsNearby(level, swept);
@@ -126,13 +137,14 @@ public class CommonCollisionDetector {
         }
 
         FullStopConfig.RaycastMode mode = FullStopConfig.SERVER.raycastMode.get();
-        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode);
+        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode, frame);
         // Full entity box swept along the travel direction, for the seam-graze
         // cross-section test (unlike rayEnvelope, this one keeps the true floor).
         AABB sweptBox = box.expandTowards(direction.scale(rayLength));
         // One shape context for all rays; each ClipContext would otherwise build
         // its own EntityCollisionContext (SynchedEntityData reads) per ray.
         CollisionContext shapeContext = CollisionContext.of(entity);
+        Vec3 preImpactVelocity = fullstop.getPreImpactScaledVelocity();
 
         List<BlockState> collidedBlockStates = new ArrayList<>();
         List<BlockPos> collidedBlockPositions = new ArrayList<>();
@@ -153,7 +165,6 @@ public class CommonCollisionDetector {
             BlockPos hitPos = blockHit.getBlockPos();
             BlockState hitState = level.getBlockState(hitPos);
             Direction hitFace = blockHit.getDirection();
-            Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
 
             boolean isWater = !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
             boolean isOpposing;
@@ -164,52 +175,25 @@ public class CommonCollisionDetector {
                 // stepping off a 2-block ledge into a pond must stay silent).
                 // The old mostly-horizontal-only rule made vertical dives
                 // undetectable, which killed the belly-flop feature outright.
+                // "Surface" and "downward" are the frame's: inside a gravity
+                // field the liquid's surface is the face across the field.
                 boolean skimming = fullstop.isMostlyHorizontal();
-                boolean plunging = velocity.y < -0.35;
-                if (hitFace != Direction.UP || (!skimming && !plunging)) {
+                boolean plunging = frame.vertical(velocity) < -0.35;
+                if (!frame.isFloorFace(hitFace) || (!skimming && !plunging)) {
                     continue;
                 }
                 isOpposing = true;
             } else {
-                isOpposing = direction.dot(hitNormal) < -0.1;
-
-                // A face only counts when actually approached with some speed —
-                // the 0.15 minimum ray reach otherwise reports a "collision" with
-                // the wall the entity is standing flush against every single tick.
-                if (-fullstop.getPreImpactScaledVelocity().dot(hitNormal) < MIN_APPROACH_SPEED_MPS) {
-                    isOpposing = false;
-                }
-
-                // Rays grazing exactly along a surface hit the seam faces of the
-                // next blocks along it, whose normals oppose travel at full
-                // speed. Only faces whose cross-section the entity's swept box
-                // genuinely overlaps are real — see crossSectionOverlaps.
-                if (!crossSectionOverlaps(sweptBox, hitPos, hitFace)) {
-                    isOpposing = false;
-                }
-
-                // A side face on a block whose TOP is level with the entity's
-                // feet is the floor ahead, not a wall. The bottom rays start
-                // only 0.1 above the surface, so any tiny downward tilt in the
-                // travel direction (boat gravity drift, a micro-hop at speed)
-                // dips them below that margin and into the NEXT floor block
-                // through its seam-side face — which then reads as a wall hit
-                // at full horizontal speed. Boats gliding on ice hit this every
-                // seam: phantom collision sounds, smashed ice under the boat,
-                // and boat-breaking "wall" damage while driving on flat ground.
-                // Feet = the EFFECTIVE floor: a boat passenger's own box floor
-                // is 0.45 inside the ice layer, which made this rule miss.
-                if (hitFace.getAxis().isHorizontal() && hitPos.getY() + 1.0 <= effectiveFloor + 0.15) {
-                    isOpposing = false;
-                }
+                isOpposing = opposesAsSurface(level, entity, frame, direction, preImpactVelocity,
+                        sweptBox, effectiveFloor, hitPos, hitFace);
 
                 // Wall faces are ignored while mostly ascending so jumping flush
                 // against a wall never reads as a wall impact — but ONLY below the
                 // horizontal damage threshold. Unconditional, this blinded the
                 // detector to genuine high-speed climbing impacts (elytra swooping
                 // up into a cliff face dealt zero damage).
-                if (fullstop.isMostlyUpward() && hitFace.getAxis().isHorizontal()
-                        && fullstop.getPreImpactScaledVelocity().horizontalDistance()
+                if (isOpposing && fullstop.isMostlyUpward() && frame.isWallFace(hitFace)
+                        && frame.horizontalDistance(preImpactVelocity)
                                 < FullStopConfig.SERVER.velocityDamageThresholdHorizontal.get()) {
                     isOpposing = false;
                 }
@@ -219,26 +203,15 @@ public class CommonCollisionDetector {
                 // Projectiles are exempt from this walking-artifact rule: a fired
                 // hook arcing down into floor ice is a real approach — the
                 // approach-speed gate above still filters near-flat grazes.
-                if (hitFace == Direction.UP && velocity.y > -0.5
+                if (isOpposing && frame.isFloorFace(hitFace) && frame.vertical(velocity) > -0.5
                         && !(entity instanceof net.minecraft.world.entity.projectile.Projectile)) {
                     isOpposing = false;
                 }
 
                 // A face BURIED against a neighboring block is not a real
-                // surface. A shallow-angle approach sweeps genuinely INTO the
-                // wall column, so rays can graze the INTERNAL seams between the
-                // wall's blocks — faces whose normals oppose the TANGENTIAL
-                // travel at full speed. mostOpposedNormal then preferred a seam
-                // over the true wall surface and mirrored shallow slime hits
-                // BACKWARDS (then back and forth until the speed died).
-                // Last check deliberately: it costs a getBlockState.
-                if (isOpposing) {
-                    BlockPos facingPos = hitPos.relative(hitFace);
-                    BlockState facingState = level.getBlockState(facingPos);
-                    if (facingState.getBlock() == hitState.getBlock()
-                            || facingState.isFaceSturdy(level, facingPos, hitFace.getOpposite())) {
-                        isOpposing = false;
-                    }
+                // surface. Last check deliberately: it costs a getBlockState.
+                if (isOpposing && isBuriedFace(level, hitPos, hitState, hitFace)) {
+                    isOpposing = false;
                 }
             }
 
@@ -275,5 +248,108 @@ public class CommonCollisionDetector {
         }
 
         return new Collision(impactType, collidedBlockStates, List.of(), collidedBlockPositions, collidedBlockHits);
+    }
+
+    /**
+     * The face-level rules shared by the gameplay classifier and the debug ray
+     * view — whether a solid ray hit is a surface the entity is genuinely
+     * running/falling INTO (as opposed to a face merely touched, grazed along,
+     * or standing ahead as the next floor block):
+     * <ol>
+     * <li>the face opposes the travel direction and is approached with
+     *     collision-grade speed (see {@link #MIN_APPROACH_SPEED_MPS});</li>
+     * <li>the entity's swept volume overlaps the face's cross-section (see
+     *     {@link #crossSectionOverlaps}) — for a Valkyrien Skies ship block,
+     *     tested in the ship's own coordinates: hits on ship blocks come back
+     *     addressed in shipyard space, which a world-space box never overlaps,
+     *     so every ship impact used to be thrown away right here;</li>
+     * <li>a wall-like face on a block whose top sits at the entity's foot level
+     *     is the floor ahead, not a wall (see {@link #isFloorAhead}).</li>
+     * </ol>
+     * All judged in the entity's gravity frame. The buried-face rule is NOT
+     * included (it costs a block read; callers run {@link #isBuriedFace} last).
+     */
+    public static boolean opposesAsSurface(Level level, Entity entity, GravityFrame frame, Vec3 direction,
+                                           Vec3 preImpactVelocityMps, AABB sweptBox, double effectiveFloor,
+                                           BlockPos hitPos, Direction hitFace) {
+        Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
+        if (direction.dot(hitNormal) >= -0.1) {
+            return false;
+        }
+
+        // A face only counts when actually approached with some speed — the
+        // 0.15 minimum ray reach otherwise reports a "collision" with the wall
+        // the entity is standing flush against every single tick.
+        if (-preImpactVelocityMps.dot(hitNormal) < MIN_APPROACH_SPEED_MPS) {
+            return false;
+        }
+
+        boolean shipHit = ShipCompat.isShipBlock(level, hitPos);
+        AABB sweptForHit = sweptBox;
+        double floorForHit = effectiveFloor;
+        if (shipHit) {
+            AABB shipBox = ShipCompat.worldToShipBox(level, hitPos, sweptBox);
+            if (shipBox != null) {
+                sweptForHit = shipBox;
+                floorForHit = shipBox.minY;
+            }
+        }
+
+        // Rays grazing exactly along a surface hit the seam faces of the next
+        // blocks along it, whose normals oppose travel at full speed. Only
+        // faces whose cross-section the entity's swept box genuinely overlaps
+        // are real — see crossSectionOverlaps.
+        if (!crossSectionOverlaps(sweptForHit, hitPos, hitFace)) {
+            return false;
+        }
+
+        // A side face on a block whose TOP is level with the entity's feet is
+        // the floor ahead, not a wall. The bottom rays start only 0.1 above the
+        // surface, so any tiny downward tilt in the travel direction (boat
+        // gravity drift, a micro-hop at speed) dips them below that margin and
+        // into the NEXT floor block through its seam-side face — which then
+        // reads as a wall hit at full horizontal speed. Boats gliding on ice
+        // hit this every seam: phantom collision sounds, smashed ice under the
+        // boat, and boat-breaking "wall" damage while driving on flat ground.
+        // Feet = the EFFECTIVE floor: a boat passenger's own box floor is 0.45
+        // inside the ice layer, which made this rule miss.
+        if (frame.isWallFace(hitFace) && isFloorAhead(frame, entity, hitPos, floorForHit, shipHit)) {
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Whether a wall-like face belongs to a block whose top is at or below the
+     * entity's feet (+0.15) as the frame sees it — the next floor block, not a
+     * wall. World frame: block top vs the effective floor Y. Rotated frame:
+     * the cell's furthest reach along up vs the feet point along up. A ship
+     * block under a rotated frame has no comparable plane (shipyard cell vs a
+     * world frame), so the rule stands down and the hit is kept.
+     */
+    private static boolean isFloorAhead(GravityFrame frame, Entity entity, BlockPos hitPos, double floor, boolean shipHit) {
+        if (frame.isDefault()) {
+            return hitPos.getY() + 1.0 <= floor + 0.15;
+        }
+        if (shipHit) {
+            return false;
+        }
+        return frame.blockTop(hitPos) <= frame.vertical(entity.position()) + 0.15;
+    }
+
+    /**
+     * A face BURIED against a neighboring block is not a real surface. A
+     * shallow-angle approach sweeps genuinely INTO a wall column, so rays can
+     * graze the INTERNAL seams between the wall's blocks — faces whose normals
+     * oppose the TANGENTIAL travel at full speed. mostOpposedNormal then
+     * preferred a seam over the true wall surface and mirrored shallow slime
+     * hits BACKWARDS (then back and forth until the speed died).
+     */
+    public static boolean isBuriedFace(Level level, BlockPos hitPos, BlockState hitState, Direction hitFace) {
+        BlockPos facingPos = hitPos.relative(hitFace);
+        BlockState facingState = level.getBlockState(facingPos);
+        return facingState.getBlock() == hitState.getBlock()
+                || facingState.isFaceSturdy(level, facingPos, hitFace.getOpposite());
     }
 }

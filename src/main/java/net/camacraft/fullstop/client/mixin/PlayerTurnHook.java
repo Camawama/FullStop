@@ -1,6 +1,7 @@
 package net.camacraft.fullstop.client.mixin;
 
 import com.mojang.blaze3d.Blaze3D;
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.minecraft.client.Minecraft;
@@ -52,6 +53,14 @@ public class PlayerTurnHook {
         FullStopCapability fullstop = FullStopCapability.grabCapability(minecraft.player);
         
         if (fullstop == null) return;
+
+        // Another mod owns this player's bounces (and so the camera turns that
+        // follow them): drop any pending correction instead of steering its view.
+        if (fullstop.isClaimed(PhysicsAspect.BOUNCE)) {
+            fullstop.setTargetAngle(Double.NaN);
+            fullstop.setTargetPitch(Double.NaN);
+            return;
+        }
 
         if (fullstop.isMostlyDownward() || fullstop.isMostlyUpward()) {
             fullstop.setTargetAngle(Double.NaN);

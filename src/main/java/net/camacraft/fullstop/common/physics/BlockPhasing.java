@@ -1,8 +1,10 @@
 package net.camacraft.fullstop.common.physics;
 
+import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
@@ -48,6 +50,9 @@ public final class BlockPhasing {
                 || (entity instanceof Player player && player.isLocalPlayer());
         if (!hasAuthority) return;
         if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;
+        // Drag through blocks is a BLOCKS interaction: not for blacklisted
+        // entities, nor while another mod owns this entity's block contact.
+        if (PhysicsClaims.cachedHandsOff(entity, PhysicsAspect.BLOCKS)) return;
 
         Vec3 velocity = entity.getDeltaMovement();
 
