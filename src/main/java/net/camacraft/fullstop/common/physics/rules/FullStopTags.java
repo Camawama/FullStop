@@ -110,6 +110,20 @@ public final class FullStopTags {
      */
     public static final TagKey<Block> SHIP_SWEEPABLE = blockTag("ship_sweepable");
 
+    /**
+     * Blocks a Valkyrien Skies ship bounces off, or with (slime): a hull meeting terrain or another
+     * hull where either block is one springs back at slimeRestitution; bouncy on both sides
+     * springs back the most. Unless honey ({@link #GLUEY}) is in the same crash: honey wins.
+     */
+    public static final TagKey<Block> BOUNCY = blockTag("bouncy");
+
+    /**
+     * Blocks a Valkyrien Skies ship sticks to, or with (honey): a hull meeting terrain or another
+     * hull where either block is one doesn't bounce, softens the crash, and is glued there until
+     * pulled apart hard enough (honeyGlueStrength).
+     */
+    public static final TagKey<Block> GLUEY = blockTag("gluey");
+
     /** Entities a moving Valkyrien Skies ship never hits (no push, no damage). Empty by default. */
     public static final TagKey<EntityType<?>> SHIP_IMMUNE = entityTag("ship_immune");
 

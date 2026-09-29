@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.physics.EntityStack;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.minecraft.world.entity.Entity;
@@ -86,10 +87,12 @@ public final class RideStackHandler {
         }
 
         // Loaded stacks ride low: counter the float bobbing proportionally to
-        // how much weight sits on the swimmer.
+        // how much weight sits on the swimmer. Weight is mass times the local
+        // gravity (Camafy: none in space, a sixth on the Moon).
         if (mob.isInWater()) {
             double sink = WATER_SINK_PER_MASS_RATIO
-                    * Math.min(passengerMass / vehicleMass, MAX_SINK_MASS_RATIO);
+                    * Math.min(passengerMass / vehicleMass, MAX_SINK_MASS_RATIO)
+                    * Gravity.strength(mob);
             mob.setDeltaMovement(mob.getDeltaMovement().add(0, -sink, 0));
         }
 
@@ -97,11 +100,14 @@ public final class RideStackHandler {
         // the mass above ITSELF, so the bottom of a tall tower suffers most
         // and a collapsing stack sheds from the bottom up. A single rider of
         // similar size (ratio ~1) is safe; roughly 1.5× the carrier's own mass
-        // is where injury starts.
-        double massRatio = passengerMass / vehicleMass;
-        if (massRatio > CRUSH_MASS_RATIO && mob.tickCount % CRUSH_INTERVAL_TICKS == 0) {
-            float crushDamage = (float) ((massRatio - CRUSH_MASS_RATIO) * CRUSH_DAMAGE_PER_RATIO);
-            mob.hurt(mob.damageSources().cramming(), crushDamage);
+        // is where injury starts. It is the load's WEIGHT that crushes: nothing
+        // in zero gravity, a sixth as much on the Moon.
+        if (mob.tickCount % CRUSH_INTERVAL_TICKS == 0) {
+            double loadRatio = passengerMass / vehicleMass * Gravity.strength(mob);
+            if (loadRatio > CRUSH_MASS_RATIO) {
+                float crushDamage = (float) ((loadRatio - CRUSH_MASS_RATIO) * CRUSH_DAMAGE_PER_RATIO);
+                mob.hurt(mob.damageSources().cramming(), crushDamage);
+            }
         }
     }
 }

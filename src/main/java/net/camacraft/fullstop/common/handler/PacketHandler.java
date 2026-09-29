@@ -1,7 +1,10 @@
 package net.camacraft.fullstop.common.handler;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.network.GForcePacket;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
+import net.camacraft.fullstop.common.network.ShipContactPacket;
+import net.camacraft.fullstop.common.network.ShipReleasePacket;
 import net.camacraft.fullstop.common.network.VehicleMotionPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -14,7 +17,12 @@ import net.minecraftforge.network.simple.SimpleChannel;
 
 public class PacketHandler {
     // 4: PlayerDeltaPacket carries the client-side discontinuity flag.
-    private static final String PROTOCOL_VERSION = "4";
+    // 5: VehicleMotionPacket carries a delta flag (a velocity change for a driven vehicle).
+    // 6: PlayerDeltaPacket carries the client's ship carry and hull shove; ShipContactPacket
+    //    (a hull struck the local player, as its client saw it); VehicleMotionPacket's delta
+    //    mode also reaches the local player itself; GForcePacket (a seated rider's g on a ship).
+    // 7: ShipReleasePacket (the client let go of a ship's deck until it lands).
+    private static final String PROTOCOL_VERSION = "7";
     private static int messageID = 0;
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
@@ -36,6 +44,43 @@ public class PacketHandler {
                 .decoder(VehicleMotionPacket::new)
                 .consumerMainThread(VehicleMotionPacket::handle)
                 .add();
+
+        INSTANCE.messageBuilder(ShipContactPacket.class, messageID++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ShipContactPacket::encode)
+                .decoder(ShipContactPacket::new)
+                .consumerMainThread(ShipContactPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(GForcePacket.class, messageID++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(GForcePacket::encode)
+                .decoder(GForcePacket::new)
+                .consumerMainThread(GForcePacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(ShipReleasePacket.class, messageID++, NetworkDirection.PLAY_TO_SERVER)
+                .encoder(ShipReleasePacket::encode)
+                .decoder(ShipReleasePacket::new)
+                .consumerMainThread(ShipReleasePacket::handle)
+                .add();
+    }
+
+    public static void sendToServer(ShipReleasePacket msg) {
+        INSTANCE.sendToServer(msg);
+    }
+
+    public static void sendToServer(ShipContactPacket msg) {
+        INSTANCE.sendToServer(msg);
+    }
+
+    /**
+     * Sends a velocity CHANGE (world axes, blocks per tick) to a player's own client, which adds
+     * it to the player's motion there. For a player FullStop can't build an absolute velocity on
+     * the server: the server's reading of a player's motion comes from its client's move reports
+     * and is a tick behind, and near moving ships its own ship poses don't match what the client
+     * drew. A change added where the motion is simulated is exact.
+     */
+    public static void sendPlayerImpulse(ServerPlayer player, Vec3 deltaBpt) {
+        sendToPlayer(player, new VehicleMotionPacket(player.getId(), deltaBpt, true));
     }
 
     public static void sendToServer(PlayerDeltaPacket msg) {
@@ -58,6 +103,15 @@ public class PacketHandler {
         if (entity.getControllingPassenger() instanceof ServerPlayer driver) {
             sendToPlayer(driver, new VehicleMotionPacket(entity.getId(), entity.getDeltaMovement()));
         }
+    }
+
+    /**
+     * Sends a velocity CHANGE (world axes, blocks per tick) for a vehicle to the player driving
+     * it: that client simulates the vehicle and adds the change through Camafy's Impulses (see
+     * {@code BodyPush}).
+     */
+    public static void sendVehicleImpulse(ServerPlayer driver, Entity vehicle, Vec3 deltaBpt) {
+        sendToPlayer(driver, new VehicleMotionPacket(vehicle.getId(), deltaBpt, true));
     }
 
     /** Vanilla's motion packet clamps each axis to this many blocks a tick (78 m/s). */

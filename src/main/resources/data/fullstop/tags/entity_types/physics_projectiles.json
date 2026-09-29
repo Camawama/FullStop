@@ -1,4 +1,7 @@
 {
   "replace": false,
-  "values": ["grapplemod:grapplehook"]
+  "values": [
+    {"id": "grappleunbound:grapplehook", "required": false},
+    {"id": "grapplemod:grapplehook", "required": false}
+  ]
 }

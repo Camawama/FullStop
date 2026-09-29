@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.physics.EntityStack;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
@@ -93,13 +94,22 @@ public class KineticDamageApplier {
 
         boolean downward = fullstop.isMostlyDownward();
         boolean upward = fullstop.isMostlyUpward();
+        // Downward is body-relative (the boots, the crush factor, a belly flop into water); a
+        // FALL also needs gravity (the fall damage type, Feather Falling, the stalagmite).
+        boolean fall = fullstop.isFall();
         boolean waterFlop = collision.collisionType == Collision.CollisionType.WATER
                 && downward && KineticDamageCalculator.isBellyFlop(entity);
 
         DamageSource customSource = FullStopDamageSources.kineticSelf(
-                entity, velocity, downward, upward, hitDripstone && downward, waterFlop);
+                entity, velocity, downward, upward, fall, hitDripstone && fall, waterFlop);
 
         boolean anyHurt = false;
+        // The riders, taken BEFORE the vehicle is hurt: a boat hurt hard enough breaks and throws
+        // them out, and then they would miss their share of its crash.
+        List<Entity> riders = new java.util.ArrayList<>();
+        for (Entity passenger : EntityStack.selfAndPassengers(entity)) {
+            if (passenger != entity) riders.add(passenger);
+        }
         if (downward) {
             // Riders press down on whatever they sit on: the bottom of the stack takes
             // its share of the whole stack's mass.
@@ -110,7 +120,7 @@ public class KineticDamageApplier {
             float selfDamage = (float) damage * crushFactor;
 
             if (entity instanceof LivingEntity living) {
-                selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, true, false);
+                selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, true, false, fall);
             }
             if (selfDamage > 0) {
                 anyHurt |= entity.hurt(customSource, selfDamage);
@@ -118,9 +128,8 @@ public class KineticDamageApplier {
 
             float passengerDamage = (float) damage * 0.5f;
             if (passengerDamage > 0) {
-                for (Entity passenger : EntityStack.selfAndPassengers(entity)) {
-                    if (passenger == entity) continue;
-                    anyHurt |= hurtPassenger(passenger, customSource, passengerDamage, true, false);
+                for (Entity passenger : riders) {
+                    anyHurt |= hurtPassenger(passenger, customSource, passengerDamage, true, false, fall);
                 }
             }
         } else {
@@ -130,6 +139,19 @@ public class KineticDamageApplier {
             }
             if (selfDamage > 0) {
                 anyHurt |= entity.hurt(customSource, selfDamage);
+            }
+
+            // A vehicle that isn't alive itself (a boat, a cart, a modded vehicle such as an MKW
+            // kart) crashing into a wall: its own hurt() barely matters (a kart's does nothing) and
+            // its riders' boxes never touch the wall, so they get their share here, as they do of
+            // a landing (above) and of a ship's hit - each under its own immunity and IMPACT claim.
+            if (!(entity instanceof LivingEntity)) {
+                float passengerDamage = (float) damage * 0.5f;
+                if (passengerDamage > 0) {
+                    for (Entity passenger : riders) {
+                        anyHurt |= hurtPassenger(passenger, customSource, passengerDamage, false, upward, false);
+                    }
+                }
             }
 
             // Only a hit that actually landed throws the rider off: a hurt()
@@ -148,11 +170,11 @@ public class KineticDamageApplier {
      * it when FullStop ignores them or another mod owns their impacts (an MKW kart's driver).
      */
     private static boolean hurtPassenger(Entity passenger, DamageSource source, float damage,
-                                         boolean downward, boolean upward) {
+                                         boolean downward, boolean upward, boolean fall) {
         if (PhysicsClaims.handsOff(passenger, PhysicsAspect.IMPACT)) return false;
         if (passenger instanceof LivingEntity living) {
             if (DamageImmunityRules.isDamageImmune(living)) return false;
-            damage = DamageMitigation.applyArmorReduction(living, damage, downward, upward);
+            damage = DamageMitigation.applyArmorReduction(living, damage, downward, upward, fall);
         }
         return damage > 0 && passenger.hurt(source, damage);
     }
@@ -205,6 +227,7 @@ public class KineticDamageApplier {
 
         boolean downward = fullstop.isMostlyDownward();
         boolean upward = fullstop.isMostlyUpward();
+        boolean fall = fullstop.isFall();
 
         DamageSource selfSource;
         if (bothMovingFast) {
@@ -244,7 +267,7 @@ public class KineticDamageApplier {
             float passengerDamage = selfSplitDamage * 0.5f;
             for (Entity passenger : EntityStack.selfAndPassengers(entity)) {
                 if (passenger == entity) continue;
-                anyHurt |= hurtPassenger(passenger, selfSource, passengerDamage, downward, upward);
+                anyHurt |= hurtPassenger(passenger, selfSource, passengerDamage, downward, upward, fall);
             }
         }
 
@@ -267,7 +290,7 @@ public class KineticDamageApplier {
             if (DamageImmunityRules.isDamageImmune(target)) {
                 continue;
             }
-            targetScaledDamage = DamageMitigation.applyArmorReduction(target, targetScaledDamage, downward, upward);
+            targetScaledDamage = DamageMitigation.applyArmorReduction(target, targetScaledDamage, downward, upward, fall);
 
             if (targetScaledDamage > 0) {
                 anyHurt |= target.hurt(attackerSource, targetScaledDamage);
@@ -300,9 +323,12 @@ public class KineticDamageApplier {
 
         boolean anyHurt = false;
         float rootDamage = (float) damage;
+        // A hull rising into the feet is taken like a landing (Feather Falling) only where
+        // something pulls; in zero gravity the boots take it like any other hit.
+        boolean fall = hullBelow && !Gravity.isWeightless(root);
         if (root instanceof LivingEntity living) {
             if (!DamageImmunityRules.isDamageImmune(living)) {
-                rootDamage = DamageMitigation.applyArmorReduction(living, rootDamage, hullBelow, hullAbove);
+                rootDamage = DamageMitigation.applyArmorReduction(living, rootDamage, hullBelow, hullAbove, fall);
                 anyHurt |= rootDamage > 0 && root.hurt(source, rootDamage);
             }
         } else if (rootDamage > 0) {
@@ -315,7 +341,7 @@ public class KineticDamageApplier {
         for (Entity passenger : EntityStack.selfAndPassengers(root)) {
             if (passenger == root) continue;
             riders.add(passenger);
-            anyHurt |= hurtPassenger(passenger, source, passengerDamage, hullBelow, hullAbove);
+            anyHurt |= hurtPassenger(passenger, source, passengerDamage, hullBelow, hullAbove, fall);
         }
 
         // A hit that landed hard throws the riders off (not those another mod

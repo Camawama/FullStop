@@ -49,7 +49,9 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * into stone, which holds ({@code hullDamage}); nothing at all when obsidian meets obsidian. Soft
  * vegetation ({@code fullstop:ship_sweepable}) always gives. Unbreakable blocks,
  * {@code fullstop:ship_unbreakable}, slime and honey, and (by default) blocks with block
- * entities never break - on the terrain or on the ship.
+ * entities never break - on the terrain or on the ship. A crash with honey
+ * ({@code fullstop:gluey}) at any contact has honeySoftening of its breaking energy soaked up; what
+ * slime and honey do to the ship itself is {@link ShipSlimeHoney}'s.
  *
  * <h3>How much gives</h3>
  * Energy budget per ship per tick, in FullStop units (about 46 kJ each):
@@ -77,8 +79,10 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * met, louder and deeper the harder the hit ({@link ShipImpactSounds}) - whether or not anything
  * breaks, and with breaking switched off.
  *
- * <p>Ship against ship: both hulls sound; blocks break only as {@code shipVsShipBreaking} allows,
- * by the same toughness rule. Who may break: a piloted ship is its pilot acting; an unpiloted one
+ * <p>Ship against ship: both hulls sound, and blocks break by the same toughness rule
+ * ({@code shipVsShipBreaking}, FULL by default: the weaker block at each contact, of either ship),
+ * out of the pair's collision energy with their reduced mass, and two ships that broke through
+ * each other plough on, both slowed (see {@code ships}). Who may break: a piloted ship is its pilot acting; an unpiloted one
  * follows mobGriefing ({@code unpilotedFollowsMobGriefing}). Every block also asks minigame hosts
  * ({@code MatchPolicies.mayAlter}) and posts a break event (with the pilot, or the
  * {@code [Full Stop]} fake player) that protection mods can cancel. Broken blocks, the hull's
@@ -93,6 +97,13 @@ public final class ShipTerrainImpacts {
     public static final ResourceLocation SUBSCRIPTION = new ResourceLocation(FullStop.MODID, "ship_collisions");
 
     private static final int MAX_BLOCKS_PER_SHIP = 12;
+    /**
+     * How many ticks back a crash between two ships may have happened when it reaches the game
+     * (VS's contact comes after its solver has already bounced them apart, sometimes several
+     * frames on): the closing speed is taken over the frames of these ticks. Short enough that a
+     * ship braking on its own before a gentle touch isn't billed its old speed.
+     */
+    private static final int PAIR_LATE_TICKS = 6;
     /** How far from a contact point, along the normal, to look for the blocks that touch. */
     private static final double[] PROBE_DEPTHS = {0.3, 0.6, 0.0};
 
@@ -101,8 +112,14 @@ public final class ShipTerrainImpacts {
 
     private record Restore(Vec3 normal, Vec3 point, double targetSpeed, long dueTick) {}
 
+    /** Closing speed given back to pairs of ships that broke through each other, due the tick after. */
+    private static final Map<ServerLevel, List<PairRestore>> PENDING_PAIRS = new WeakHashMap<>();
+
+    /** {@code normal} points from ship {@code b} toward ship {@code a}. */
+    private record PairRestore(long a, long b, Vec3 normal, Vec3 point, double targetClosing, long dueTick) {}
+
     /** One contact that qualified this tick, resolved to the two blocks that touch. */
-    private record Strike(Vec3 point, Vec3 normal, double speed,
+    record Strike(Vec3 point, Vec3 normal, double speed,
                           @Nullable BlockPos terrainPos, @Nullable BlockState terrain,
                           @Nullable BlockPos hullPos, @Nullable BlockState hull) {}
 
@@ -134,6 +151,9 @@ public final class ShipTerrainImpacts {
         if (SERVER.breakTerrain.get() && SERVER.sweepVegetation.get()) {
             min = Math.min(min, SERVER.sweepMinSpeed.get());
         }
+        // slime and honey hulls (ShipSlimeHoney): bounces, and the gentlest crash that still glues
+        if (SERVER.slimeBounce.get()) min = Math.min(min, SERVER.slimeMinSpeed.get());
+        if (SERVER.honeyGlue.get()) min = Math.min(min, ShipGlue.MIN_SPEED);
         return min;
     }
 
@@ -220,7 +240,7 @@ public final class ShipTerrainImpacts {
 
         ShipPhysicsServer.Pilot pilot = new ShipPhysicsServer.Pilot(level, ship);
         double energy = 0.5 * EntityStackUtils.kgToUnits(massKg) * (speed / 20.0) * (speed / 20.0)
-                * SERVER.terrainEnergyFraction.get();
+                * SERVER.terrainEnergyFraction.get() * honeyShare(strikes);
         double startEnergy = energy;
         int broken = 0;   // terrain blocks that gave way
         int smashed = 0;  // every block broken, the ship's own included (the per-ship cap)
@@ -291,7 +311,7 @@ public final class ShipTerrainImpacts {
     }
 
     /** Finds the terrain block and the ship's own block at a contact (never loading a chunk). */
-    private static Strike resolve(ServerLevel level, ShipRef ship, ShipCollision.Contact contact, double speed) {
+    static Strike resolve(ServerLevel level, ShipRef ship, ShipCollision.Contact contact, double speed) {
         Vec3 point = contact.point();
         Vec3 normal = contact.normal();
         BlockPos terrainPos = null;
@@ -323,9 +343,25 @@ public final class ShipTerrainImpacts {
     }
 
     // ------------------------------------------------------------------
-    // Ship against ship (breaking is opt-in: shipVsShipBreaking)
+    // Ship against ship (shipVsShipBreaking, FULL by default)
     // ------------------------------------------------------------------
 
+    /** One ship-against-ship contact that qualified this tick, with the block of each ship there. */
+    private record PairStrike(Vec3 point, Vec3 normal, double speed, @Nullable BlockPos posA, @Nullable BlockState blockA,
+                              @Nullable BlockPos posB, @Nullable BlockState blockB) {}
+
+    /**
+     * Two ships colliding, handled once per pair and tick (Camafy reports each pair from both
+     * sides, whichever source). Both hulls sound. Then the same rules as a hull against terrain,
+     * for the pair: at each contact only the WEAKER of the two blocks that meet can break (either
+     * ship's: obsidian rammed into planks breaks planks, never obsidian; equal blocks hold), paid
+     * for, fastest contact first, out of the collision's energy - {@code 1/2 mu v^2 *
+     * terrainEnergyFraction}, with {@code mu} the pair's reduced mass (a static ship counts as
+     * immovable) and {@code v} the fastest closing speed. If everything that was struck broke,
+     * the two are handed back their closing speed the tick after, less what breaking cost, by
+     * equal and opposite impulses at the contact (the ram ploughs on, both ships slowed);
+     * otherwise VS's collision stands.
+     */
     private static void ships(ServerLevel level, ShipTracker tracker, ShipCollision collision, long now,
                               Set<BlockPos> struck, int[] levelBudget) {
         ShipRef a = collision.ship();
@@ -333,79 +369,159 @@ public final class ShipTerrainImpacts {
         ShipTracker.State stateA = tracker.get(a.id(), now);
         ShipTracker.State stateB = tracker.get(b.id(), now);
         if (stateA == null || stateB == null || stateA.inGrace(now) || stateB.inGrace(now)) return;
-        double massA = stateA.mass();
-        double massB = stateB.mass();
-        double reduced = Double.isInfinite(massA) ? massB : Double.isInfinite(massB) ? massA
-                : massA * massB / (massA + massB);
+        double massA = a.isStatic() ? Double.POSITIVE_INFINITY : stateA.mass();
+        double massB = b.isStatic() ? Double.POSITIVE_INFINITY : stateB.mass();
+        double reduced = reducedMass(massA, massB);
 
-        FullStopConfig.ShipVsShipBreaking mode = SERVER.shipVsShipBreaking.get();
         double floor = slowestUseful();
-        double breakMin = SERVER.breakMinSpeed.get();
         List<ShipImpactSounds.Hit> hits = new ArrayList<>();
-        int broken = 0;
+        List<PairStrike> strikes = new ArrayList<>();
         for (ShipCollision.Contact contact : collision.contacts()) {
             Vec3 point = contact.point();
             Vec3 normal = contact.normal(); // from b toward a
-            double before = -stateA.prevVelocityAt(point).subtract(stateB.prevVelocityAt(point)).dot(normal);
+            // Two ships' crash can reach the game frames late (the two already bounced apart in
+            // the frames before this one): the closing speed of the frames before that counts too,
+            // over the last few ticks' frames.
+            double before = Math.max(-stateA.prevVelocityAt(point).subtract(stateB.prevVelocityAt(point)).dot(normal),
+                    -stateA.prev2VelocityAt(point).subtract(stateB.prev2VelocityAt(point)).dot(normal));
+            if (collision.started()) {
+                before = Math.max(before, stateA.recentClosing(stateB, point, normal, now, PAIR_LATE_TICKS));
+            }
             double speed = speedInto(collision.started(), contact, before);
             if (speed < floor) continue;
-
             BlockPos posA = shipBlock(level, a, point, normal, 1.0);
             BlockPos posB = shipBlock(level, b, point, normal, -1.0);
             BlockState blockA = posA != null ? loadedState(level, posA) : null;
             BlockState blockB = posB != null ? loadedState(level, posB) : null;
             hits.add(new ShipImpactSounds.Hit(point, speed, blockA, blockB));
+            strikes.add(new PairStrike(point, normal, speed, posA, blockA, posB, blockB));
+        }
+        if (strikes.isEmpty()) return;
+        ShipImpactSounds.play(level, a.id(), Double.isFinite(reduced) ? reduced : Math.min(massA, massB),
+                collision.started(), hits, now);
 
-            if (mode == FullStopConfig.ShipVsShipBreaking.NONE || speed < breakMin || !Double.isFinite(reduced)) continue;
-            if (blockA == null || blockB == null || broken >= MAX_BLOCKS_PER_SHIP || levelBudget[0] <= 0) continue;
+        FullStopConfig.ShipVsShipBreaking mode = SERVER.shipVsShipBreaking.get();
+        if (mode == FullStopConfig.ShipVsShipBreaking.NONE || !Double.isFinite(reduced) || levelBudget[0] <= 0) return;
+        double breakMin = SERVER.breakMinSpeed.get();
+        strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
+        double speed = strikes.get(0).speed();
+        if (speed < breakMin) return;
 
+        double energy = 0.5 * EntityStackUtils.kgToUnits(reduced) * (speed / 20.0) * (speed / 20.0)
+                * SERVER.terrainEnergyFraction.get() * honeyPairShare(strikes);
+        double startEnergy = energy;
+        double multiplier = SERVER.breakCostMultiplier.get();
+        int broken = 0;
+        boolean held = false;
+        Vec3 normalSum = Vec3.ZERO;
+        Vec3 pointSum = Vec3.ZERO;
+        for (PairStrike strike : strikes) {
+            if (strike.speed() < breakMin) break;
+            if (strike.blockA() == null || strike.blockB() == null) {
+                held = true; // nothing to weigh (an unloaded chunk)
+                continue;
+            }
+            if (broken >= MAX_BLOCKS_PER_SHIP || levelBudget[0] <= 0) {
+                held = true;
+                break;
+            }
             // The weaker of the two gives, by the same toughness rule as hull against terrain.
-            double toughA = ShipMaterials.toughness(level, posA, blockA);
-            double toughB = ShipMaterials.toughness(level, posB, blockB);
-            double multiplier = SERVER.breakCostMultiplier.get();
+            double toughA = ShipMaterials.toughness(level, strike.posA(), strike.blockA());
+            double toughB = ShipMaterials.toughness(level, strike.posB(), strike.blockB());
             BlockPos pos;
             BlockState state;
             double cost;
             ShipRef breaker;
             switch (ShipMaterials.whichGives(toughA, toughB)) {
                 case FIRST -> {
-                    pos = posA;
-                    state = blockA;
+                    pos = strike.posA();
+                    state = strike.blockA();
                     cost = ShipMaterials.breakCost(toughA, toughB, multiplier);
                     breaker = b;
                 }
                 case SECOND -> {
-                    pos = posB;
-                    state = blockB;
+                    pos = strike.posB();
+                    state = strike.blockB();
                     cost = ShipMaterials.breakCost(toughB, toughA, multiplier);
                     breaker = a;
                 }
                 default -> {
+                    held = true;
                     continue;
                 }
             }
-            if (mode == FullStopConfig.ShipVsShipBreaking.FRAGILE && !state.is(FullStopTags.FRAGILE)) continue;
-            if (!breakable(level, pos, state) || !struck.add(pos)) continue;
-
+            if ((mode == FullStopConfig.ShipVsShipBreaking.FRAGILE && !state.is(FullStopTags.FRAGILE))
+                    || !breakable(level, pos, state)) {
+                held = true;
+                continue;
+            }
+            // The same block reached through two contacts breaks once.
+            if (!struck.add(pos)) continue;
             ShipPhysicsServer.Pilot pilot = new ShipPhysicsServer.Pilot(level, breaker);
-            if (!mayBreak(level, pos, pilot)) continue;
-            double energy = 0.5 * EntityStackUtils.kgToUnits(reduced) * (speed / 20.0) * (speed / 20.0)
-                    * SERVER.terrainEnergyFraction.get();
+            if (!mayBreak(level, pos, pilot)) {
+                held = true;
+                continue;
+            }
             KineticBlockInteractions.SmashOutcome outcome = KineticBlockInteractions.smashBlock(level, pos, state,
                     cost, energy, SERVER.terrainBlockDrops.get(), pilot.get());
-            debug("ships {} and {} at {} m/s: {} of ship {} (toughness {} vs {}) -> {}", a.id(), b.id(), fmt(speed),
-                    state, breaker == a ? b.id() : a.id(), fmt(Math.min(toughA, toughB)),
-                    fmt(Math.max(toughA, toughB)), outcome.broken() ? "broken" : outcome.cracked() ? "cracked" : "held");
+            debug("ships {} and {} ({} kg reduced) at {} m/s: {} of ship {} (toughness {} vs {}), cost {} of {} units -> {}",
+                    a.id(), b.id(), Math.round(reduced), fmt(strike.speed()), state, breaker == a ? b.id() : a.id(),
+                    fmt(Math.min(toughA, toughB)), fmt(Math.max(toughA, toughB)), fmt(cost), fmt(energy),
+                    outcome.broken() ? "broken" : outcome.cracked() ? "cracked" : "held");
             if (outcome.broken()) {
+                energy -= outcome.spent();
                 broken++;
                 levelBudget[0]--;
+                normalSum = normalSum.add(strike.normal());
+                pointSum = pointSum.add(strike.point());
+            } else {
+                held = true;
             }
         }
-        ShipImpactSounds.play(level, a.id(), reduced, collision.started(), hits, now);
+
+        if (broken > 0 && !held && normalSum.lengthSqr() > 1.0e-8) {
+            // Everything struck gave: the two keep closing, less what breaking cost.
+            double spentJoules = (startEnergy - energy) * EntityStackUtils.JOULES_PER_ENERGY_UNIT;
+            double squared = speed * speed - 2.0 * spentJoules * SERVER.terrainBreakDrag.get() / reduced;
+            double target = Math.sqrt(Math.max(0.0, squared));
+            if (target > 0.0) {
+                PENDING_PAIRS.computeIfAbsent(level, l -> new ArrayList<>()).add(new PairRestore(a.id(), b.id(),
+                        normalSum.normalize(), pointSum.scale(1.0 / broken), target, now + 1));
+            }
+        }
+    }
+
+    /**
+     * What is left of a crash's breaking energy when honey took part in it: honey (block tag
+     * fullstop:gluey) soaks up honeySoftening of the hit, on either side of any contact.
+     */
+    private static double honeyShare(List<Strike> strikes) {
+        for (Strike strike : strikes) {
+            if (ShipSlimeHoney.gluey(strike.terrain()) || ShipSlimeHoney.gluey(strike.hull())) {
+                return 1.0 - SERVER.honeySoftening.get();
+            }
+        }
+        return 1.0;
+    }
+
+    private static double honeyPairShare(List<PairStrike> strikes) {
+        for (PairStrike strike : strikes) {
+            if (ShipSlimeHoney.gluey(strike.blockA()) || ShipSlimeHoney.gluey(strike.blockB())) {
+                return 1.0 - SERVER.honeySoftening.get();
+            }
+        }
+        return 1.0;
+    }
+
+    /** The reduced mass of two bodies (kg); the other's mass when one is immovable, +infinity when both are. */
+    static double reducedMass(double massA, double massB) {
+        if (Double.isInfinite(massA)) return massB;
+        if (Double.isInfinite(massB)) return massA;
+        return massA * massB / (massA + massB);
     }
 
     @Nullable
-    private static BlockPos shipBlock(ServerLevel level, ShipRef ship, Vec3 point, Vec3 normal, double side) {
+    static BlockPos shipBlock(ServerLevel level, ShipRef ship, Vec3 point, Vec3 normal, double side) {
         for (double depth : PROBE_DEPTHS) {
             Vec3 inShip = ship.toShip(point.add(normal.scale(depth * side)));
             if (inShip == null) return null;
@@ -474,7 +590,7 @@ public final class ShipTerrainImpacts {
 
     /** The block at {@code pos}, or null when its chunk isn't loaded (never loads one). */
     @Nullable
-    private static BlockState loadedState(ServerLevel level, BlockPos pos) {
+    static BlockState loadedState(ServerLevel level, BlockPos pos) {
         LevelChunk chunk = level.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4);
         return chunk == null ? null : chunk.getBlockState(pos);
     }
@@ -484,6 +600,7 @@ public final class ShipTerrainImpacts {
     // ------------------------------------------------------------------
 
     private static void applyRestorations(ServerLevel level, long now) {
+        applyPairRestorations(level, now);
         Long2ObjectMap<Restore> pending = PENDING.get(level);
         if (pending == null || pending.isEmpty()) return;
         var iterator = pending.long2ObjectEntrySet().iterator();
@@ -506,6 +623,39 @@ public final class ShipTerrainImpacts {
             double missing = restore.targetSpeed() - into;
             if (missing <= 0) continue;
             ShipImpulses.applyCapped(level, ship, restore.normal().scale(-mass * missing), restore.point());
+        }
+    }
+
+    /**
+     * Two ships that broke through each other close again at what they kept: equal and opposite
+     * impulses at the contact, sized by the pair's reduced mass (a static ship takes none).
+     */
+    private static void applyPairRestorations(ServerLevel level, long now) {
+        List<PairRestore> pending = PENDING_PAIRS.get(level);
+        if (pending == null || pending.isEmpty()) return;
+        var iterator = pending.iterator();
+        while (iterator.hasNext()) {
+            PairRestore restore = iterator.next();
+            if (restore.dueTick() > now) continue;
+            iterator.remove();
+            if (restore.dueTick() < now - 1) continue; // stale (the level didn't tick)
+
+            ShipRef a = Ships.byId(level, restore.a());
+            ShipRef b = Ships.byId(level, restore.b());
+            if (a == null || b == null) continue;
+            Vec3 va = a.velocityAt(restore.point());
+            Vec3 vb = b.velocityAt(restore.point());
+            double massA = a.isStatic() ? Double.POSITIVE_INFINITY : a.mass();
+            double massB = b.isStatic() ? Double.POSITIVE_INFINITY : b.mass();
+            if (va == null || vb == null || !(massA > 0) || !(massB > 0)) continue;
+            double reduced = reducedMass(massA, massB);
+            if (!Double.isFinite(reduced)) continue;
+            double closing = vb.subtract(va).dot(restore.normal());
+            double missing = restore.targetClosing() - closing;
+            if (missing <= 0) continue;
+            Vec3 impulse = restore.normal().scale(reduced * missing);
+            if (Double.isFinite(massA)) ShipImpulses.applyCapped(level, a, impulse.scale(-1.0), restore.point());
+            if (Double.isFinite(massB)) ShipImpulses.applyCapped(level, b, impulse, restore.point());
         }
     }
 

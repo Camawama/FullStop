@@ -33,6 +33,9 @@ public final class ClientRenderEvents {
                     RaycastLineRenderer.updateDebugRays(mc.player, event.getPartialTick());
                 }
 
+                // Moving Valkyrien Skies ships, in the same style (no-op without VS).
+                ShipVelocityDebug.update(mc.level, event.getPartialTick());
+
                 PoseStack poseStack = event.getPoseStack();
                 RaycastLineRenderer.render(poseStack, event.getPartialTick());
             } else {

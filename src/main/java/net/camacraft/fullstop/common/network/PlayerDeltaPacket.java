@@ -4,8 +4,7 @@ import net.camacraft.camafy.physics.PhysicsOwnership;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.vehicle.Boat;
+import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.network.NetworkEvent;
 
@@ -45,19 +44,34 @@ public class PlayerDeltaPacket {
     // marks, and it measures players from exactly these client ticks, so the
     // mark is carried over and re-made on the server copy.
     private final boolean discontinuity;
+    // What the client's Valkyrien Skies added to this tick's position (m/s, world): the carry of
+    // the deck the mover stands on, and the shove of a hull that ran into it. The positions the
+    // server measures the mover by come from this client, drawn with ITS ship poses (which run
+    // behind the server's), so the server takes these out instead of its own readings.
+    private final Vec3 carryMps;
+    private final Vec3 shoveMps;
 
     public PlayerDeltaPacket(Vec3 delta, boolean forVehicle, boolean horizontalCollision, boolean verticalCollision,
                              boolean discontinuity) {
+        this(delta, forVehicle, horizontalCollision, verticalCollision, discontinuity, Vec3.ZERO, Vec3.ZERO);
+    }
+
+    public PlayerDeltaPacket(Vec3 delta, boolean forVehicle, boolean horizontalCollision, boolean verticalCollision,
+                             boolean discontinuity, Vec3 carryMps, Vec3 shoveMps) {
         this.delta = delta;
         this.forVehicle = forVehicle;
         this.horizontalCollision = horizontalCollision;
         this.verticalCollision = verticalCollision;
         this.discontinuity = discontinuity;
+        this.carryMps = carryMps;
+        this.shoveMps = shoveMps;
     }
 
     public PlayerDeltaPacket(FriendlyByteBuf buffer) {
         this(new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
-                buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean());
+                buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(), buffer.readBoolean(),
+                new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()),
+                new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()));
     }
 
     public void encode(FriendlyByteBuf buffer) {
@@ -68,6 +82,12 @@ public class PlayerDeltaPacket {
         buffer.writeBoolean(this.horizontalCollision);
         buffer.writeBoolean(this.verticalCollision);
         buffer.writeBoolean(this.discontinuity);
+        buffer.writeDouble(this.carryMps.x);
+        buffer.writeDouble(this.carryMps.y);
+        buffer.writeDouble(this.carryMps.z);
+        buffer.writeDouble(this.shoveMps.x);
+        buffer.writeDouble(this.shoveMps.y);
+        buffer.writeDouble(this.shoveMps.z);
     }
 
     public void handle(Supplier<NetworkEvent.Context> ctx) {
@@ -82,7 +102,8 @@ public class PlayerDeltaPacket {
         // NaN/Infinity would sail through every magnitude comparison (NaN > x is
         // always false) and poison the server-side velocity state permanently.
         if (!Double.isFinite(delta.x) || !Double.isFinite(delta.y) || !Double.isFinite(delta.z)
-                || delta.lengthSqr() > MAX_CLAIMED_SPEED_SQR) {
+                || delta.lengthSqr() > MAX_CLAIMED_SPEED_SQR || !finite(carryMps) || !finite(shoveMps)
+                || carryMps.lengthSqr() > MAX_CLAIMED_SPEED_SQR * 400 || shoveMps.lengthSqr() > MAX_CLAIMED_SPEED_SQR * 400) {
             ctx.get().setPacketHandled(true);
             return;
         }
@@ -90,26 +111,61 @@ public class PlayerDeltaPacket {
         if (forVehicle) {
             if (sendingPlayer.isPassenger()) {
                 Entity vehicle = sendingPlayer.getVehicle();
-                // Only the driver may report the vehicle's velocity, and only for
-                // vehicle types the client actually controls (not rail-bound carts).
+                // Only the driver may report the vehicle's velocity, and only for a
+                // vehicle its client actually moves: whatever it controls (horses,
+                // boats, modded vehicles such as MKW's karts) but a rail-bound cart.
                 if (vehicle != null && vehicle.getControllingPassenger() == sendingPlayer
-                        && (vehicle instanceof LivingEntity || vehicle instanceof Boat)) {
+                        && !(vehicle instanceof AbstractMinecart)) {
                     if (this.discontinuity) {
                         PhysicsOwnership.markDiscontinuity(vehicle);
                     }
                     // one client tick of the vehicle's motion: opens the sample the
                     // driver's move-vehicle packet completes (see FullStopCapability)
                     vehicle.getCapability(DELTAV_CAP)
-                            .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision));
+                            .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision,
+                                    this.carryMps, this.shoveMps));
                 }
             }
         } else if (!sendingPlayer.isPassenger()) {
             if (this.discontinuity) {
                 PhysicsOwnership.markDiscontinuity(sendingPlayer);
             }
+            logShipMotion(sendingPlayer);
             sendingPlayer.getCapability(DELTAV_CAP)
-                    .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision));
+                    .ifPresent(cap -> cap.recordClientDelta(this.delta, this.horizontalCollision, this.verticalCollision,
+                            this.carryMps, this.shoveMps));
         }
         ctx.get().setPacketHandled(true);
+    }
+
+    /** Last game time a player's ship motion was logged (debugShipContactLog: once a second). */
+    private static final java.util.Map<ServerPlayer, Long> LOGGED = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+    /**
+     * debugShipContactLog: while a ship carries or shoves the player, once a second, what its
+     * client measured against what the server's own ship poses say - the gap is how far apart
+     * the two sides' views of the ship are.
+     */
+    private void logShipMotion(ServerPlayer player) {
+        if (!net.camacraft.fullstop.FullStopConfig.SERVER_SPEC.isLoaded()
+                || !net.camacraft.fullstop.FullStopConfig.SERVER.debugShipContactLog.get()) return;
+        if (carryMps.lengthSqr() < 1.0e-6 && shoveMps.lengthSqr() < 1.0e-6) return;
+        long now = player.level().getGameTime();
+        Long last = LOGGED.get(player);
+        if (last != null && now - last < 20 && shoveMps.lengthSqr() < 1.0e-6) return;
+        LOGGED.put(player, now);
+        Vec3 server = net.camacraft.fullstop.common.compat.ShipCompat.shipDragVelocityMps(player);
+        org.slf4j.LoggerFactory.getLogger(PlayerDeltaPacket.class).info(
+                "[FullStop] {}'s client: ship carry ({}) m/s{} - the server's own ship pose says ({}) m/s; its motion is "
+                        + "measured with the client's", player.getName().getString(), fmt(carryMps),
+                shoveMps.lengthSqr() < 1.0e-6 ? "" : ", hull shove (" + fmt(shoveMps) + ") m/s", fmt(server));
+    }
+
+    private static String fmt(Vec3 v) {
+        return String.format(java.util.Locale.ROOT, "%.2f, %.2f, %.2f", v.x, v.y, v.z);
+    }
+
+    private static boolean finite(Vec3 v) {
+        return Double.isFinite(v.x) && Double.isFinite(v.y) && Double.isFinite(v.z);
     }
 }

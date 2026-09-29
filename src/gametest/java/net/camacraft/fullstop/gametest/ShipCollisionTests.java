@@ -122,12 +122,12 @@ public final class ShipCollisionTests {
      * while VS's physics thread keeps real time, so the tests wait on what the ship does, never on
      * a fixed number of ticks.
      */
-    private static final int TIMEOUT = 1200;
-    private static final ResourceLocation FLOAT = new ResourceLocation(FullStop.MODID, "gametest_float");
+    static final int TIMEOUT = 1200;
+    static final ResourceLocation FLOAT = new ResourceLocation(FullStop.MODID, "gametest_float");
     /** A test's own engine: {@link Rig#cruise} holds a ship at a set velocity with it. */
-    private static final ResourceLocation THRUST = new ResourceLocation(FullStop.MODID, "gametest_thrust");
+    static final ResourceLocation THRUST = new ResourceLocation(FullStop.MODID, "gametest_thrust");
     /** The VS backend this run is on ({@code -PvsBackend}, handed over by build.gradle). */
-    private static final String BACKEND = System.getProperty("fullstop.test.vsBackend", "physx");
+    static final String BACKEND = System.getProperty("fullstop.test.vsBackend", "physx");
     /** Where Camafy must take this run's collisions from. */
     private static final ShipCollisions.Source EXPECTED_SOURCE = expectedSource();
     /**
@@ -1071,6 +1071,111 @@ public final class ShipCollisionTests {
     }
 
     /**
+     * The dead stop of {@link #aShipThatStopsDeadThrowsItsDeckCrewForward} in low and zero gravity.
+     * On the bare deck, a Moon cow (gravity attribute at a sixth, as on Ad Astra's Moon) and a
+     * weightless one (the no-gravity flag, as VS Genesis puts on everything in space); a second
+     * weightless cow stands on the honey block. The weightless ones are held against the deck (a
+     * small push into it each tick: VS only carries what presses on its deck), the one on the
+     * bare deck until the stop.
+     * <ul>
+     *   <li>The weightless cow keeps the deck's whole speed (no grip without weight) and is thrown
+     *   level: no lift (the lift only gets a rider clear of ground friction, and in zero gravity
+     *   it carried it off upward for good). It never rises.</li>
+     *   <li>The Moon cow is thrown with a sixth of the lift.</li>
+     *   <li>The weightless cow on the honey block is anchored: never thrown, still on the ship.</li>
+     * </ul>
+     */
+    @GameTest(template = FLAT, timeoutTicks = DECK_TIMEOUT, batch = DECK_BATCH)
+    public static void aShipThatStopsDeadThrowsLowAndZeroGravityCrewWithoutLift(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos o = deckLane(helper, 4);
+        Set<BlockPos> hull = fillSet(level, o.offset(0, 4, 0), o.offset(6, 4, 4), Blocks.OAK_PLANKS.defaultBlockState());
+        BlockPos honey = o.offset(3, 5, 3);
+        level.setBlock(honey, Blocks.HONEY_BLOCK.defaultBlockState(), Block.UPDATE_ALL);
+        hull.add(honey);
+        Rig rig = Rig.build(helper, hull, Blocks.OAK_PLANKS, true, 35);
+        if (rig == null) return;
+        DeckRun run = new DeckRun(rig);
+        Cow[] floating = new Cow[1];
+        // the weightless cow's height when thrown at or after the stop, and the highest it got after
+        double[] floatY = {Double.NaN, Double.NEGATIVE_INFINITY};
+        helper.onEachTick(rig::record);
+        helper.onEachTick(run::record);
+        helper.onEachTick(() -> {
+            long now = level.getGameTime();
+            if (run.sticky != null) holdToDeck(run.sticky);
+            Cow cow = floating[0];
+            if (cow == null) return;
+            if (now < run.stopTick) holdToDeck(cow);
+            ShipDeckMomentum.Throw thrown = ShipDeckMomentum.lastThrow(cow);
+            if (thrown != null && thrown.tick() >= run.stopTick) {
+                if (Double.isNaN(floatY[0])) floatY[0] = thrown.at().y;
+                floatY[1] = Math.max(floatY[1], cow.getY());
+            }
+        });
+        helper.startSequence()
+                .thenWaitUntil(rig::demandReady)
+                .thenExecute(() -> {
+                    run.plain = deckCow(helper, level, new Vec3(o.getX() + 5.5, o.getY() + 5.0, o.getZ() + 1.5));
+                    ZeroGravityTests.moonGravity(run.plain);
+                    run.sticky = deckCow(helper, level, new Vec3(o.getX() + 3.5, o.getY() + 5.9375, o.getZ() + 3.5));
+                    run.sticky.setNoGravity(true);
+                    floating[0] = deckCow(helper, level, new Vec3(o.getX() + 5.5, o.getY() + 5.0, o.getZ() + 3.5));
+                    floating[0].setNoGravity(true);
+                })
+                .thenWaitUntil(() -> run.demandAboard(run.plain, run.sticky, floating[0]))
+                .thenExecute(rig::release)
+                .thenWaitUntil(rig::demandSimulated)
+                .thenExecute(() -> {
+                    rig.hover();
+                    run.target = new Vec3(24.0, 0.0, 0.0);
+                    run.accel = GENTLE;
+                })
+                .thenWaitUntil(() -> run.demandSpeed(23.0))
+                .thenExecute(run::stopDead)
+                .thenWaitUntil(() -> run.demandAfterStop(30))
+                .thenExecute(() -> {
+                    ShipDeckMomentum.Throw moonThrow = ShipDeckMomentum.lastThrow(run.plain);
+                    ShipDeckMomentum.Throw floatThrow = ShipDeckMomentum.lastThrow(floating[0]);
+                    ShipDeckMomentum.Throw stickyThrow = ShipDeckMomentum.lastThrow(run.sticky);
+                    double lift = FullStopConfig.SERVER.deckThrowLift.get();
+                    boolean stickyAboard = rig.ref.equals(ShipEntities.standingOn(run.sticky, 5));
+                    double rise = floatY[1] - floatY[0];
+                    rig.pin();
+                    report("ship that stops dead, Moon and weightless crew", String.format(Locale.ROOT,
+                            "deck at the bow %.2f m/s before the stop, %s; Moon cow thrown %s; weightless cow thrown %s, rose %.2f "
+                                    + "blocks after; weightless cow on the honey thrown %s, on the ship %s, %.2f blocks from where "
+                                    + "it stood | %s", run.deckSpeedBefore, run.stopNote, describe(moonThrow), describe(floatThrow),
+                            rise, describe(stickyThrow), stickyAboard, run.stickyDrift(), rig.summary()));
+                    helper.assertTrue(floatThrow != null && floatThrow.tick() >= run.stopTick,
+                            "the weightless cow on the bare deck wasn't thrown when the raft stopped dead");
+                    helper.assertTrue(floatThrow.kept().x >= run.deckSpeedBefore - 0.5, "the weightless cow kept only "
+                            + fmt(floatThrow.kept().x) + " m/s of the deck's " + fmt(run.deckSpeedBefore) + " (it has no grip)");
+                    helper.assertTrue(Math.abs(floatThrow.kept().y) < 0.3, "the weightless cow was thrown with "
+                            + fmt(floatThrow.kept().y) + " m/s of lift");
+                    helper.assertTrue(rise < 0.3, "the weightless cow rose " + fmt(rise) + " blocks after the throw");
+                    helper.assertTrue(moonThrow != null && moonThrow.tick() >= run.stopTick,
+                            "the Moon cow wasn't thrown when the raft stopped dead");
+                    helper.assertTrue(moonThrow.kept().y > 0.0 && moonThrow.kept().y < 0.3 * lift * moonThrow.kept().x,
+                            "the Moon cow's lift was " + fmt(moonThrow.kept().y) + " m/s (a sixth of " + fmt(lift * moonThrow.kept().x)
+                                    + " expected)");
+                    helper.assertTrue(stickyThrow == null, "the weightless cow on the honey block was thrown: " + describe(stickyThrow));
+                    helper.assertTrue(stickyAboard && run.stickyDrift() < 1.0, "the weightless cow on the honey block didn't stay "
+                            + "on it (moved " + fmt(run.stickyDrift()) + " blocks)");
+                    helper.succeed();
+                });
+    }
+
+    /**
+     * A small push into the deck for a weightless rider (0.4 m/s, under every impact threshold):
+     * with nothing pressing it on the deck, VS stops carrying it.
+     */
+    private static void holdToDeck(Entity rider) {
+        Vec3 v = rider.getDeltaMovement();
+        rider.setDeltaMovement(v.x, -0.02, v.z);
+    }
+
+    /**
      * Where a deck test builds: lanes of their own, clear of the ship-hit lanes, with 128 blocks
      * of flight path along +x force-loaded (VS stops a ship dead at the edge of loaded terrain).
      */
@@ -1156,7 +1261,7 @@ public final class ShipCollisionTests {
             ShipTracker.State state = ShipTracker.of(rig.level).get(rig.ship.getId(), now);
             if (state != null && state.newFrame() && plain != null) {
                 Vec3 at = plain.position();
-                if (state.prevMaterialVelocityAt(at).subtract(state.velocityAt(at)).length()
+                if (state.deckChangeAt(at).length()
                         > FullStopConfig.SERVER.deckGrip.get() * state.frameSeconds()) {
                     deckFrames++;
                 }
@@ -1253,7 +1358,7 @@ public final class ShipCollisionTests {
     // ------------------------------------------------------------------
 
     /** One test's ship, and everything VS reported about it. */
-    private static final class Rig {
+    static final class Rig {
         final GameTestHelper helper;
         final ServerLevel level;
         final ServerShip ship;
@@ -1471,7 +1576,7 @@ public final class ShipCollisionTests {
         void push(Vec3 velocity) {
             double mass = ref.mass();
             Vec3 now = ref.velocity();
-            Vec3 gravity = Ships.dimensionGravity(level);
+            Vec3 gravity = gravity();
             if (floats && gravity != null) {
                 ShipForces.setContinuous(level, ship.getId(), FLOAT, gravity.scale(-mass), null, ShipForces.UNTIL_CLEARED);
             }
@@ -1479,6 +1584,16 @@ public final class ShipCollisionTests {
             start = ref.position();
             LOGGER.info("[FullStop ship test] ship {} ({} kg) pushed to {} m/s from {} (was {})", ship.getId(),
                     Math.round(mass), velocity, start, now);
+        }
+
+        /**
+         * The gravity on this ship (m/s^2): its own (VMod, VLib, zero in VS Genesis's space), else
+         * the dimension's.
+         */
+        @Nullable
+        Vec3 gravity() {
+            Vec3 own = ref.gravity();
+            return own != null ? own : Ships.dimensionGravity(level);
         }
 
         /**
@@ -1494,7 +1609,7 @@ public final class ShipCollisionTests {
 
         /** Holds a floating ship up: a continuous force equal to its weight, nothing else. */
         void hover() {
-            Vec3 gravity = Ships.dimensionGravity(level);
+            Vec3 gravity = gravity();
             if (gravity != null) {
                 ShipForces.setContinuous(level, ship.getId(), FLOAT, gravity.scale(-ref.mass()), null, ShipForces.UNTIL_CLEARED);
             }
@@ -1684,7 +1799,7 @@ public final class ShipCollisionTests {
      * hands out.
      */
     @SuppressWarnings("unchecked")
-    private static List<ServerPlayer> playerList(ServerLevel level) {
+    static List<ServerPlayer> playerList(ServerLevel level) {
         try {
             return (List<ServerPlayer>) ObfuscationReflectionHelper.findField(PlayerList.class, "f_11196_")
                     .get(level.getServer().getPlayerList());
@@ -1694,7 +1809,7 @@ public final class ShipCollisionTests {
     }
 
     /** How far from its plot (along z) each test builds, in a chunk nothing has loaded yet. */
-    private static final int AWAY = 4096;
+    static final int AWAY = 4096;
 
     /**
      * Where a test builds: {@link #AWAY} blocks from its plot, on the flat world's ground, in
@@ -1705,7 +1820,7 @@ public final class ShipCollisionTests {
         return origin(helper, AWAY);
     }
 
-    private static BlockPos origin(GameTestHelper helper, int away) {
+    static BlockPos origin(GameTestHelper helper, int away) {
         ServerLevel level = helper.getLevel();
         BlockPos plot = helper.absolutePos(BlockPos.ZERO);
         int groundTop = level.getMinBuildHeight() + 4; // the flat world: bedrock, dirt, dirt, grass
@@ -1719,7 +1834,7 @@ public final class ShipCollisionTests {
         return o;
     }
 
-    private static List<BlockPos> fill(ServerLevel level, BlockPos from, BlockPos to, BlockState state) {
+    static List<BlockPos> fill(ServerLevel level, BlockPos from, BlockPos to, BlockState state) {
         List<BlockPos> placed = new ArrayList<>();
         for (BlockPos pos : BlockPos.betweenClosed(from, to)) {
             level.setBlock(pos, state, Block.UPDATE_ALL);
@@ -1728,7 +1843,7 @@ public final class ShipCollisionTests {
         return placed;
     }
 
-    private static Set<BlockPos> fillSet(ServerLevel level, BlockPos from, BlockPos to, BlockState state) {
+    static Set<BlockPos> fillSet(ServerLevel level, BlockPos from, BlockPos to, BlockState state) {
         return new HashSet<>(fill(level, from, to, state));
     }
 
@@ -1756,11 +1871,11 @@ public final class ShipCollisionTests {
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
-    private static void report(String what, String detail) {
+    static void report(String what, String detail) {
         LOGGER.info("[FullStop ship test] {}: {}", what, detail);
     }
 
-    private static String fmt(double value) {
+    static String fmt(double value) {
         return String.format(Locale.ROOT, "%.2f", value);
     }
 }

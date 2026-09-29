@@ -1,0 +1,10 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:slime_block",
+    {
+      "id": "framedblocks:framed_bouncy_cube",
+      "required": false
+    }
+  ]
+}

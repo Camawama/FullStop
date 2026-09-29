@@ -257,15 +257,15 @@ public final class ShipMaterialTests {
     // ------------------------------------------------------------------
 
     @GameTest(template = FLAT)
-    public static void impactSoundsGetLouderAndDeeperWithSpeedAndMass(GameTestHelper helper) {
+    public static void impactSoundsGetLouderAndHigherWithSpeedAndDeeperWithMass(GameTestHelper helper) {
         double[] masses = {100, 1_000, 13_500, 150_000, 10_000_000};
         for (double mass : masses) {
-            double lastVolume = -1, lastPitch = Double.MAX_VALUE;
+            double lastVolume = -1, lastPitch = -1;
             for (double speed = 0.0; speed <= 40.0; speed += 0.25) {
                 double volume = ShipImpactSounds.volume(speed, mass);
                 double pitch = ShipImpactSounds.pitch(speed, mass);
                 helper.assertTrue(volume >= lastVolume - 1.0e-12, "volume fell with speed at " + speed + " m/s, " + mass + " kg");
-                helper.assertTrue(pitch <= lastPitch + 1.0e-12, "pitch rose with speed at " + speed + " m/s, " + mass + " kg");
+                helper.assertTrue(pitch >= lastPitch - 1.0e-12, "pitch fell with speed at " + speed + " m/s, " + mass + " kg");
                 helper.assertTrue(volume > 0 && pitch > 0, "volume and pitch must stay positive");
                 lastVolume = volume;
                 lastPitch = pitch;
@@ -280,8 +280,8 @@ public final class ShipMaterialTests {
                 lastPitch = ShipImpactSounds.pitch(speed, mass);
             }
         }
-        helper.assertTrue(ShipImpactSounds.pitch(20, 150_000) < ShipImpactSounds.pitch(2, 150_000) - 0.3,
-                "a hard hit must sound clearly deeper than a tap");
+        helper.assertTrue(ShipImpactSounds.pitch(20, 150_000) > ShipImpactSounds.pitch(2, 150_000) + 0.3,
+                "a fast hit must sound clearly higher than a slow bump");
         LOGGER.info("[FullStop test] impact sound (150 t): 2 m/s vol {} pitch {} | 8 m/s vol {} pitch {} | 20 m/s vol {} pitch {}",
                 f(ShipImpactSounds.volume(2, 150_000)), f(ShipImpactSounds.pitch(2, 150_000)),
                 f(ShipImpactSounds.volume(8, 150_000)), f(ShipImpactSounds.pitch(8, 150_000)),

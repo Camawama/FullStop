@@ -1,6 +1,8 @@
 package net.camacraft.fullstop.common.physics.collision;
 
 import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.compat.vs.ShipRef;
+import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.camafy.physics.FastRaycast;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
@@ -145,11 +147,18 @@ public class CommonCollisionDetector {
         // its own EntityCollisionContext (SynchedEntityData reads) per ray.
         CollisionContext shapeContext = CollisionContext.of(entity);
         Vec3 preImpactVelocity = fullstop.getPreImpactScaledVelocity();
+        // The floor-hit gate below (blocks per tick into the floor): a landing's speed grows
+        // with the square root of gravity, so the gate shrinks with it on the Moon, and in zero
+        // gravity nobody walks on a floor: every floor hit counts.
+        double floorGate = fullstop.isWeightless() ? Double.POSITIVE_INFINITY
+                : -0.5 * Math.sqrt(Math.min(1.0, fullstop.getGravityStrength()));
 
         List<BlockState> collidedBlockStates = new ArrayList<>();
         List<BlockPos> collidedBlockPositions = new ArrayList<>();
         List<BlockHitResult> collidedBlockHits = new ArrayList<>();
         Collision.CollisionType impactType = Collision.CollisionType.NONE;
+        // Per ship: whether the entity really meets it this tick (see shipHitIsContact).
+        java.util.Map<Long, Boolean> shipContacts = null;
 
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));
@@ -163,6 +172,22 @@ public class CommonCollisionDetector {
             if (blockHit.getType() != HitResult.Type.BLOCK) continue;
 
             BlockPos hitPos = blockHit.getBlockPos();
+            if (shipsNearby && ShipCompat.isShipBlock(level, hitPos)) {
+                // A block of a moving hull in the ray's way now is not necessarily one the entity
+                // meets - a hull moving away, a rotor's arm sweeping past: only a real contact
+                // within a tick, judged with the two bodies' relative motion in the ship's frame.
+                ShipRef ship = Ships.managing(level, hitPos);
+                if (ship != null) {
+                    if (shipContacts == null) shipContacts = new java.util.HashMap<>();
+                    Boolean real = shipContacts.get(ship.id());
+                    if (real == null) {
+                        real = shipHitIsContact(level, entity, fullstop, hitPos);
+                        shipContacts.put(ship.id(), real);
+                        if (!real) ShipRayLog.rejected(entity, ship, hitPos, fullstop);
+                    }
+                    if (!real) continue;
+                }
+            }
             BlockState hitState = level.getBlockState(hitPos);
             Direction hitFace = blockHit.getDirection();
 
@@ -199,11 +224,12 @@ public class CommonCollisionDetector {
                 }
 
                 // Ignore floor hits unless actually falling with some speed (velocity here
-                // is native blocks/tick; -0.5 ≈ falling faster than 10 m/s).
+                // is native blocks/tick; -0.5 ≈ falling faster than 10 m/s under normal
+                // gravity, see floorGate).
                 // Projectiles are exempt from this walking-artifact rule: a fired
                 // hook arcing down into floor ice is a real approach — the
                 // approach-speed gate above still filters near-flat grazes.
-                if (isOpposing && frame.isFloorFace(hitFace) && frame.vertical(velocity) > -0.5
+                if (isOpposing && frame.isFloorFace(hitFace) && frame.vertical(velocity) > floorGate
                         && !(entity instanceof net.minecraft.world.entity.projectile.Projectile)) {
                     isOpposing = false;
                 }
@@ -251,6 +277,38 @@ public class CommonCollisionDetector {
     }
 
     /**
+     * Whether a ray hit on the ship block {@code hitPos} is a contact the entity really makes: its
+     * box, moving at its world velocity going into the impact (its own plus a ship's carry)
+     * RELATIVE to that ship, comes within touching distance of the ship's blocks within a tick
+     * either way ({@link ShipCompat#meetsShip}). The entity's rays look a tick of its travel
+     * ahead, in a straight line; against a hull that moves, what is in the way now can be gone
+     * by then, and a hull that isn't met is never an impact (no damage, no block breaking, no
+     * bounce). Shared with the debug ray view.
+     */
+    public static boolean shipHitIsContact(Level level, Entity entity, FullStopCapability fullstop, BlockPos hitPos) {
+        return ShipCompat.meetsShip(level, entity, hitPos, fullstop.getPreImpactWorldVelocity());
+    }
+
+    /** Diagnostics of rejected ship ray hits (debugShipContactLog), players only, once a second. */
+    static final class ShipRayLog {
+        private static final java.util.Map<Entity, Long> LAST = java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
+        static void rejected(Entity entity, ShipRef ship, BlockPos hitPos, FullStopCapability fullstop) {
+            if (!(entity instanceof net.minecraft.world.entity.player.Player) || entity.level().isClientSide
+                    || !FullStopConfig.SERVER.debugShipContactLog.get()) return;
+            long now = entity.level().getGameTime();
+            Long last = LAST.get(entity);
+            if (last != null && now - last < 20) return;
+            LAST.put(entity, now);
+            Vec3 v = fullstop.getPreImpactWorldVelocity();
+            org.slf4j.LoggerFactory.getLogger(CommonCollisionDetector.class).info(
+                    "[FullStop] a ray of {}'s own motion ({} m/s) hits ship {} at {}, but the two don't meet within a tick "
+                            + "(the hull moves on): not an impact", entity.getName().getString(),
+                    String.format(java.util.Locale.ROOT, "%.2f, %.2f, %.2f", v.x, v.y, v.z), ship.id(), hitPos);
+        }
+    }
+
+    /**
      * The face-level rules shared by the gameplay classifier and the debug ray
      * view — whether a solid ray hit is a surface the entity is genuinely
      * running/falling INTO (as opposed to a face merely touched, grazed along,
@@ -272,7 +330,9 @@ public class CommonCollisionDetector {
     public static boolean opposesAsSurface(Level level, Entity entity, GravityFrame frame, Vec3 direction,
                                            Vec3 preImpactVelocityMps, AABB sweptBox, double effectiveFloor,
                                            BlockPos hitPos, Direction hitFace) {
-        Vec3 hitNormal = Vec3.atLowerCornerOf(hitFace.getNormal());
+        // A ship block's face comes back in ship space: its WORLD normal turns with the ship.
+        boolean shipHit = ShipCompat.isShipBlock(level, hitPos);
+        Vec3 hitNormal = shipHit ? ShipCompat.worldFaceNormal(level, hitPos, hitFace) : Vec3.atLowerCornerOf(hitFace.getNormal());
         if (direction.dot(hitNormal) >= -0.1) {
             return false;
         }
@@ -284,7 +344,6 @@ public class CommonCollisionDetector {
             return false;
         }
 
-        boolean shipHit = ShipCompat.isShipBlock(level, hitPos);
         AABB sweptForHit = sweptBox;
         double floorForHit = effectiveFloor;
         if (shipHit) {

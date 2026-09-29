@@ -4,6 +4,7 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
+import net.camacraft.fullstop.common.physics.rules.SpinDizziness;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
@@ -32,7 +33,9 @@ public class StatusEffectApplier {
      *     after the blindness fades; halfway between the two thresholds
      *     nausea alone sets in.</li>
      * <li>the TURNING rate - the view spinning round, or a fast run
-     *     circling. That is dizziness: nausea, never a blackout.</li>
+     *     circling. That is dizziness: nausea, never a blackout, and only once
+     *     sustained spinning past the threshold has built it up
+     *     ({@link SpinDizziness}).</li>
      * </ul>
      * Both thresholds come from the server config, scaled by the Clarity and
      * Vertigo potions per player.
@@ -44,7 +47,7 @@ public class StatusEffectApplier {
         // check (which reads SynchedEntityData) only run when they can matter.
         double avgAccel = fullstop.getRunningAverageDelta();
         double spin = fullstop.getSpinRate();
-        if (avgAccel <= 0.5 && spin <= 0.5) return;
+        if (avgAccel <= 0.5 && spin <= 0.5 && fullstop.getSpinDose() <= 0.0) return;
 
         GForceThresholds.Range range = GForceThresholds.configured(livingEntity);
         double nauseaAt = GForceThresholds.nauseaLevel(range);
@@ -52,7 +55,9 @@ public class StatusEffectApplier {
         double spinAt = GForceThresholds.spinNauseaLevel(livingEntity);
 
         boolean blackout = avgAccel >= blackoutAt;
-        boolean dizzy = avgAccel >= nauseaAt || (spinAt > 0.0 && spin >= spinAt);
+        // Spinning only makes you dizzy once enough of it has built up (SpinDizziness).
+        boolean dizzy = avgAccel >= nauseaAt || SpinDizziness.dizzy(fullstop.getSpinDose(), spin, spinAt,
+                net.camacraft.fullstop.FullStopConfig.SERVER.spinNauseaTurns.get());
         if (!blackout && !dizzy) return;
 
         if (DamageImmunityRules.isDamageImmune(livingEntity)) return;
@@ -89,7 +94,8 @@ public class StatusEffectApplier {
      */
     public static void applyDamageEffects(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
         if (damage <= 0) return;
-        if (!fullstop.isMostlyDownward()) return;
+        // A real fall only: in zero gravity a feet-first bump into a floor sprains nothing.
+        if (!fullstop.isFall()) return;
 
         if (collision.collisionType == Collision.CollisionType.ENTITY) {
             boolean landedOnSomeone = false;

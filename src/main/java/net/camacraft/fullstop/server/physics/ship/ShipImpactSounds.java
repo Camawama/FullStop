@@ -28,8 +28,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *
  * <p>How it sounds: each block's landing (fall) sound, joined by its hit sound from
  * {@link #HIT_LAYER_MPS} and its break sound from {@link #BREAK_LAYER_MPS}. Louder the faster the
- * hit and the heavier the ship ({@link #volume}), deeper the faster and heavier
- * ({@link #pitch}), both scaled by the block's own sound settings, with a little random pitch.
+ * hit and the heavier the ship ({@link #volume}), higher the faster and a little
+ * deeper the heavier ({@link #pitch}), both scaled by the block's own sound settings, with a little random pitch.
  *
  * <p>Not a machine gun: only contacts that just began make a sound, or one clearly harder than
  * the ship's last (a scrape that suddenly bites); at most {@link #MAX_HITS_PER_SHIP} per ship per
@@ -83,14 +83,15 @@ public final class ShipImpactSounds {
     }
 
     /**
-     * Pitch before the block's own: about 1.05 for a light tap, 0.8 at 10 m/s, 0.5 at 20 m/s (a
-     * hard hit booms), for a one-tonne ship; 0.04 lower for every tenfold more mass.
-     * Never rises as speed or mass grows.
+     * Pitch before the block's own: about 0.75 for a slow bump, 1.0 at 10 m/s, 1.3 at 20 m/s (a
+     * fast hit cracks), for a one-tonne ship; 0.04 lower for every tenfold more mass (a big ship
+     * sounds a little heavier at the same speed). Never falls as speed grows, never rises as mass
+     * grows.
      */
     public static double pitch(double speedMps, double massKg) {
         double speed = Mth.clamp(speedMps, 0.0, 40.0);
         double tonnesDecades = Mth.clamp(Math.log10(Math.max(massKg, 1.0) / 1000.0), -1.0, 3.0);
-        return Mth.clamp(1.1 - 0.03 * speed - 0.04 * tonnesDecades, 0.45, 1.2);
+        return Mth.clamp(0.7 + 0.03 * speed - 0.04 * tonnesDecades, 0.55, 1.6);
     }
 
     private static double heft(double massKg) {

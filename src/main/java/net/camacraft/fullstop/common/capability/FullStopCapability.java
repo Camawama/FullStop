@@ -9,6 +9,7 @@ import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
+import net.camacraft.fullstop.common.physics.rules.SpinDizziness;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceLocation;
@@ -17,7 +18,6 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.common.ForgeMod;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.capabilities.CapabilityManager;
 import net.minecraftforge.common.capabilities.CapabilityToken;
@@ -62,6 +62,36 @@ public class FullStopCapability {
     // entity this tick; removed from the measured velocity so ship rides don't
     // read as the entity's own kinetic energy. ZERO in a plain world.
     private Vec3 frameMotionMps = Vec3.ZERO;
+    // The same history for the frame motion, so the world velocity of each of
+    // the last ticks (own velocity + what the ship added) can be rebuilt: a
+    // collision with a ship is judged against the hull's own motion, never
+    // against a velocity with the carrying ship taken out.
+    private Vec3 prevFrameMotionMps = Vec3.ZERO;
+    private Vec3 prevPrevFrameMotionMps = Vec3.ZERO;
+    // How far a Valkyrien Skies hull shoved the entity during its move of tick shipPushTick
+    // (world, blocks): a hull that moves into an entity is resolved by VS moving the entity's
+    // POSITION (never its velocity), so like the carry it is not the entity's own motion and is
+    // taken out of the measurement. Recorded by the collide wrapper (ShipHullSweep).
+    private Vec3 shipPushBpt = Vec3.ZERO;
+    private int shipPushTick = Integer.MIN_VALUE;
+    // The shove taken out of the latest step's measurement (m/s), kept for tickSpeed.
+    private Vec3 pushMps = Vec3.ZERO;
+    // Client side (the local player): the velocity change a hull that just struck it gives it
+    // (ClientShipContacts), added at the end of the tick, after the move that met the hull.
+    private Vec3 pendingShipKickBpt = Vec3.ZERO;
+    // A rider SEATED on a Valkyrien Skies ship (a helm, a VS / Create / Clockwork seat) feels its
+    // seat's acceleration, which the server works out from the ship's physics frames (the seat's
+    // own motion is VS repositioning it on the ship, per server tick - bursty). Set each tick for
+    // that tick; seatAccelerationTick marks it current.
+    private Vec3 seatAccelerationMps2 = Vec3.ZERO;
+    private int seatAccelerationTick = Integer.MIN_VALUE;
+    // Client side: the server's g-force reading for the local player while it sits on a ship
+    // (GForcePacket), in force until remoteGForceUntil (client game time).
+    private double remoteAvgAccel = 0.0;
+    private double remoteRawAvgAccel = 0.0;
+    private long remoteGForceUntil = Long.MIN_VALUE;
+    private long clientContactShipId = Long.MIN_VALUE;
+    private long clientContactUntil = Long.MIN_VALUE;
 
     // The frame the entity's physics lives in this tick: which way is up.
     // DEFAULT (world +Y) without a gravity mod. Under a Gravity Unbound field
@@ -71,6 +101,15 @@ public class FullStopCapability {
     // matching the per-frame collision flags the mod reports. Resolved once
     // per tick (see currentFrame).
     private GravityFrame frame = GravityFrame.DEFAULT;
+    // The entity's local gravity this tick, from Camafy (every source: a Gravity Unbound field,
+    // the forge:entity_gravity attribute, VS Genesis's no-gravity space, Ad Astra's planets and
+    // orbits): as a world acceleration in blocks per tick squared ((0, -0.08, 0) under vanilla
+    // gravity, zero in space) and on the weight scale in m/s^2 ((0, -9.81, 0), zero in space),
+    // and whether nothing pulls it at all. Read once per tick with the frame.
+    private Vec3 gravityBpt2 = new Vec3(0.0, -0.08, 0.0);
+    private Vec3 gravityMps2 = new Vec3(0.0, -9.81, 0.0);
+    private double gravityStrength = 1.0;
+    private boolean weightless = false;
 
     // Stopping force = speed lost this tick (m/s), decomposed for per-axis damage
     // thresholds. Vertical/horizontal are measured in the entity's gravity FRAME.
@@ -91,6 +130,33 @@ public class FullStopCapability {
     // in tickSpeed (same window as prevVelocityMps/prevPrevVelocityMps).
     private boolean prevOnGround = false;
     private boolean prevPrevOnGround = false;
+    // Consecutive steps spent on the ground (0 while airborne): a landing is
+    // only a landing if the entity was in the air just before it.
+    private int groundedTicks = 0;
+
+    // Ship feedback guard: the ship whose deck momentum last threw this entity
+    // (ShipDeckMomentum), and when: until it settles, its contacts with that
+    // ship push the ship no more (what the ship gave its rider must not come
+    // back into it).
+    private long thrownByShipId = Long.MIN_VALUE;
+    private long thrownAtTick = Long.MIN_VALUE;
+
+    // Which ship the entity stood on as of each server tick (noteStandingOn):
+    // this tick's answer, and the last ship it stood on BEFORE this tick. A
+    // contact with a ship it was already on is a rider's, not a newcomer's.
+    private long standingShipNow = Long.MIN_VALUE;
+    private long standingNoteTick = Long.MIN_VALUE;
+    private long stoodShipId = Long.MIN_VALUE;
+    private long stoodTick = Long.MIN_VALUE;
+
+    // The velocity (world, m/s) a two-body collision with a ship left this
+    // entity with, and the contact normal: while the ship's own reaction is
+    // still on its way to VS's physics thread, the hull (not yet moving) can
+    // block the entity again; that re-block must not eat the velocity.
+    private long shipExchangeShipId = Long.MIN_VALUE;
+    private long shipExchangeUntil = Long.MIN_VALUE;
+    private Vec3 shipExchangeVelocity = Vec3.ZERO;
+    private Vec3 shipExchangeNormal = Vec3.ZERO;
 
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
@@ -136,9 +202,16 @@ public class FullStopCapability {
     // on a two-packet tick, not at all on an empty one.
     private static final int MAX_QUEUED_SAMPLES = 8;
 
+    // clientCarryMps / clientPushMps: what the CLIENT's Valkyrien Skies added to that tick's
+    // position (the carry of a deck it stands on, a hull's shove), as the client measured it
+    // with the ship poses IT drew. The server's own ship poses run ahead of the client's (the
+    // round trip plus VS's interpolation), so subtracting the server's carry from positions the
+    // client measured left a residual velocity turning with the ship - 5 to 15 m/s on a rotor
+    // at 64 RPM - that read as the player's own.
     private record MoveSample(Vec3 position, @Nullable Vec3 clientVelocityMps,
                               boolean horizontalCollision, boolean verticalCollision,
-                              boolean onGround, float yaw) {
+                              boolean onGround, float yaw,
+                              @Nullable Vec3 clientCarryMps, @Nullable Vec3 clientPushMps) {
     }
 
     private final java.util.ArrayDeque<MoveSample> samples = new java.util.ArrayDeque<>();
@@ -160,20 +233,26 @@ public class FullStopCapability {
     // has not arrived yet (it is sent first, every tick, moved or not)
     @Nullable
     private Vec3 pendingVelocityMps = null;
+    @Nullable
+    private Vec3 pendingCarryMps = null;
+    @Nullable
+    private Vec3 pendingPushMps = null;
     private boolean pendingHorizontalCollision = false;
     private boolean pendingVerticalCollision = false;
     private boolean hasPending = false;
 
     // DIZZINESS: sustained turning - the view spun round and round, or the
-    // heading of a fast run swung in circles - smoothed over ~2 s. Drives the
-    // nausea effect alone (no vignette): spinning makes you dizzy, not black
-    // out. Per-tick input is capped so a single frame-convention yaw jump
-    // (Gravity Unbound moving a frame twist into yaw) cannot register.
-    private static final double SPIN_WINDOW_TICKS = 40.0;
-    private static final double SPIN_INPUT_CAP_DEG = 60.0;
-    private static final double SPIN_NOISE_FLOOR_DEG = 1.5;
+    // heading of a fast run swung in circles. The turning rate is smoothed over
+    // a second and only turning past the threshold builds a dose, which drains
+    // again when the turning stops (SpinDizziness): a quick 180 or a flick of
+    // the mouse never gets there, spinning for a while does. Drives the nausea
+    // effect alone (no vignette): spinning makes you dizzy, not black out.
+    // Per-tick input is capped so a single frame-convention yaw jump (Gravity
+    // Unbound moving a frame twist into yaw) cannot register.
     private static final double SPIN_HEADING_MIN_SPEED_SQR = 3.0 * 3.0;
     private double avgSpinDegPerTick = 0.0;
+    // Dizziness built up: degrees turned beyond the threshold rate (see tickSpin).
+    private double spinDoseDeg = 0.0;
     private float lastYaw = Float.NaN;
     @Nullable
     private Vec3 lastHeading = null;
@@ -262,6 +341,10 @@ public class FullStopCapability {
         }
 
         frame = currentFrame(entity);
+        gravityStrength = Gravity.strength(entity);
+        weightless = gravityStrength < Gravity.WEIGHTLESS_BELOW;
+        gravityBpt2 = Gravity.acceleration(entity);
+        gravityMps2 = Gravity.accelerationMps2(entity);
 
         // Which measurement drives this tick: the queued client-tick samples
         // (a player moving under its own client, a vehicle that client
@@ -300,7 +383,7 @@ public class FullStopCapability {
                 for (Vec3 vehicleAt : carrier.steppedPositions) {
                     ride.addLast(new MoveSample(vehicleAt.add(seat), null,
                             entity.horizontalCollision, entity.verticalCollision,
-                            entity.onGround(), entity.getYRot()));
+                            entity.onGround(), entity.getYRot(), null, null));
                 }
                 stepSamples(entity, ride);
             }
@@ -308,7 +391,7 @@ public class FullStopCapability {
             freshSample = true;
             step(entity, entity.position(), clientVelocityMps,
                     entity.horizontalCollision, entity.verticalCollision,
-                    entity.onGround(), entity.getYRot());
+                    entity.onGround(), entity.getYRot(), null, null);
             clientVelocityMps = null;
         }
         steppedPerSample = useSamples || carrier != null;
@@ -365,7 +448,7 @@ public class FullStopCapability {
         while ((sample = queue.pollFirst()) != null) {
             step(entity, sample.position(), sample.clientVelocityMps(),
                     sample.horizontalCollision(), sample.verticalCollision(),
-                    sample.onGround(), sample.yaw());
+                    sample.onGround(), sample.yaw(), sample.clientCarryMps(), sample.clientPushMps());
             steppedPositions.add(sample.position());
             if (count > 1 && decelerationForce > bestForce) {
                 bestForce = decelerationForce;
@@ -397,10 +480,15 @@ public class FullStopCapability {
      *                          client's for a sampled mover, the entity's own otherwise)
      * @param onGround          grounded at the end of it
      * @param yaw               the body yaw at the end of it (spin metric)
+     * @param carryMps          what a ship's carry added to it as the mover's client measured it
+     *                          (m/s), or null to use this side's own reading
+     * @param shoveMps          what a hull's shove added to it as the client measured it (m/s), or
+     *                          null to use this side's own record
      */
     private void step(Entity entity, Vec3 position, @Nullable Vec3 clientVelocityMps,
-                      boolean horizontalHit, boolean verticalHit, boolean onGround, float yaw) {
-        tickVelocity(entity, position, clientVelocityMps, horizontalHit, verticalHit, onGround);
+                      boolean horizontalHit, boolean verticalHit, boolean onGround, float yaw,
+                      @Nullable Vec3 carryMps, @Nullable Vec3 shoveMps) {
+        tickVelocity(entity, position, clientVelocityMps, horizontalHit, verticalHit, onGround, carryMps, shoveMps);
         tickSpeed(onGround);
         tickHitGrace(entity, horizontalHit, verticalHit);
 
@@ -414,6 +502,7 @@ public class FullStopCapability {
                 avgAccel = 0.0;
                 rawAvgAccel = 0.0;
                 avgSpinDegPerTick = 0.0;
+                spinDoseDeg = 0.0;
                 lastYaw = Float.NaN;
                 lastHeading = null;
             } else {
@@ -425,6 +514,7 @@ public class FullStopCapability {
         // After tickSpeed, which reads the previous ticks' values.
         prevPrevOnGround = prevOnGround;
         prevOnGround = onGround;
+        groundedTicks = onGround ? Math.min(groundedTicks + 1, 1_000_000) : 0;
     }
 
     /** A server tick with no client tick of motion in it: no speed was lost and nothing was felt. */
@@ -455,14 +545,30 @@ public class FullStopCapability {
      * sample is closed at the entity's current position first.
      */
     public void recordClientDelta(Vec3 nativeVelocity, boolean horizontalCollision, boolean verticalCollision) {
+        recordClientDelta(nativeVelocity, horizontalCollision, verticalCollision, null, null);
+    }
+
+    /**
+     * As above, with what the client's Valkyrien Skies added to this tick's position: the carry
+     * of the deck it stands on and a hull's shove (m/s, world; see {@link MoveSample}).
+     */
+    public void recordClientDelta(Vec3 nativeVelocity, boolean horizontalCollision, boolean verticalCollision,
+                                  @Nullable Vec3 carryMps, @Nullable Vec3 shoveMps) {
         sampling = true;
         if (hasPending) {
             pushSample(entity.position(), entity.onGround(), entity.getYRot());
         }
         pendingVelocityMps = nativeVelocity.scale(20);
+        pendingCarryMps = carryMps;
+        pendingPushMps = shoveMps;
         pendingHorizontalCollision = horizontalCollision;
         pendingVerticalCollision = verticalCollision;
         hasPending = true;
+    }
+
+    /** Whether this entity's client measures it (it sends FullStop's per-tick report): a player with FullStop. */
+    public boolean isClientSampled() {
+        return sampling;
     }
 
     /** Server side: a move packet was applied - one client tick of motion ended at {@code position}. */
@@ -473,14 +579,57 @@ public class FullStopCapability {
 
     private void pushSample(Vec3 position, boolean onGround, float yaw) {
         Vec3 velocity = hasPending ? pendingVelocityMps : null;
+        Vec3 carry = hasPending ? pendingCarryMps : null;
+        Vec3 shove = hasPending ? pendingPushMps : null;
         boolean horizontal = hasPending && pendingHorizontalCollision;
         boolean vertical = hasPending && pendingVerticalCollision;
         hasPending = false;
         pendingVelocityMps = null;
+        pendingCarryMps = null;
+        pendingPushMps = null;
         if (samples.size() >= MAX_QUEUED_SAMPLES) {
             samples.pollFirst();
         }
-        samples.addLast(new MoveSample(position, velocity, horizontal, vertical, onGround, yaw));
+        samples.addLast(new MoveSample(position, velocity, horizontal, vertical, onGround, yaw, carry, shove));
+    }
+
+    /**
+     * The collide wrapper saw a Valkyrien Skies hull shove this entity by {@code pushBpt}
+     * (world, blocks) during its move this tick (see {@link #shipPushBpt}).
+     */
+    public void recordShipPush(Entity entity, Vec3 pushBpt) {
+        if (shipPushTick != entity.tickCount) {
+            shipPushBpt = Vec3.ZERO;
+            shipPushTick = entity.tickCount;
+        }
+        shipPushBpt = shipPushBpt.add(pushBpt);
+    }
+
+    /** How far hulls shoved the entity during this tick's move, as a velocity (m/s, world); zero if none. */
+    public Vec3 shipPushMps(Entity entity) {
+        return shipPushTick == entity.tickCount ? shipPushBpt.scale(20.0) : Vec3.ZERO;
+    }
+
+    /** Client side: a hull's kick for the local player, added at the end of this tick (see ClientShipContacts). */
+    public void queueShipKick(Vec3 deltaBpt) {
+        pendingShipKickBpt = pendingShipKickBpt.add(deltaBpt);
+    }
+
+    /** Client side: the queued hull kick (blocks per tick, world), cleared. */
+    public Vec3 takeShipKick() {
+        Vec3 kick = pendingShipKickBpt;
+        pendingShipKickBpt = Vec3.ZERO;
+        return kick;
+    }
+
+    /** Client side: whether this client reported a contact with ship {@code shipId} so recently it reports none again yet. */
+    public boolean isClientContactCooling(long shipId, long gameTime) {
+        return shipId == clientContactShipId && gameTime < clientContactUntil;
+    }
+
+    public void markClientContact(long shipId, long gameTime, int ticks) {
+        clientContactShipId = shipId;
+        clientContactUntil = gameTime + ticks;
     }
 
     /**
@@ -509,12 +658,12 @@ public class FullStopCapability {
         }
         lastHeading = heading;
 
-        double spin = Math.min(Math.max(yawRate, headingRate), SPIN_INPUT_CAP_DEG);
-        if (spin < SPIN_NOISE_FLOOR_DEG) {
-            spin = 0.0;
+        double spin = SpinDizziness.input(Math.max(yawRate, headingRate));
+        avgSpinDegPerTick = SpinDizziness.rate(avgSpinDegPerTick, spin);
+        if (FullStopConfig.SERVER_SPEC.isLoaded()) {
+            spinDoseDeg = SpinDizziness.dose(spinDoseDeg, avgSpinDegPerTick, GForceThresholds.spinNauseaLevel(living),
+                    FullStopConfig.SERVER.spinNauseaTurns.get());
         }
-        avgSpinDegPerTick += (spin - avgSpinDegPerTick) / SPIN_WINDOW_TICKS;
-        if (Double.isNaN(avgSpinDegPerTick)) avgSpinDegPerTick = 0.0;
     }
 
     /** Smoothed turning rate, degrees per tick (see {@link #tickSpin}). */
@@ -522,32 +671,58 @@ public class FullStopCapability {
         return avgSpinDegPerTick;
     }
 
+    /** Dizziness built up from spinning, degrees turned beyond the threshold rate (see {@link SpinDizziness}). */
+    public double getSpinDose() {
+        return spinDoseDeg;
+    }
+
+    /**
+     * Server side: this tick, the rider sits on a ship and its seat accelerates at
+     * {@code mps2} (world, m/s^2); its g-force is felt from that, not from its measured motion.
+     */
+    public void setSeatAcceleration(Entity entity, Vec3 mps2) {
+        seatAccelerationMps2 = mps2;
+        seatAccelerationTick = entity.tickCount;
+    }
+
+    /** Whether a seat acceleration was set for this tick (see {@link #setSeatAcceleration}). */
+    public boolean hasSeatAcceleration(Entity entity) {
+        return seatAccelerationTick == entity.tickCount;
+    }
+
+    /**
+     * Client side: the server's g-force reading for the local player seated on a ship, in force
+     * for {@code ticks} ticks from {@code gameTime} (the vignette, blackout and muffle read it).
+     */
+    public void setRemoteGForce(double avg, double raw, long gameTime, int ticks) {
+        remoteAvgAccel = avg;
+        remoteRawAvgAccel = raw;
+        remoteGForceUntil = gameTime + ticks;
+    }
+
     /** Smooths the felt acceleration (g-force) that drives blackout/vignette/audio effects. */
     private void tickGForce(LivingEntity living) {
-        double gravity = 0.08;
-        if (!living.isNoGravity()) {
-            var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
-            if (gravityAttr != null) {
-                gravity = gravityAttr.getValue();
-            }
-        } else {
-            gravity = 0.0;
+        if (living.level().isClientSide && living.level().getGameTime() <= remoteGForceUntil) {
+            // seated on a ship: the server felt it from the seat's physics (see setSeatAcceleration)
+            avgAccel = remoteAvgAccel;
+            rawAvgAccel = remoteRawAvgAccel;
+            return;
         }
-
-        gravity = Math.abs(gravity);
-
-        // acceleration is m/s per tick; gravity attr is blocks/tick², so ×20 puts both in the same units.
-        double baseline = gravity * 20;
-        // Along the FRAME's down: inside a gravity field the 1g everyone feels
-        // at rest pulls along the field, not world -Y (Gravity Unbound applies
-        // its pull through this same attribute, along its frame).
-        Vec3 gravityVector = frame.isDefault() ? new Vec3(0, -baseline, 0) : frame.up().scale(-baseline);
+        // The entity's own gravity (Camafy: every source, along its pull), in the units of the
+        // acceleration it is compared with: the measured one is m/s per tick in Minecraft's scale
+        // (0.08 blocks per tick squared), a seat's is real m/s^2 (1 g = 9.81), each per tick.
+        // Zero in space: there the pure acceleration is what is felt.
+        boolean seated = seatAccelerationTick == living.tickCount;
+        Vec3 gravityVector = seated ? gravityMps2.scale(0.05) : gravityBpt2.scale(20.0);
+        double baseline = gravityVector.length();
 
         // Proper (felt) acceleration relative to freefall, minus the 1g baseline
         // everyone feels at rest. Continuous by construction: the old hard cutoffs
         // (zero the Y term when grounded / while falling) flipped on and off from
         // tick to tick at speed, making the blackout and audio muffle flash.
-        double gForceMagnitude = Math.max(acceleration.subtract(gravityVector).length() - baseline - GFORCE_NOISE_FLOOR, 0.0);
+        // Seated on a ship: the seat's acceleration (m/s^2, as m/s per tick).
+        Vec3 felt = seated ? seatAccelerationMps2.scale(0.05) : acceleration;
+        double gForceMagnitude = Math.max(felt.subtract(gravityVector).length() - baseline - GFORCE_NOISE_FLOOR, 0.0);
 
         if (gForceMagnitude < 0.001 && avgAccel < 0.001) {
             avgAccel = 0.0;
@@ -576,7 +751,8 @@ public class FullStopCapability {
     }
 
     private void tickVelocity(Entity entity, Vec3 position, @Nullable Vec3 clientVelocityMps,
-                              boolean horizontalHit, boolean verticalHit, boolean onGround) {
+                              boolean horizontalHit, boolean verticalHit, boolean onGround,
+                              @Nullable Vec3 clientCarryMps, @Nullable Vec3 clientShoveMps) {
         if (firstTick) {
             currentPosition = position;
             previousPosition = currentPosition.subtract(entity.getDeltaMovement());
@@ -591,6 +767,8 @@ public class FullStopCapability {
             velocityMps = spawnVelocityMps;
             prevVelocityMps = spawnVelocityMps;
             prevPrevVelocityMps = spawnVelocityMps;
+            prevFrameMotionMps = Vec3.ZERO;
+            prevPrevFrameMotionMps = Vec3.ZERO;
             lastMeasuredSpeed = spawnVelocityMps.length();
             firstTick = false;
         } else {
@@ -604,11 +782,16 @@ public class FullStopCapability {
             prevVelocityMps = Vec3.ZERO;
             prevPrevVelocityMps = Vec3.ZERO;
             frameMotionMps = Vec3.ZERO;
+            prevFrameMotionMps = Vec3.ZERO;
+            prevPrevFrameMotionMps = Vec3.ZERO;
+            pushMps = Vec3.ZERO;
             return;
         }
 
         prevPrevVelocityMps = prevVelocityMps;
         prevVelocityMps = velocityMps;
+        prevPrevFrameMotionMps = prevFrameMotionMps;
+        prevFrameMotionMps = frameMotionMps;
 
         currentPosition = position;
 
@@ -618,8 +801,13 @@ public class FullStopCapability {
         // (a Valkyrien Skies ship): the raw position delta on a moving/rotating
         // ship is dominated by the ship, not the entity's own movement. Done
         // before the discontinuity guard so smooth ship motion never trips it.
-        frameMotionMps = ShipCompat.shipDragVelocityMps(entity);
-        actualVelocity = actualVelocity.subtract(frameMotionMps);
+        // A client-measured mover's positions come from its client, drawn with
+        // that client's ship poses: its own carry reading goes with them.
+        // Likewise a hull's shove (VS moving the entity out of a hull that ran
+        // into it): position, not the entity's velocity.
+        frameMotionMps = clientCarryMps != null ? clientCarryMps : ShipCompat.shipDragVelocityMps(entity);
+        pushMps = clientShoveMps != null ? clientShoveMps : shipPushMps(entity);
+        actualVelocity = actualVelocity.subtract(frameMotionMps).subtract(pushMps);
 
         // Position discontinuity (respawn, /tp, mod teleports that fire no event):
         // no physical process triples an entity's speed past 60 m/s in a single
@@ -633,6 +821,9 @@ public class FullStopCapability {
             prevVelocityMps = Vec3.ZERO;
             prevPrevVelocityMps = Vec3.ZERO;
             frameMotionMps = Vec3.ZERO;
+            prevFrameMotionMps = Vec3.ZERO;
+            prevPrevFrameMotionMps = Vec3.ZERO;
+            pushMps = Vec3.ZERO;
             return;
         }
         lastMeasuredSpeed = measuredSpeed;
@@ -665,11 +856,10 @@ public class FullStopCapability {
             velocityMps = actualVelocity;
         }
 
-        if (entity instanceof LivingEntity living && onGround) {
-            // Null-safe: an exotic modded living entity without the Forge gravity
-            // attribute must degrade to the vanilla 0.08, not crash the tick loop.
-            var gravityAttr = living.getAttribute(ForgeMod.ENTITY_GRAVITY.get());
-            double gravityStep = (gravityAttr != null ? gravityAttr.getValue() : 0.08) * 20;
+        if (entity instanceof LivingEntity && onGround) {
+            // One tick of the entity's own gravity (m/s): 1.6 under vanilla gravity, less on the
+            // Moon, nothing in space (Camafy's reading, every source).
+            double gravityStep = gravityBpt2.length() * 20 + 1.0e-9;
             // How far vanilla's auto-step can lift the entity in a single tick.
             double stepUp = entity.maxUpStep() * 20;
             // Along the frame's up: standing on a plated wall, the floor drift
@@ -698,7 +888,7 @@ public class FullStopCapability {
             // tilts the collision rays slightly downward, which is what let a
             // boat gliding on ice clip the floor seams ahead as "wall" hits.
             double vy = frame.vertical(velocityMps);
-            if (vy < 0 && vy >= -2.0) {
+            if (vy < 0 && vy >= -2.0 * Math.min(1.0, gravityStrength)) {
                 velocityMps = frame.horizontalPart(velocityMps);
             }
         }
@@ -707,7 +897,7 @@ public class FullStopCapability {
     private void tickSpeed(boolean onGround) {
         // Same frame-motion correction as tickVelocity: the stopping force must be
         // measured relative to the ship the entity rides, not the world.
-        Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20).subtract(frameMotionMps);
+        Vec3 actualVelocity = currentPosition.subtract(previousPosition).scale(20).subtract(frameMotionMps).subtract(pushMps);
 
         // WORLD-axis components first: block faces are world-aligned whatever
         // frame the entity is in, so the flush-stop evidence (speed lost on a
@@ -932,6 +1122,97 @@ public class FullStopCapability {
     /** {@link #getPreImpactScaledVelocity()} in blocks/tick. */
     public Vec3 getPreImpactNativeVelocity() {
         return getPreImpactScaledVelocity().scale(0.05);
+    }
+
+    /**
+     * {@link #getPreImpactScaledVelocity()} in the WORLD frame (m/s): the same tick's velocity
+     * with the motion a ship added by carrying the entity put back. What a collision with a
+     * ship's hull is judged by, against that hull's own velocity.
+     */
+    public Vec3 getPreImpactWorldVelocity() {
+        return prevPrevVelocityMps.lengthSqr() > prevVelocityMps.lengthSqr()
+                ? prevPrevVelocityMps.add(prevPrevFrameMotionMps) : prevVelocityMps.add(prevFrameMotionMps);
+    }
+
+    /** This tick's velocity in the WORLD frame (m/s): own velocity plus what a ship added. */
+    public Vec3 getCurrentWorldVelocity() {
+        return velocityMps.add(frameMotionMps);
+    }
+
+    /** Consecutive steps the entity has spent on the ground; 0 while airborne. */
+    public int getGroundedTicks() {
+        return groundedTicks;
+    }
+
+    /**
+     * Records which ship (id, or {@code Long.MIN_VALUE} for none) the entity stands on this
+     * server tick. Called once per tick by the physics dispatch, before impacts are judged.
+     */
+    public void noteStandingOn(long shipId, long gameTime) {
+        if (gameTime == standingNoteTick) {
+            standingShipNow = shipId;
+            return;
+        }
+        if (standingShipNow != Long.MIN_VALUE) {
+            stoodShipId = standingShipNow;
+            stoodTick = standingNoteTick;
+        }
+        standingShipNow = shipId;
+        standingNoteTick = gameTime;
+    }
+
+    /**
+     * Whether the entity stood on ship {@code shipId} on some tick BEFORE this one, at most
+     * {@code window} ticks ago: it is that ship's rider, not something arriving at it.
+     */
+    public boolean stoodOnBefore(long shipId, long gameTime, int window) {
+        return shipId == stoodShipId && stoodTick < gameTime && gameTime - stoodTick <= window;
+    }
+
+    /** A ship's deck momentum just threw this entity (see {@link #isShipFeedbackBlocked}). */
+    public void markThrownBy(long shipId, long gameTime) {
+        this.thrownByShipId = shipId;
+        this.thrownAtTick = gameTime;
+    }
+
+    /**
+     * Whether this entity's contacts with ship {@code shipId} must not push that ship: the ship
+     * itself threw it (deck momentum) and it has not settled since - it has not stood on the
+     * ground for {@link #THROW_SETTLE_TICKS} ticks, and at most {@link #THROW_FEEDBACK_TICKS}
+     * have passed. What a ship did to its rider never comes back into the same ship.
+     */
+    public boolean isShipFeedbackBlocked(long shipId, long gameTime) {
+        if (shipId != thrownByShipId) return false;
+        long since = gameTime - thrownAtTick;
+        if (since < 0 || since > THROW_FEEDBACK_TICKS) return false;
+        return since <= THROW_SETTLE_TICKS || groundedTicks < THROW_SETTLE_TICKS;
+    }
+
+    private static final int THROW_SETTLE_TICKS = 10;
+    private static final int THROW_FEEDBACK_TICKS = 60;
+
+    /** Remembers the velocity a two-body collision with {@code shipId} left the entity with. */
+    public void markShipExchange(long shipId, long gameTime, int ticks, Vec3 worldVelocityMps, Vec3 normal) {
+        this.shipExchangeShipId = shipId;
+        this.shipExchangeUntil = gameTime + ticks;
+        this.shipExchangeVelocity = worldVelocityMps;
+        this.shipExchangeNormal = normal;
+    }
+
+    /** The velocity (world, m/s) the last collision with {@code shipId} left, while it still counts; else null. */
+    @Nullable
+    public Vec3 shipExchangeVelocity(long shipId, long gameTime) {
+        return shipId == shipExchangeShipId && gameTime < shipExchangeUntil ? shipExchangeVelocity : null;
+    }
+
+    /** The contact normal of {@link #shipExchangeVelocity} (world, from the hull toward the entity). */
+    public Vec3 shipExchangeNormal() {
+        return shipExchangeNormal;
+    }
+
+    /** The ship of the collision {@link #shipExchangeVelocity} remembers, or {@code Long.MIN_VALUE}. */
+    public long shipExchangeShip(long gameTime) {
+        return gameTime < shipExchangeUntil ? shipExchangeShipId : Long.MIN_VALUE;
     }
 
     /** Total speed lost this tick, m/s. */
@@ -1195,6 +1476,11 @@ public class FullStopCapability {
         this.recentShipImpulseNs = totalNewtonSeconds;
     }
 
+    /** The ship that last collided with this entity (either way) while that still counts, or {@code Long.MIN_VALUE}. */
+    public long recentShipHit(long gameTime) {
+        return gameTime < shipHitCooldownUntil ? lastShipHitId : Long.MIN_VALUE;
+    }
+
     /** Whether ship {@code shipId} hit this entity so recently that it can't hit it again yet. */
     public boolean isShipHitOnCooldown(long shipId, long gameTime) {
         return shipId == lastShipHitId && gameTime < shipHitCooldownUntil;
@@ -1235,11 +1521,35 @@ public class FullStopCapability {
         return frame.horizontalDistance(v) > Math.abs(frame.vertical(v));
     }
 
+    /**
+     * Whether this tick's impact is a FALL: mostly along the pull of gravity, and something
+     * actually pulls the entity. In zero gravity the frame stays upright, so a feet-first bump
+     * into a floor is "mostly downward" without being a fall: no fall damage type, no Feather
+     * Falling, no sprain, the horizontal threshold. Body-relative uses (which armour takes it,
+     * the crush factor) keep {@link #isMostlyDownward}.
+     */
+    public boolean isFall() {
+        return !weightless && isMostlyDownward();
+    }
+
+    /** Whether nothing pulls the entity this tick (Camafy: strength below {@code Gravity.WEIGHTLESS_BELOW}). */
+    public boolean isWeightless() {
+        return weightless;
+    }
+
+    /** The entity's local gravity this tick as a multiple of vanilla's (Camafy's strength). */
+    public double getGravityStrength() {
+        return gravityStrength;
+    }
+
     public void resetVelocity() {
         this.velocityMps = Vec3.ZERO;
         this.prevVelocityMps = Vec3.ZERO;
         this.prevPrevVelocityMps = Vec3.ZERO;
         this.frameMotionMps = Vec3.ZERO;
+        this.prevFrameMotionMps = Vec3.ZERO;
+        this.prevPrevFrameMotionMps = Vec3.ZERO;
+        this.pushMps = Vec3.ZERO;
         this.clientVelocityMps = null;
         this.lastHeading = null;
     }

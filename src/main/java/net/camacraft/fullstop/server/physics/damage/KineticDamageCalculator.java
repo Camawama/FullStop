@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.compat.gravity.GravityFrame;
 import net.camacraft.camafy.physics.VanillaFall;
 import net.camacraft.fullstop.FullStopConfig;
@@ -57,6 +58,12 @@ public class KineticDamageCalculator {
         }
 
         boolean isDownwardImpact = fullstop.isMostlyDownward();
+        // A FALL is a downward impact with something actually pulling: in zero gravity (VS Genesis
+        // space, an Ad Astra orbit, a Gravity Unbound zero field) the frame stays upright, so a
+        // feet-first bump into a floor is "downward" without being a fall, and every direction
+        // takes the horizontal (wall) threshold. Exactly isDownwardImpact under any gravity.
+        boolean isFall = fullstop.isFall();
+        boolean weightless = fullstop.isWeightless();
 
         // Block impacts must be corroborated by the entity actually having collided;
         // the raycast alone (e.g. a near-miss past a corner) is not enough. The
@@ -86,9 +93,10 @@ public class KineticDamageCalculator {
 
         boolean vanillaParity = SERVER.fallDamageMode.get() == FullStopConfig.FallDamageMode.VANILLA_PARITY;
 
-        // Vanilla subtracts Jump Boost levels from the effective fall distance.
+        // Vanilla subtracts Jump Boost levels from the effective fall distance (not in zero
+        // gravity, where nothing falls).
         double jumpBonus = 0;
-        if (vanillaParity && entity instanceof LivingEntity living) {
+        if (vanillaParity && !weightless && entity instanceof LivingEntity living) {
             jumpBonus = VanillaFall.jumpBoostBonus(living);
         }
 
@@ -111,7 +119,8 @@ public class KineticDamageCalculator {
                     ? Math.max(fullstop.getHorizontalStoppingForce() - SERVER.velocityDamageThresholdHorizontal.get(), 0)
                     : 0;
             verticalExceedance = (!blockImpact || verticalEvidence)
-                    ? Math.max(fullstop.getVerticalStoppingForce() - verticalThresholdMps(), 0)
+                    ? Math.max(fullstop.getVerticalStoppingForce()
+                            - (weightless ? SERVER.velocityDamageThresholdHorizontal.get() : verticalThresholdMps()), 0)
                     : 0;
         }
 
@@ -122,7 +131,7 @@ public class KineticDamageCalculator {
         for (BlockState state : collision.blockStates) {
             if (state.is(Blocks.POINTED_DRIPSTONE)) {
                 Direction tipDirection = state.getValue(PointedDripstoneBlock.TIP_DIRECTION);
-                if (isDownwardImpact && tipDirection == Direction.UP) {
+                if (isFall && tipDirection == Direction.UP) {
                     // ~a one-block drop's landing speed; below that it's a step, not a fall.
                     if (verticalEvidence && fullstop.getVerticalStoppingForce() > 4.0) {
                         if (vanillaParity) {
@@ -164,7 +173,7 @@ public class KineticDamageCalculator {
                     .mapToDouble(other -> VelocityMath.entityVelocity(entity).subtract(VelocityMath.entityVelocity(other)).length())
                     .average()
                     .orElse(0.0);
-            double threshold = isDownwardImpact
+            double threshold = isFall
                     ? verticalThresholdMps()
                     : SERVER.velocityDamageThresholdHorizontal.get();
             damage = Math.max(averageRelativeSpeed - threshold, 0);
@@ -187,7 +196,9 @@ public class KineticDamageCalculator {
      * kineticDamageMultiplier), for callers that measured the impact themselves: a ship's hull
      * hitting an entity. Immunity is the caller's to check.
      *
-     * @param vertical whether the impact was along the victim's up/down (the vertical threshold)
+     * @param vertical whether the impact was along the victim's up/down (the vertical threshold,
+     *                 unless the victim is weightless: in zero gravity every direction takes the
+     *                 horizontal one)
      */
     public static double damageForSpeedLost(Entity victim, double lostMps, boolean vertical, List<BlockState> struck) {
         boolean vanillaParity = SERVER.fallDamageMode.get() == FullStopConfig.FallDamageMode.VANILLA_PARITY;
@@ -195,7 +206,8 @@ public class KineticDamageCalculator {
         if (vanillaParity) {
             damage = Math.ceil(Math.max(VanillaFall.equivalentFallDistance(lostMps) - VanillaFall.SAFE_FALL_DISTANCE, 0));
         } else {
-            double threshold = vertical ? verticalThresholdMps() : SERVER.velocityDamageThresholdHorizontal.get();
+            double threshold = vertical && !Gravity.isWeightless(victim)
+                    ? verticalThresholdMps() : SERVER.velocityDamageThresholdHorizontal.get();
             damage = Math.max(lostMps - threshold, 0);
         }
         if (damage <= 0) return 0;

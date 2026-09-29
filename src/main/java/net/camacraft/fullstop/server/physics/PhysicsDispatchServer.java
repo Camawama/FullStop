@@ -15,6 +15,10 @@ import net.camacraft.fullstop.server.physics.effects.StatusEffectApplier;
 import net.camacraft.fullstop.server.physics.interaction.BounceHandler;
 import net.camacraft.fullstop.server.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.server.physics.interaction.KineticBlockInteractions;
+import net.camacraft.camafy.compat.vs.ShipEntities;
+import net.camacraft.camafy.compat.vs.ShipRef;
+import net.camacraft.fullstop.common.compat.ShipCompat;
+import net.camacraft.fullstop.server.physics.ship.ShipEntityHits;
 import net.camacraft.fullstop.server.physics.ship.ShipImpulses;
 import net.camacraft.fullstop.server.physics.ship.ShipPhysicsServer;
 import net.minecraft.core.particles.ParticleTypes;
@@ -280,8 +284,19 @@ public class PhysicsDispatchServer {
         }
 
         if (entity.tickCount != fullstop.getLastTick()) {
+            // Seated on a Valkyrien Skies ship: the rider feels its seat's acceleration, worked out
+            // from the ship's physics frames (VS just sets a seated rider's position from the ship
+            // every tick - nothing a g-force can be read from).
+            seatAcceleration(entity, fullstop, claims);
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
+        }
+
+        // Which ship it stands on this tick: a contact with a ship it was already on is a
+        // rider's (ShipEntityHits), not a newcomer's.
+        if (ShipCompat.active()) {
+            ShipRef standingOn = ShipEntities.standingOn(entity, 1);
+            fullstop.noteStandingOn(standingOn != null ? standingOn.id() : ShipRef.NO_ID, entity.level().getGameTime());
         }
 
         if (fullstop.getIsDamageImmune()) {
@@ -293,6 +308,12 @@ public class PhysicsDispatchServer {
         // so they must run before the speed gate (a hard stop leaves speed ~0).
         if (!PhysicsAspect.G_FORCE.in(claims)) {
             StatusEffectApplier.applyForceEffects(entity, fullstop);
+            // a seated player's client shows the g its seat gives it (vignette, blackout, muffle)
+            if (entity instanceof net.minecraft.server.level.ServerPlayer player && fullstop.hasSeatAcceleration(entity)) {
+                net.camacraft.fullstop.common.handler.PacketHandler.sendToPlayer(player,
+                        new net.camacraft.fullstop.common.network.GForcePacket(fullstop.getRunningAverageDelta(),
+                                fullstop.getRawRunningAverageDelta()));
+            }
         }
 
         // A client-driven mover whose client ticks did not reach the server
@@ -321,10 +342,6 @@ public class PhysicsDispatchServer {
 
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
-        // A landing on a ship's deck pushes the ship: a force ON the ship, so it
-        // applies whoever owns this entity's own impact physics.
-        ShipImpulses.onEntityImpact(entity, fullstop, collision);
-
         if (!PhysicsAspect.CONTACT.in(claims)) {
             EntityCollisionHandler.handle(entity, fullstop, collision);
         }
@@ -336,7 +353,8 @@ public class PhysicsDispatchServer {
             impactSound(entity, fullstop, collision);
         }
 
-        double damage = impactFree ? KineticDamageCalculator.calculateDamage(entity, fullstop, collision) : 0;
+        double damage = impactFree && !billedThroughVehicle(entity, fullstop)
+                ? KineticDamageCalculator.calculateDamage(entity, fullstop, collision) : 0;
         boolean debugLog = SERVER.debugImpactLog.get()
                 && (!collision.fake() || fullstop.getStoppingForce() > DEBUG_LOG_MIN_STOPPING_FORCE);
         if (debugLog) {
@@ -344,15 +362,33 @@ public class PhysicsDispatchServer {
         }
 
         boolean brokeBlock = false;
+        double smashDamage = 0.0;
         if (blocksFree && !collision.impactedPositions.isEmpty()) {
             KineticBlockInteractions.ImpactResult impactResult = KineticBlockInteractions.handleBlockImpacts(
                     entity, fullstop.getPreviousNativeVelocity(), collision.impactedPositions, collision.impactedHits);
             brokeBlock = impactResult.brokeBlock();
-            if (impactFree) {
-                damage += impactResult.smashDamage();
-            }
+            smashDamage = impactResult.smashDamage();
         } else if (entity.level() instanceof ServerLevel serverLevel) {
             KineticBlockInteractions.clearCrack(entity, serverLevel);
+        }
+
+        // Running, flying or falling into a Valkyrien Skies ship is a collision between two bodies,
+        // not a wall impact: momentum both ways, damage from the speed really lost.
+        Collision damageCollision = collision;
+        ShipEntityHits.Outcome shipHit = impactFree
+                ? ShipEntityHits.onEntityImpact(entity, fullstop, collision, brokeBlock) : null;
+        if (shipHit != null && shipHit.handled()) {
+            // Only world blocks struck in the same tick still count as a wall.
+            damage = ShipCompat.onlyShipBlocks(entity.level(), collision.impactedPositions)
+                    ? shipHit.damage() : Math.max(damage, shipHit.damage());
+            if (!shipHit.collision().fake()) damageCollision = shipHit.collision();
+        } else if (shipHit == null || shipHit.legacy()) {
+            // A landing on a ship's deck pushes the ship: a force ON the ship, so it
+            // applies whoever owns this entity's own impact physics.
+            ShipImpulses.onEntityImpact(entity, fullstop, collision);
+        }
+        if (impactFree) {
+            damage += smashDamage;
         }
 
         if (!PhysicsAspect.BOUNCE.in(claims)) {
@@ -363,18 +399,56 @@ public class PhysicsDispatchServer {
             // Sound and sprain only when the applier actually hurt something —
             // it can bail on its cooldown or mitigate everything to zero, and a
             // big-fall thud with no damage reads as a bug.
-            boolean hurt = KineticDamageApplier.apply(entity, fullstop, collision, damage);
+            boolean hurt = KineticDamageApplier.apply(entity, fullstop, damageCollision, damage);
             if (debugLog) {
                 LOGGER.info("[FullStop] impact applied={} ({} damage) to {}", hurt, String.format(java.util.Locale.ROOT, "%.2f", damage), entity.getName().getString());
             }
             if (hurt) {
-                impactDamageSound(entity, damage, collision);
-                StatusEffectApplier.applyDamageEffects(entity, fullstop, collision, damage);
+                impactDamageSound(entity, damage, damageCollision);
+                StatusEffectApplier.applyDamageEffects(entity, fullstop, damageCollision, damage);
             }
         }
     }
 
     private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+
+    /**
+     * A living rider seated on a Valkyrien Skies ship (a helm, a VS, Create or Clockwork seat: its
+     * vehicle is mounted on the ship) feels the acceleration of the ship's material at its seat -
+     * the ship speeding up or braking, turning, spinning up, and the centripetal pull of a turn or
+     * spin (which a seated rider does feel: the seat holds it on the curve) - from the ship's
+     * physics frames (ShipTracker: burst-proof, a frame's time span measured). Only while no other
+     * mod owns its g-force (G_FORCE claims); riders standing on a deck are left as they are.
+     */
+    private static void seatAcceleration(Entity entity, FullStopCapability fullstop, int claims) {
+        if (!entity.isPassenger() || !(entity instanceof LivingEntity) || PhysicsAspect.G_FORCE.in(claims)) return;
+        if (!ShipCompat.active() || !(entity.level() instanceof ServerLevel level)) return;
+        ShipRef ship = ShipEntities.mountedTo(entity);
+        if (ship == null) return;
+        net.camacraft.fullstop.server.physics.ship.ShipTracker.State state =
+                net.camacraft.fullstop.server.physics.ship.ShipTracker.of(level).latest(ship.id());
+        if (state == null || state.inGrace(level.getGameTime())) return;
+        // VS's physics catching up after a stall lurches a Clockwork rotor round for a frame or two:
+        // not something the seat did to its rider (see ShipTracker.STALL_QUIET_SECONDS)
+        if (state.deckQuiet(level.getGameTime())) return;
+        fullstop.setSeatAcceleration(entity, state.accelerationAt(entity.position()));
+    }
+
+    /**
+     * Whether this rider's impact is its vehicle's to bill: FullStop measures the vehicle's crash
+     * (it isn't blacklisted, and no other mod owns its impacts) and hands its riders their share
+     * of it - of a landing always, of a wall crash when the vehicle isn't alive itself (a boat, a
+     * cart, an MKW kart; see KineticDamageApplier). The rider's own reading of the same crash
+     * would bill it twice, and a seated player's server-side onGround is stale anyway (vanilla
+     * never updates it for passengers), so its own evidence can't be trusted.
+     */
+    private static boolean billedThroughVehicle(Entity entity, FullStopCapability fullstop) {
+        if (!entity.isPassenger()) return false;
+        Entity vehicle = entity.getRootVehicle();
+        if (vehicle == entity || DamageImmunityRules.unphysable(vehicle)) return false;
+        if (PhysicsClaims.handsOff(vehicle, PhysicsAspect.IMPACT) || grabCapability(vehicle) == null) return false;
+        return !(vehicle instanceof LivingEntity) || fullstop.isMostlyDownward();
+    }
 
     /** Below this speed lost (m/s) a tick without a raycast hit is not worth a debug line. */
     private static final double DEBUG_LOG_MIN_STOPPING_FORCE = 4.0;

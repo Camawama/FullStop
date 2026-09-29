@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.pressure;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
@@ -132,6 +133,12 @@ public class PressureHandler {
         if (respirationSpares(living)) return;
 
         int deepWaterStart = FullStopConfig.SERVER.deepWaterStartLevel.get();
+        int damageDepth = FullStopConfig.SERVER.pressureDamageStartDepth.get();
+        if (living.getY() >= deepWaterStart && living.getY() >= damageDepth) return;
+        // Water pressure is the weight of the water overhead: none where nothing pulls (VS
+        // Genesis's space, an Ad Astra orbit).
+        if (Gravity.ambientStrength(living) < Gravity.WEIGHTLESS_BELOW) return;
+
         if (living.getY() < deepWaterStart) {
             // Config-named "multiplier" but applied as extra air lost per tick on
             // top of vanilla drowning below the start level.
@@ -139,7 +146,6 @@ public class PressureHandler {
             living.setAirSupply(Math.max(living.getAirSupply() - extraAirLossPerTick, -20));
         }
 
-        int damageDepth = FullStopConfig.SERVER.pressureDamageStartDepth.get();
         if (living.getY() < damageDepth) {
             int tickRate = FullStopConfig.SERVER.pressureDamageTickRate.get();
             if (living.tickCount % tickRate == 0) {

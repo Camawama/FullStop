@@ -32,7 +32,9 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *   <li>vegetation ({@link ShipVegetationSweep}): the leaves and plants each moving hull passes
  *   through, which VS never reports;</li>
  *   <li>impact sounds and terrain, hull (and opt-in ship) breaking from VS's reported collisions
- *   ({@link ShipTerrainImpacts}).</li>
+ *   ({@link ShipTerrainImpacts});</li>
+ *   <li>slime bounces and honey from the same collisions ({@link ShipSlimeHoney}), and the honey
+ *   glue it makes, checked and re-made every tick ({@link ShipGlue}).</li>
  * </ol>
  * Everything is off without Valkyrien Skies or with enableValkyrienSkiesCompat off.
  */
@@ -72,7 +74,7 @@ public final class ShipPhysicsServer {
 
             AABB weightBox = weight ? ShipWeightHandler.weightQueryBox(bounds) : null;
             AABB hitBox = collisions ? ShipEntityImpacts.hitBox(ship, state, bounds, now) : null;
-            AABB deckBox = deckMomentum ? ShipDeckMomentum.deckBox(state, bounds, now) : null;
+            AABB deckBox = deckMomentum ? ShipDeckMomentum.deckBox(level, state, bounds, now) : null;
             AABB query = union(union(weightBox, hitBox), deckBox);
             if (query == null) continue;
 
@@ -80,17 +82,19 @@ public final class ShipPhysicsServer {
             if (weight) {
                 ShipWeightHandler.process(level, ship, bounds, nearby, weighed);
             }
-            if (deckBox != null && !nearby.isEmpty()) {
+            if (deckBox != null) {
                 ShipDeckMomentum.process(level, ship, state, deckBox, nearby);
             }
             if (hitBox != null && !nearby.isEmpty()) {
-                ShipEntityImpacts.process(level, ship, state, hitBox, nearby, budget, pilot);
+                ShipEntityImpacts.process(level, ship, state, bounds, hitBox, nearby, budget, pilot);
             }
         }
 
         if (collisions) {
             ShipTerrainImpacts.process(level, tracker, now);
+            ShipSlimeHoney.process(level, tracker, now);
         }
+        ShipGlue.tick(level, tracker, now);
         tracker.prune(level, now);
     }
 

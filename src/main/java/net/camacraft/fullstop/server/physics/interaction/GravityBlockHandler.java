@@ -1,5 +1,7 @@
 package net.camacraft.fullstop.server.physics.interaction;
 
+import net.camacraft.camafy.compat.gravity.Gravity;
+import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -9,6 +11,7 @@ import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.FallingBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.level.BlockEvent;
 import net.minecraftforge.event.level.LevelEvent;
@@ -39,6 +42,13 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER_SPEC;
  * after the vanilla falling-block delay. A block that falls clears its old
  * position, which notifies its neighbors and re-queues them — columns collapse
  * one block at a time just like sand.
+ *
+ * Never on a Valkyrien Skies ship: the ship holds all its blocks as one rigid
+ * body, so a slime block hanging under a hull, or left beside a hole the ship's
+ * hull damage made, stays put (a falling block spawned at its shipyard position
+ * would appear far out in the world). Vanilla's own falling blocks (sand, gravel,
+ * anvils) are left to vanilla and VS. Nor in zero gravity, where a block that lost
+ * its support would only float.
  */
 public final class GravityBlockHandler {
 
@@ -99,7 +109,8 @@ public final class GravityBlockHandler {
 
             // Re-check: the block may have been broken or re-supported during the delay.
             BlockState state = level.getBlockState(pos);
-            if (state.is(FullStopTags.GRAVITY_AFFECTED) && !isSupported(level, pos, state)) {
+            if (state.is(FullStopTags.GRAVITY_AFFECTED) && !onShip(level, pos) && !isSupported(level, pos, state)
+                    && !weightless(level, pos)) {
                 FallingBlockEntity.fall(level, pos, state);
             }
         }
@@ -156,10 +167,31 @@ public final class GravityBlockHandler {
 
         BlockState state = level.getBlockState(pos);
         if (!state.is(FullStopTags.GRAVITY_AFFECTED)) return;
+        if (onShip(level, pos)) return;
         if (isSupported(level, pos, state)) return;
+        if (weightless(level, pos)) return;
 
         PENDING.computeIfAbsent(level.dimension(), key -> new HashMap<>())
                 .putIfAbsent(pos.immutable(), FALL_DELAY_TICKS);
+    }
+
+    /**
+     * Whether nothing pulls at {@code pos} (VS Genesis's space, an Ad Astra orbit, a zero-gravity
+     * dimension setting): an unsupported block there would only float until it popped into an
+     * item, so it stays where it is.
+     */
+    private static boolean weightless(ServerLevel level, BlockPos pos) {
+        return Gravity.ambientStrength(level, Vec3.atCenterOf(pos)) < Gravity.WEIGHTLESS_BELOW;
+    }
+
+    /**
+     * Whether {@code pos} is a Valkyrien Skies ship's block (a shipyard position): the ship holds
+     * it. Whatever the VS compat switch says - a falling block at a shipyard position is never
+     * right. Its neighbours there are the same ship's, so a ship block breaking (hull damage, a
+     * ship-vs-ship hit) never drops the one beside it either.
+     */
+    public static boolean onShip(ServerLevel level, BlockPos pos) {
+        return Ships.inShipyard(level, pos);
     }
 
     /** Cluster-search cap; a sticky formation bigger than this is assumed supported. */

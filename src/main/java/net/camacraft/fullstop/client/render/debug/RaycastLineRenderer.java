@@ -45,6 +45,20 @@ public final class RaycastLineRenderer {
     private static final float TOUCH_B = 0.0f;
     private static final float TOUCH_A = 0.7f;
 
+    // Valkyrien Skies ship blocks, told apart: a collision-grade hit on a ship the entity really
+    // meets this tick (MAGENTA), touching one (LAVENDER), and a ship block that is only in the
+    // ray's way - the hull moves on before the entity gets there, so it is no impact (BLUE).
+    private static final float SHIP_HIT_R = 1.0f;
+    private static final float SHIP_HIT_G = 0.0f;
+    private static final float SHIP_HIT_B = 1.0f;
+    private static final float SHIP_TOUCH_R = 0.75f;
+    private static final float SHIP_TOUCH_G = 0.55f;
+    private static final float SHIP_TOUCH_B = 1.0f;
+    private static final float SHIP_AHEAD_R = 0.2f;
+    private static final float SHIP_AHEAD_G = 0.45f;
+    private static final float SHIP_AHEAD_B = 1.0f;
+    private static final float SHIP_AHEAD_A = 0.6f;
+
     // Line Properties
     private static final int LINE_LIFE_TICKS = 5; // How long a line persists without updates (now truly ticks)
 
@@ -61,17 +75,27 @@ public final class RaycastLineRenderer {
     // Track tick time for frame-independent lifetime decay
     private static long lastLifeUpdateGameTime = -1L;
 
-    private record QueuedLine(String id, Vec3 start, Vec3 end, float r, float g, float b, float a, int life) {}
+    private record QueuedLine(String id, Vec3 start, Vec3 end, float r, float g, float b, float a, int life,
+                              boolean throughWalls) {}
     private record Line(String id, Vec3 start, Vec3 end, Vec3 prevStart, Vec3 prevEnd,
-                        float r, float g, float b, float a, int life) {}
+                        float r, float g, float b, float a, int life, boolean throughWalls) {}
 
     private RaycastLineRenderer() {}
 
     /** Queue or update a line with a stable ID. */
     public static void queueLine(String id, Vec3 start, Vec3 end,
                                  float r, float g, float b, float a, int lifeTicks) {
+        queueLine(id, start, end, r, g, b, a, lifeTicks, false);
+    }
+
+    /**
+     * As above; a line drawn {@code throughWalls} shows even inside blocks (a ship's centre-of-mass
+     * ray, which starts inside its hull).
+     */
+    public static void queueLine(String id, Vec3 start, Vec3 end,
+                                 float r, float g, float b, float a, int lifeTicks, boolean throughWalls) {
         synchronized (PENDING_LINES) {
-            PENDING_LINES.add(new QueuedLine(id, start, end, r, g, b, a, lifeTicks));
+            PENDING_LINES.add(new QueuedLine(id, start, end, r, g, b, a, lifeTicks, throughWalls));
         }
     }
 
@@ -141,6 +165,25 @@ public final class RaycastLineRenderer {
             float g = hitBlock ? (collisionGrade ? HIT_G : TOUCH_G) : MISS_G;
             float b = hitBlock ? (collisionGrade ? HIT_B : TOUCH_B) : MISS_B;
             float a = (hitBlock ? (collisionGrade ? HIT_A : TOUCH_A) : MISS_A) * speedAlphaMultiplier;
+            if (hitBlock && net.camacraft.fullstop.common.compat.ShipCompat.isShipBlock(level, blockHit.getBlockPos())) {
+                // The same real-contact test the gameplay classifier applies to ship blocks.
+                boolean contact = net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.shipHitIsContact(
+                        level, entity, fullstop, blockHit.getBlockPos());
+                if (!contact) {
+                    r = SHIP_AHEAD_R;
+                    g = SHIP_AHEAD_G;
+                    b = SHIP_AHEAD_B;
+                    a = SHIP_AHEAD_A * speedAlphaMultiplier;
+                } else if (collisionGrade) {
+                    r = SHIP_HIT_R;
+                    g = SHIP_HIT_G;
+                    b = SHIP_HIT_B;
+                } else {
+                    r = SHIP_TOUCH_R;
+                    g = SHIP_TOUCH_G;
+                    b = SHIP_TOUCH_B;
+                }
+            }
 
             // Unique ID per entity per ray to prevent flashing
             String id = "entity_" + entity.getId() + "_ray_" + index;
@@ -165,7 +208,7 @@ public final class RaycastLineRenderer {
                             queued.start, queued.end,
                             queued.start, queued.end,
                             queued.r, queued.g, queued.b, queued.a,
-                            queued.life
+                            queued.life, queued.throughWalls
                     ));
                 }
                 PENDING_LINES.clear();
@@ -201,7 +244,7 @@ public final class RaycastLineRenderer {
                             l.start, l.end,
                             l.start, l.end,
                             l.r, l.g, l.b, l.a,
-                            nextLife
+                            nextLife, l.throughWalls
                     ));
                 }
                 lastLifeUpdateGameTime = gt;
@@ -213,7 +256,25 @@ public final class RaycastLineRenderer {
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
-        // RenderSystem.disableDepthTest(); // Uncomment if you want rays visible through blocks
+
+        // Depth-tested lines first, then the ones drawn through walls.
+        drawLines(poseStack, partialTick, camPos, false);
+        RenderSystem.disableDepthTest();
+        drawLines(poseStack, partialTick, camPos, true);
+        RenderSystem.enableDepthTest();
+
+        RenderSystem.disableBlend();
+    }
+
+    private static void drawLines(PoseStack poseStack, float partialTick, Vec3 camPos, boolean throughWalls) {
+        boolean any = false;
+        for (Line line : ACTIVE_LINES.values()) {
+            if (line.throughWalls == throughWalls) {
+                any = true;
+                break;
+            }
+        }
+        if (!any) return;
 
         Tesselator tess = Tesselator.getInstance();
         BufferBuilder buffer = tess.getBuilder();
@@ -223,6 +284,7 @@ public final class RaycastLineRenderer {
         buffer.begin(VertexFormat.Mode.TRIANGLES, DefaultVertexFormat.POSITION_COLOR);
 
         for (Line line : ACTIVE_LINES.values()) {
+            if (line.throughWalls != throughWalls) continue;
             // Fade out as life decreases
             float fade = Math.min(1.0f, (float) line.life / (float) LINE_LIFE_TICKS);
 
@@ -285,9 +347,6 @@ public final class RaycastLineRenderer {
         }
 
         tess.end();
-
-        // RenderSystem.enableDepthTest(); // Re-enable depth test if you disabled it
-        RenderSystem.disableBlend();
     }
 
     public static void clear() {

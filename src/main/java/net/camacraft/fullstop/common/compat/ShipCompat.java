@@ -4,6 +4,7 @@ import net.camacraft.camafy.compat.ModPresence;
 import net.camacraft.camafy.compat.vs.ShipEntities;
 import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.common.physics.ShipSweptContact;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.Level;
@@ -69,6 +70,48 @@ public final class ShipCompat {
         return ShipEntities.carryMps(entity);
     }
 
+    /**
+     * Whether Valkyrien Skies is carrying the entity with {@code ship} right now: it stands on the
+     * ship's deck, or left it within the last second (VS goes on moving it with the ship for 25
+     * ticks after it last stood on it). Whatever that ship's hull does, VS moves such an entity
+     * with it: nothing FullStop's ship code does may treat it as struck by that ship.
+     */
+    public static boolean carriedBy(Entity entity, @Nullable net.camacraft.camafy.compat.vs.ShipRef ship) {
+        if (ship == null || !active() || !ShipEntities.isCarried(entity)) return false;
+        return ship.equals(ShipEntities.standingOn(entity, CARRY_TICKS));
+    }
+
+    /** The ship VS is carrying the entity with right now (see {@link #carriedBy}), or null. */
+    @Nullable
+    public static net.camacraft.camafy.compat.vs.ShipRef carryingShip(Entity entity) {
+        if (!active() || !ShipEntities.isCarried(entity)) return null;
+        return ShipEntities.standingOn(entity, CARRY_TICKS);
+    }
+
+    /** VS carries an entity with a ship for this many ticks after it last stood on it. */
+    public static final int CARRY_TICKS = 25;
+
+    /**
+     * Whether an entity moving at {@code worldVelocityMps} (its own velocity plus any carry, m/s)
+     * really meets the ship that owns {@code shipPos} now or within the next tick: its box, moved
+     * with its motion RELATIVE to the ship (an arc round a turning ship), comes within touching
+     * distance of one of the ship's blocks (see {@link ShipSweptContact}). A ray cast a tick of
+     * the entity's travel ahead hits whatever is in its way now; against a hull that moves away,
+     * or a rotor's arm passing, that is no collision.
+     */
+    public static boolean meetsShip(Level level, Entity entity, BlockPos shipPos, Vec3 worldVelocityMps) {
+        if (!active()) return true;
+        net.camacraft.camafy.compat.vs.ShipRef ship = Ships.managing(level, shipPos);
+        if (ship == null) return true;
+        AABB bounds = ship.worldAabb();
+        ShipSweptContact.Relative motion = ShipSweptContact.relativeTo(ship, worldVelocityMps);
+        if (bounds == null || motion == null) return true;
+        return !Double.isNaN(ShipSweptContact.firstTouch(ship::touchesBlock, bounds, motion, entity.getBoundingBox(),
+                0.0, TICK_SECONDS));
+    }
+
+    private static final double TICK_SECONDS = 0.05;
+
     /** True on the tick the entity boarded/left a ship (a position discontinuity). */
     public static boolean justChangedShip(Entity entity) {
         if (!active()) return false;
@@ -110,6 +153,28 @@ public final class ShipCompat {
     public static AABB worldToShipBox(Level level, BlockPos shipPos, AABB worldBox) {
         if (!active()) return null;
         return Ships.worldBoxToShip(level, shipPos, worldBox);
+    }
+
+    /**
+     * The world-space outward normal of a block face: turned by the ship that owns {@code pos}
+     * (raycast hits on ship blocks report their face in ship space), else the face's own.
+     */
+    public static Vec3 worldFaceNormal(Level level, BlockPos pos, net.minecraft.core.Direction face) {
+        if (active()) {
+            net.camacraft.camafy.compat.vs.ShipRef ship = Ships.managing(level, pos);
+            Vec3 normal = ship != null ? ship.faceNormal(face) : null;
+            if (normal != null) return normal;
+        }
+        return Vec3.atLowerCornerOf(face.getNormal());
+    }
+
+    /** True when every one of the positions is a ship block (also for none at all). */
+    public static boolean onlyShipBlocks(Level level, List<BlockPos> positions) {
+        if (!active()) return positions.isEmpty();
+        for (BlockPos pos : positions) {
+            if (!Ships.inShipyard(level, pos)) return false;
+        }
+        return true;
     }
 
     /**

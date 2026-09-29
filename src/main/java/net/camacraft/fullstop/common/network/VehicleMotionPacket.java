@@ -22,18 +22,29 @@ import java.util.function.Supplier;
  * reliably reaches a ridden boat — which is why an empty boat bounced off slime
  * perfectly while a ridden one landed dead. This packet delivers the bounce to
  * the authoritative side directly.
+ *
+ * <p>In DELTA mode the vector is a velocity CHANGE, not the new velocity: what a ship's hit or a
+ * deck's throw adds to a vehicle its driver simulates. The client adds it to whatever the vehicle
+ * is doing through Camafy's Impulses, so a vehicle whose motion another mod scripts (an MKW kart)
+ * takes it into its own speed fields instead of having it overwritten next tick.
  */
 public class VehicleMotionPacket {
     private final int entityId;
     private final Vec3 motion; // native blocks/tick
+    private final boolean delta;
 
     public VehicleMotionPacket(int entityId, Vec3 motion) {
+        this(entityId, motion, false);
+    }
+
+    public VehicleMotionPacket(int entityId, Vec3 motion, boolean delta) {
         this.entityId = entityId;
         this.motion = motion;
+        this.delta = delta;
     }
 
     public VehicleMotionPacket(FriendlyByteBuf buffer) {
-        this(buffer.readVarInt(), new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()));
+        this(buffer.readVarInt(), new Vec3(buffer.readDouble(), buffer.readDouble(), buffer.readDouble()), buffer.readBoolean());
     }
 
     public void encode(FriendlyByteBuf buffer) {
@@ -41,12 +52,13 @@ public class VehicleMotionPacket {
         buffer.writeDouble(motion.x);
         buffer.writeDouble(motion.y);
         buffer.writeDouble(motion.z);
+        buffer.writeBoolean(delta);
     }
 
     public void handle(Supplier<NetworkEvent.Context> ctx) {
         // consumerMainThread already puts this on the client main thread; the
         // DistExecutor hop only keeps client classes out of server classloading.
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientVehicleMotion.apply(entityId, motion));
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> () -> ClientVehicleMotion.apply(entityId, motion, delta));
         ctx.get().setPacketHandled(true);
     }
 }

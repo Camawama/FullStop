@@ -11,6 +11,18 @@ import net.minecraft.world.item.enchantment.Enchantments;
 public class DamageMitigation {
 
     public static float applyArmorReduction(LivingEntity entity, float rawDamage, boolean mostlyDownward, boolean mostlyUpward) {
+        return applyArmorReduction(entity, rawDamage, mostlyDownward, mostlyUpward, mostlyDownward);
+    }
+
+    /**
+     * @param fall whether a downward hit is a FALL (something actually pulls the entity). Only a
+     *             fall gets Feather Falling and skips the armour points, as vanilla fall damage
+     *             does. A feet-first bump in zero gravity is still taken by the boots, then
+     *             absorbed by the armour like any other hit. Always {@code mostlyDownward} under
+     *             gravity.
+     */
+    public static float applyArmorReduction(LivingEntity entity, float rawDamage, boolean mostlyDownward,
+                                            boolean mostlyUpward, boolean fall) {
         double armor = entity.getAttributeValue(Attributes.ARMOR);
         double toughness = entity.getAttributeValue(Attributes.ARMOR_TOUGHNESS);
 
@@ -30,6 +42,9 @@ public class DamageMitigation {
             if (!boots.isEmpty()) {
                 rawDamage *= 0.9f;
                 damageArmor(entity, boots, durabilityCost);
+            }
+            if (!fall) {
+                return CombatRules.getDamageAfterAbsorb(rawDamage, (float) armor, (float) toughness);
             }
 
             if (featherFallingLevel > 0) {

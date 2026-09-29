@@ -142,15 +142,21 @@ public final class FullStopDamageSources {
 
     // --- Self-inflicted kinetic damage (blocks) ----------------------------
 
+    /**
+     * @param fall whether the hit is a fall (downward, with something pulling): only a fall is
+     *             {@code kinetic_fall} (#minecraft:is_fall). A feet-first bump in zero gravity is
+     *             plain kinetic damage, though its message still says the ground.
+     */
     public static DamageSource kineticSelf(Entity entity,
                                            VelocityDisplay velocity,
                                            boolean mostlyDownward,
                                            boolean mostlyUpward,
+                                           boolean fall,
                                            boolean stalagmite,
                                            boolean waterFlop) {
         Holder<DamageType> type = stalagmite
                 ? entity.damageSources().stalagmite().typeHolder()
-                : holder(entity, mostlyDownward ? KINETIC_FALL : KINETIC);
+                : holder(entity, fall ? KINETIC_FALL : KINETIC);
 
         return new KineticSource(type) {
             @Override

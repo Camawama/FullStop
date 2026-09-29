@@ -18,6 +18,7 @@ import net.camacraft.fullstop.server.command.FullStopCommand;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
 import net.camacraft.fullstop.server.physics.interaction.GravityBlockHandler;
 import net.camacraft.fullstop.server.physics.pressure.PressureHandler;
+import net.camacraft.fullstop.server.physics.ship.ShipInertia;
 import net.camacraft.fullstop.server.physics.ship.ShipTerrainImpacts;
 import net.camacraft.fullstop.server.physics.ship.ShipWeightHandler;
 import net.minecraft.world.entity.projectile.Projectile;
@@ -57,6 +58,11 @@ public class FullStop
 
         if (FMLEnvironment.dist == Dist.CLIENT) {
             MinecraftForge.EVENT_BUS.register(PhysicsDispatchClient.class);
+            // Valkyrien Skies lets go of a player jumping off its deck (ClientShipRelease).
+            MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.ClientShipRelease.class);
+            // Hulls running into the local player are answered on its client (ClientShipContacts).
+            net.camacraft.fullstop.common.physics.ShipHullSweep.clientShoves =
+                    net.camacraft.fullstop.client.physics.ClientShipContacts::onShove;
             ModLoadingContext.get().registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
         }
 
@@ -82,6 +88,8 @@ public class FullStop
         event.enqueueWork(() -> {
             PacketHandler.register();
             ModPotions.registerBrewingRecipes();
+            // Each ship's inertia, read on VS's physics thread (a no-op without VS).
+            ShipInertia.register();
         });
         if (ShipCompat.WEIGHTRS_PRESENT) {
             LOGGER.warn("[FullStop] WeightRS is installed: Full Stop's ship weight stays off so entities don't weigh on "

@@ -5,6 +5,7 @@ import net.camacraft.camafy.compat.gravity.GravityFrame;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
@@ -29,14 +30,29 @@ public class PhysicsDispatchClient {
 
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent event) {
-        // One packet per tick, END phase only (this event fires for both phases).
-        if (event.phase != TickEvent.Phase.END) return;
         if (event.side.isServer()) return;
         if (event.player.isDeadOrDying() || event.player.isRemoved()) return;
         if (event.player != Minecraft.getInstance().player) return;
+        if (event.phase == TickEvent.Phase.START) {
+            // before the move: a hull that will strike the player during it strikes now
+            ClientShipContacts.predict((LocalPlayer) event.player);
+            return;
+        }
+        // One packet per tick, END phase only (this event fires for both phases).
 
         FullStopCapability cap = grabCapability(event.player);
         if (cap == null) return;
+
+        // A hull that struck the player during this tick's move (ClientShipContacts): its kick goes
+        // on now, after the move (VS's collision response inside the move would have cut it), so
+        // the next move carries the player clear - and this tick's report already includes it.
+        Vec3 kick = cap.takeShipKick();
+        if (kick.lengthSqr() > 0.0) {
+            GravityFrame frame = cap.getFrame();
+            Gravity.setWorldVelocity(event.player, Gravity.getWorldVelocity(event.player, frame).add(kick), frame);
+            event.player.hasImpulse = true;
+            if (event.player instanceof LocalPlayer local) ClientShipContacts.liftOff(local, frame, kick);
+        }
 
         // WORLD-space: the server compares this against its own world-space
         // position measurement, and under a Gravity Unbound field the raw
@@ -56,13 +72,23 @@ public class PhysicsDispatchClient {
                 GravityFrame vehicleFrame = vehicleCap != null ? vehicleCap.getFrame() : GravityFrame.DEFAULT;
                 boolean vehicleJumped = vehicleCap != null && vehicleCap.takeUnsentDiscontinuity(vehicle);
                 PacketHandler.sendToServer(new PlayerDeltaPacket(Gravity.getWorldVelocity(vehicle, vehicleFrame), true,
-                        vehicle.horizontalCollision, vehicle.verticalCollision, vehicleJumped));
+                        vehicle.horizontalCollision, vehicle.verticalCollision, vehicleJumped,
+                        ShipCompat.shipDragVelocityMps(vehicle), vehicleCap != null ? vehicleCap.shipPushMps(vehicle) : Vec3.ZERO));
             }
         } else {
+            // With what this client's Valkyrien Skies added to the player's position this tick (a
+            // deck's carry, a hull's shove), as measured with the ship poses this client drew:
+            // the server measures the player by this client's positions, and must take out what
+            // went into them, not what its own (further along) ship poses say.
             PacketHandler.sendToServer(new PlayerDeltaPacket(playerDelta, false,
                     event.player.horizontalCollision, event.player.verticalCollision,
-                    cap.takeUnsentDiscontinuity(event.player)));
+                    cap.takeUnsentDiscontinuity(event.player),
+                    ShipCompat.shipDragVelocityMps(event.player), cap.shipPushMps(event.player)));
         }
+
+        // After the report (which still carries this tick's deck carry): VS lets go of a player that
+        // left the deck carrying it, and a jumper keeps the deck's momentum (ClientShipRelease).
+        ClientShipRelease.afterMove((LocalPlayer) event.player, cap);
     }
 
     /**

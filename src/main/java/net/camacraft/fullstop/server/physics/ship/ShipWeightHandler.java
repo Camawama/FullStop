@@ -6,6 +6,7 @@ import net.camacraft.camafy.compat.vs.PointForce;
 import net.camacraft.camafy.compat.vs.ShipEntities;
 import net.camacraft.camafy.compat.vs.ShipForces;
 import net.camacraft.camafy.compat.vs.ShipRef;
+import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.camafy.physics.EntityStack;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.camafy.util.math.Units;
@@ -47,6 +48,12 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * entities FullStop doesn't simulate (dropped items, blacklisted entities, bodies another mod owns
  * outright such as MKW's karts - their weight is a force ON the ship, which is still ours).
  * Jumps come from {@link LivingEvent.LivingJumpEvent}.
+ *
+ * <p>Jumps and landings are two-body exchanges ({@link ShipContactPhysics}) with the ship's
+ * effective mass at the rider's feet ({@link ShipInertia}): a heavy rider jumping off or landing
+ * on the edge of a small raft rocks it, it doesn't fling it - pushing a light deck as if it were
+ * as stiff as its whole mass is what used to spin small rafts up under heavy riders. Standing
+ * weight is the static support force {@code m*g} at the feet, only while the rider stands.
  */
 public final class ShipWeightHandler {
 
@@ -119,23 +126,76 @@ public final class ShipWeightHandler {
             if (kg < minKg) continue;
 
             Vec3 pos = entity.position();
+            // Its weight is its local gravity's: none in VS Genesis's space or an Ad Astra orbit, a
+            // sixth on the Moon (Camafy's strength counts every source, whatever the Gravity
+            // Unbound compat switch says; that switch only picks the direction of the pull).
             Vec3 down = gravityFields ? Gravity.pullDirection(entity) : GravityFrame.WORLD_UP.scale(-1);
-            double strength = gravityFields ? Gravity.strength(entity) : 1.0;
-            double newtons = Math.min(kg * gravity * strength, maxNewtons);
+            double strength = Gravity.strength(entity);
+            double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength, maxNewtons);
             if ((isItem || standingWeight) && newtons > 0.0) {
                 standing.add(PointForce.at(down.scale(newtons), pos));
             }
 
-            // A self-tracked landing: its momentum goes into the deck.
+            // A self-tracked landing: its momentum goes into the deck (two-body: never harder than
+            // the lander was moving), unless the ship itself just threw it.
             if (selfTracked && landings && previousVy < -LANDING_MIN_FALL_BPT) {
-                double impactSpeed = Units.bptToMps(-previousVy);
-                ShipImpulses.applyCapped(level, ship, new Vec3(0.0, -kg * impactSpeed * SERVER.fallImpactMultiplier.get(), 0.0), pos);
+                FullStopCapability cap = FullStopCapability.grabCapability(entity);
+                if (cap == null || !cap.isShipFeedbackBlocked(ship.id(), now)) {
+                    double impactSpeed = Units.bptToMps(-previousVy);
+                    double impulse = deckImpulse(ship, pos, down.scale(-1.0), impactSpeed, kg);
+                    ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.fallImpactMultiplier.get()), pos);
+                }
                 landed(entity);
+            }
+        }
+
+        // Seated riders: a seat that is part of this ship (a VS helm, a Create or Clockwork seat)
+        // carries its occupant's weight into the hull just as the deck carries a standing one.
+        if (standingWeight) {
+            for (Entity rider : seatedRiders(level, nearby)) {
+                if (weighed.contains(rider.getId()) || !rider.isAlive() || rider.isSpectator()) continue;
+                if (!players && rider instanceof Player) continue;
+                if (!ship.equals(ShipEntities.mountedTo(rider))) continue;
+                weighed.add(rider.getId());
+                double kg = stackWeightKg(rider);
+                if (kg < minKg) continue;
+                Vec3 down = gravityFields ? Gravity.pullDirection(rider) : GravityFrame.WORLD_UP.scale(-1);
+                double strength = Gravity.strength(rider);
+                double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength, maxNewtons);
+                if (newtons > 0.0) {
+                    standing.add(PointForce.at(down.scale(newtons), seatPoint(ship, rider)));
+                }
             }
         }
 
         // Replaces last tick's set; an empty list clears it.
         ShipForces.setContinuous(level, ship.id(), STANDING, standing, STANDING_TTL_TICKS);
+    }
+
+    /**
+     * Everything that may sit in a seat of a ship near {@code nearby}: the level's players (a
+     * seat entity lives in the shipyard, so a seated player isn't always among the entities found
+     * around the ship in the world) and the riders found there.
+     */
+    private static List<Entity> seatedRiders(ServerLevel level, List<Entity> nearby) {
+        List<Entity> out = new ArrayList<>();
+        for (Player player : level.players()) {
+            if (player.isPassenger()) out.add(player);
+        }
+        for (Entity entity : nearby) {
+            if (entity.isPassenger() && !(entity instanceof Player)) out.add(entity);
+        }
+        return out;
+    }
+
+    /** Where a seated rider's weight goes into the ship: its seat, in the world. */
+    private static Vec3 seatPoint(ShipRef ship, Entity rider) {
+        Entity seat = rider.getVehicle();
+        if (seat != null && Ships.inShipyard(seat.level(), seat.getX(), seat.getY(), seat.getZ())) {
+            Vec3 world = ship.toWorld(seat.position());
+            if (world != null) return world;
+        }
+        return rider.position();
     }
 
     /** Clears this ship's standing weight (it has no bounds this tick). */
@@ -212,8 +272,21 @@ public final class ShipWeightHandler {
         }
         double jumpSpeed = Units.bptToMps(jumpBpt);
         Vec3 down = frame.up().scale(-1);
-        ShipImpulses.applyCapped(level, ship, down.scale(kg * jumpSpeed * SERVER.jumpImpulseMultiplier.get()),
-                entity.position());
+        double impulse = deckImpulse(ship, entity.position(), frame.up(), jumpSpeed, kg);
+        ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.jumpImpulseMultiplier.get()), entity.position());
+    }
+
+    /**
+     * The impulse (N s) between a deck and {@code kg} leaving or landing on it at {@code speed}
+     * (m/s, relative to the deck) along {@code up} at {@code at}: the two-body exchange with the
+     * ship's effective mass there. Against a big ship it is {@code kg * speed}; a light raft
+     * gives way, and is pushed no faster at that point than the rider was moving.
+     */
+    private static double deckImpulse(ShipRef ship, Vec3 at, Vec3 up, double speed, double kg) {
+        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
+        double effective = ShipInertia.effectiveMassKg(ship, shipKg, at, up);
+        return ShipContactPhysics.resolve(speed, kg, effective, 0.0).impulse();
     }
 
     // ------------------------------------------------------------------

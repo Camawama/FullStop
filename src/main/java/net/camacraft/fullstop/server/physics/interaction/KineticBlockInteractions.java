@@ -8,6 +8,7 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
+import net.camacraft.fullstop.server.physics.ship.ShipEntityHits;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
@@ -76,6 +77,8 @@ import org.jetbrains.annotations.Nullable;
  * here — that made bumping into levers/chests/item frames activate them.
  */
 public class KineticBlockInteractions {
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     private static final double HARDNESS_BREAK_THRESHOLD_MULTIPLIER = 1.0;
     private static final double GRASS_PATH_THRESHOLD = 0.5;
@@ -404,8 +407,15 @@ public class KineticBlockInteractions {
             // speed alone let a boat gliding across packed ice shatter it — huge
             // tangential velocity, almost none into the surface. Head-on impacts
             // are unaffected (their normal component ≈ the full speed).
+            // A Valkyrien Skies ship's block: its face is in ship space, the hull
+            // can be moving, and a collision with a ship can only spend what the
+            // two bodies' closing speed carries with their reduced mass (a light
+            // raft is shoved, not smashed) - see ShipEntityHits.blockImpact.
+            ShipEntityHits.BlockImpact shipImpact = ShipEntityHits.blockImpact(level, entity, hitResult, impactVelocity, totalMass);
             Vec3 faceNormal = Vec3.atLowerCornerOf(hitResult.getDirection().getNormal());
-            if (-impactVelocity.dot(faceNormal) < MIN_VELOCITY_REQUIRED) continue;
+            double intoFace = shipImpact != null ? shipImpact.closingBpt() : -impactVelocity.dot(faceNormal);
+            if (intoFace < MIN_VELOCITY_REQUIRED) continue;
+            double available = shipImpact != null ? Math.min(kineticEnergy, shipImpact.energyUnits()) : kineticEnergy;
 
             float hardness = state.getDestroySpeed(level, pos);
             boolean isFragile = state.is(FullStopTags.FRAGILE);
@@ -424,8 +434,16 @@ public class KineticBlockInteractions {
             float priorFraction = crack != null ? crack.priorFraction() : 0;
             double effectiveBreakCost = breakCost * (1.0 - priorFraction);
 
+            if (ShipCompat.isShipBlock(level, pos) && FullStopConfig.SERVER.debugShipCollisionLog.get()) {
+                LOGGER.info("[FullStop] {} strikes ship block {} ({}): into face {} b/t, energy {} of its own {}, cost {}{}",
+                        entity.getName().getString(), pos, net.minecraftforge.registries.ForgeRegistries.BLOCKS.getKey(state.getBlock()),
+                        String.format(java.util.Locale.ROOT, "%.3f", intoFace), String.format(java.util.Locale.ROOT, "%.2f", available),
+                        String.format(java.util.Locale.ROOT, "%.2f", kineticEnergy), String.format(java.util.Locale.ROOT, "%.2f", effectiveBreakCost),
+                        shipImpact == null ? " (NOT resolved as a ship block)" : shipImpact.rider() ? " (rider)" : "");
+            }
+
             // Claim/protection mods get their say through the break event.
-            if (kineticEnergy >= effectiveBreakCost && BlockAlterRules.breakEventAllows(level, pos, state, entity)) {
+            if (available >= effectiveBreakCost && BlockAlterRules.breakEventAllows(level, pos, state, entity)) {
                 if (level.destroyBlock(pos, true, entity)) {
                     forgetCrack(level, pos, crack);
                     blockBroken = true;
@@ -436,12 +454,14 @@ public class KineticBlockInteractions {
                     remainingVelocityMag = newVelocityMag;
                     smashDamage += Math.max(velocityMag * 20 - GRAZE_MIN_SPEED_MPS, 0) * GRAZE_DAMAGE_FACTOR;
 
-                    // Ship blocks: break them, but leave the entity's motion alone.
-                    // Rewriting velocity + hurtMarked + clearing collision flags
+                    // Ship blocks: punching through one slows the entity like any
+                    // block, and the ship takes the momentum it lost there - except
+                    // for the ship's own rider (a hard landing through its deck):
+                    // rewriting velocity + hurtMarked + clearing collision flags
                     // while VS's dragging constraint owns the entity fights its
                     // solver and can wedge the player against the ship until they
                     // teleport out.
-                    if (!ShipCompat.isShipBlock(level, pos)) {
+                    if (shipImpact == null || !shipImpact.rider()) {
                         Vec3 newVelocity = impactVelocity.normalize().scale(newVelocityMag);
                         Gravity.setWorldVelocity(entity, newVelocity, frame);
                         entity.hasImpulse = true;
@@ -449,6 +469,10 @@ public class KineticBlockInteractions {
                         entity.verticalCollision = false;
                         entity.horizontalCollision = false;
                         entity.hurtMarked = true;
+                        if (shipImpact != null) {
+                            ShipEntityHits.punchedThrough(level, entity, shipImpact, impactVelocity,
+                                    (velocityMag - newVelocityMag) * 20.0);
+                        }
                     }
                 }
             }
@@ -463,7 +487,7 @@ public class KineticBlockInteractions {
             // Cracks show from 15% of break energy — at the old 40% a medium-speed
             // impact that clearly thumped a wall showed nothing at all.
             double partialThreshold = 0.15;
-            double damageRatio = kineticEnergy / breakCost;
+            double damageRatio = available / breakCost;
             if (!blockBroken && damageRatio > partialThreshold) {
                 if (crack != null) {
                     // Persistent path: the damage sticks to the BLOCK.
@@ -487,7 +511,9 @@ public class KineticBlockInteractions {
         if (blockBroken) {
             // Speed actually lost punching through counts like any other stopping force.
             double speedLostMps = (velocityMag - remainingVelocityMag) * 20;
-            boolean mostlyVertical = Math.abs(frame.vertical(impactVelocity)) > frame.horizontalDistance(impactVelocity);
+            // In zero gravity nothing is a fall: every direction takes the horizontal threshold.
+            boolean mostlyVertical = Math.abs(frame.vertical(impactVelocity)) > frame.horizontalDistance(impactVelocity)
+                    && !Gravity.isWeightless(entity);
             double threshold = mostlyVertical
                     ? FullStopConfig.SERVER.velocityDamageThresholdVertical.get()
                     : FullStopConfig.SERVER.velocityDamageThresholdHorizontal.get();
@@ -791,8 +817,17 @@ public class KineticBlockInteractions {
             BlockHitResult hitResult = impactedHits.get(i);
 
             if (state.getBlock() instanceof PointedDripstoneBlock && hitResult.getDirection().getAxis().isHorizontal()) {
+                // A spike on a Valkyrien Skies ship stays with it: the ship holds its blocks, and
+                // a falling block at its shipyard position would appear far out in the world.
+                if (GravityBlockHandler.onShip(level, pos)) continue;
                 if (BlockAlterRules.mayGrief(level, entity) && BlockAlterRules.mayBreak(level, pos, state, entity)) {
                     level.playSound(null, pos, SoundEvents.POINTED_DRIPSTONE_BREAK, SoundSource.BLOCKS, 1.0f, 1.0f);
+                    if (Gravity.ambientStrength(level, Vec3.atCenterOf(pos)) < Gravity.WEIGHTLESS_BELOW) {
+                        // Zero gravity: a spike knocked loose would only float until it popped
+                        // into an item; it just breaks off.
+                        level.destroyBlock(pos, true, entity);
+                        return true;
+                    }
                     FallingBlockEntity fallingSpike = FallingBlockEntity.fall(level, pos, state);
                     // Vanilla handles the impact from here: hurtEntities gives the spike
                     // the proper falling_stalactite damage on whatever it lands on.
