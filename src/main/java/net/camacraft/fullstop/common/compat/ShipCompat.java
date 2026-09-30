@@ -92,6 +92,16 @@ public final class ShipCompat {
     public static final int CARRY_TICKS = 25;
 
     /**
+     * The ship whose seat the entity sits in (a helm, a VS, Create or Clockwork seat on the ship), or null. VS
+     * puts such a rider where its seat is every tick: all of its motion is the ship's.
+     */
+    @Nullable
+    public static net.camacraft.camafy.compat.vs.ShipRef seatShip(Entity entity) {
+        if (!entity.isPassenger() || !active()) return null;
+        return ShipEntities.mountedTo(entity);
+    }
+
+    /**
      * Whether an entity moving at {@code worldVelocityMps} (its own velocity plus any carry, m/s)
      * really meets the ship that owns {@code shipPos} now or within the next tick: its box, moved
      * with its motion RELATIVE to the ship (an arc round a turning ship), comes within touching

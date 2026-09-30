@@ -121,10 +121,20 @@ public final class ShipSeatWeightTests {
                     emptyRaft.pin();
                     report("a player seated on a floating raft", out);
                     // The float holds each raft up by about its own weight (VS's gravity and damping make
-                    // it inexact, the same for both); the seated player's weight on top, about 80 kg on
-                    // 4.5 t, must sink its raft faster: some 0.17 m/s^2 more, 0.35 m/s after 2 s.
-                    helper.assertTrue(vs != null && ve != null && vs.y - ve.y < -0.15 && dropSeated - dropEmpty > 0.1,
-                            "the seated player didn't weigh the raft down: " + out);
+                    // it inexact, the same for both); the seated player's weight on top, 75 kg on 4.5 t,
+                    // must sink its raft faster by g * 75 / 4500, about 0.16 m/s^2. How much of the 40 ticks
+                    // VS's physics actually ran varies a lot in the test server (it stalls, and a server tick
+                    // that finishes sooner leaves it less time): from rest under a constant extra pull the
+                    // two rafts part by dv^2 / (2a), whatever that time was, so the pull is judged by that.
+                    double dv = ve == null || vs == null ? 0.0 : ve.y - vs.y;
+                    double dd = dropSeated - dropEmpty;
+                    double pull = dd > 1.0e-4 ? dv * dv / (2.0 * dd) : 0.0;
+                    Vec3 g = seatedRaft.gravity();
+                    double expected = net.camacraft.fullstop.server.physics.ship.ShipContactPhysics.bodyKg(rider)
+                            * (g == null ? 9.81 : g.length()) / seatedRaft.ref.mass();
+                    helper.assertTrue(dv > 0.05 && Math.abs(pull - expected) < 0.35 * expected,
+                            String.format(Locale.ROOT, "the seated player didn't weigh the raft down: the extra pull %.3f m/s^2 "
+                                    + "(expected %.3f): ", pull, expected) + out);
                     helper.succeed();
                 });
     }

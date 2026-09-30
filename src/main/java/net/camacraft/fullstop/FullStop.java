@@ -60,6 +60,8 @@ public class FullStop
             MinecraftForge.EVENT_BUS.register(PhysicsDispatchClient.class);
             // Valkyrien Skies lets go of a player jumping off its deck (ClientShipRelease).
             MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.ClientShipRelease.class);
+            // Mobs a hull pushes are drawn against its face, not inside it (ClientHullClearance).
+            MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.physics.ClientHullClearance.class);
             // Hulls running into the local player are answered on its client (ClientShipContacts).
             net.camacraft.fullstop.common.physics.ShipHullSweep.clientShoves =
                     net.camacraft.fullstop.client.physics.ClientShipContacts::onShove;
@@ -68,6 +70,9 @@ public class FullStop
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.RideStackHandler.class);
+        // Knockback carries a Pehkui-resized entity as far as a normal-size one (scaledKnockback).
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.ScaledKnockback.class);
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.SonicBooms.class);
         MinecraftForge.EVENT_BUS.register(GravityBlockHandler.class);
         MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(BlockPhasing.class);

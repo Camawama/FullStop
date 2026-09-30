@@ -16,7 +16,26 @@ public class CollisionParticleSpawner {
     }
 
     public static void spawnParticle(Level level, Vec3 pos, Collision.CollisionType collisionType, BlockState blockState) {
+        spawnParticle(level, pos, collisionType, blockState, 1.0);
+    }
+
+    /**
+     * As above, for an entity {@code size} times its normal height (Camafy's EntityScale): the burst spreads that
+     * much less, and below half size the block's chips - a fixed tenth of a block each, bigger than a player shrunk
+     * to 1/16 - become dust in the block's colour, sized to the entity.
+     */
+    public static void spawnParticle(Level level, Vec3 pos, Collision.CollisionType collisionType, BlockState blockState, double size) {
         if (!(level instanceof ServerLevel serverLevel)) {
+            return;
+        }
+        double scale = Double.isFinite(size) && size > 0.0 ? Math.min(size, 1.0) : 1.0;
+        if (scale < 0.5 && blockState != null && (collisionType == Collision.CollisionType.SOLID
+                || collisionType == Collision.CollisionType.BED || collisionType == Collision.CollisionType.SLIME)) {
+            int colour = blockState.getMapColor(level, net.minecraft.core.BlockPos.containing(pos)).col;
+            org.joml.Vector3f rgb = new org.joml.Vector3f(((colour >> 16) & 0xFF) / 255.0f, ((colour >> 8) & 0xFF) / 255.0f,
+                    (colour & 0xFF) / 255.0f);
+            serverLevel.sendParticles(new net.minecraft.core.particles.DustParticleOptions(rgb, (float) Math.max(0.01, scale * 1.2)),
+                    pos.x, pos.y, pos.z, 6, 0.1 * scale, 0.1 * scale, 0.1 * scale, 0.1 * scale);
             return;
         }
 
@@ -34,8 +53,8 @@ public class CollisionParticleSpawner {
                     particleType,
                     pos.x, pos.y, pos.z,
                     6,
-                    0.1, 0.1, 0.1,
-                    0.1
+                    0.1 * scale, 0.1 * scale, 0.1 * scale,
+                    0.1 * scale
             );
         }
     }

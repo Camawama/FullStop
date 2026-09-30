@@ -35,6 +35,11 @@ import net.minecraftforge.common.util.FakePlayer;
  * </ul>
  * Another mod owning the body's motion without taking impulses (a MOTION claim, nobody scripting
  * it through Camafy) means the body is left alone.
+ *
+ * <p>The change is real motion in the world. A body a size mod shrank (Pehkui, which VS Genesis bundles:
+ * everything in its space is 1/16) is moved by only its motion scale's share of its own velocity, so it
+ * gets the change divided by that ({@code EntityScale.velocityFor}): a hull's kick used to carry a 1/16
+ * player a sixteenth as far.</p>
  */
 public final class BodyPush {
 
@@ -72,6 +77,8 @@ public final class BodyPush {
 
     public static boolean push(Entity root, Vec3 deltaBpt, GravityFrame frame, Vec3 playerOwnMps) {
         if (!(deltaBpt.lengthSqr() > 0.0) || !Double.isFinite(deltaBpt.lengthSqr())) return false;
+        // real motion in the world, into the body's own velocity (see the class notes)
+        deltaBpt = net.camacraft.camafy.compat.scale.EntityScale.velocityFor(root, deltaBpt);
         boolean scripted = CamafyImpulses.scripted(root);
         if (!scripted && PhysicsClaims.handsOff(root, PhysicsAspect.MOTION)) return false;
 
@@ -102,7 +109,8 @@ public final class BodyPush {
             // Only the player's own motion is kept (a ship's carry excluded): a server-side
             // player's deltaMovement is meaningless, so the measured velocity stands in for it -
             // unless something already pushed it this tick.
-            Vec3 ownBpt = root.hasImpulse ? Gravity.getWorldVelocity(root, frame) : playerOwnMps.scale(0.05);
+            Vec3 ownBpt = root.hasImpulse ? Gravity.getWorldVelocity(root, frame)
+                    : net.camacraft.camafy.compat.scale.EntityScale.velocityFor(root, playerOwnMps.scale(0.05));
             Gravity.setWorldVelocity(root, ownBpt.add(deltaBpt), frame);
             root.hasImpulse = true;
             root.hurtMarked = true;
@@ -111,6 +119,10 @@ public final class BodyPush {
         }
         CamafyImpulses.add(root, deltaBpt);
         root.hurtMarked = true;
+        // its place goes to the clients this tick too, not at its type's next update (every third tick for most mobs,
+        // which the clients then ease toward over three ticks): a mob a hull pushed along each tick was drawn two or
+        // three ticks behind the hull pushing it, half a block inside it at 4 m/s
+        root.hasImpulse = true;
         return true;
     }
 }

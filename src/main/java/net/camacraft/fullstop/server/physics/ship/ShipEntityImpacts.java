@@ -88,9 +88,15 @@ import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCa
  * what the hull would never reach.
  *
  * <p>Never hit: entities riding this ship (seated, standing on its deck, or carried with it by VS at
- * all - VS goes on moving what just left a deck with the ship for a second), spectators, creative
- * players, entities tagged {@code fullstop:ship_immune} or {@code fullstop:physics_blacklist},
- * and bodies whose impacts another mod owns (MKW Mobility's karts and their drivers in a race).
+ * all - VS goes on moving what just left a deck with the ship for a second), spectators, entities
+ * tagged {@code fullstop:ship_immune} or {@code fullstop:physics_blacklist}, and bodies whose impacts
+ * another mod owns (MKW Mobility's karts and their drivers in a race). Creative players are knocked
+ * about like anyone else, never hurt.
+ *
+ * <p>A slow hull (under {@code gentlePushSpeed} at the body's own size) pushes rather than strikes:
+ * whatever it will reach within the tick is given the share of its speed that has it end the tick
+ * against the face, so a pushed body moves along with the face instead of being kicked ahead, slowing
+ * and being caught again.
  *
  * <p>Players on foot are not judged here at all: their own client reports the hulls that run into
  * them ({@link #clientContact}). A player moves on its client, and the server's ship poses run
@@ -115,6 +121,8 @@ public final class ShipEntityImpacts {
     private static final double PRESSED_INTO_GROUND = 0.7;
     /** How far below its feet solid ground makes an entity grounded for the pin check. */
     private static final double GROUND_PROBE = 0.05;
+    /** A server tick (s): a slow hull pushes what it will reach within one. */
+    private static final double TICK_SECONDS = 0.05;
 
     private ShipEntityImpacts() {
     }
@@ -169,7 +177,8 @@ public final class ShipEntityImpacts {
         }
         double spin = state.angularVelocity().length();
         double fastest = state.velocity().length() + spin * radius;
-        if (fastest < SERVER.pushMinSpeed.get()) return null;
+        // (at the ship's size: a 1/16 ship in VS Genesis's space pushes the 1/16 bodies there as slowly)
+        if (fastest < SERVER.pushMinSpeed.get() * Math.min(1.0, ship.scale())) return null;
         double ahead = state.sweepSeconds(now);
         double back = sinceLastFrame(state);
         AABB sphere = new AABB(com.x - radius, com.y - radius, com.z - radius, com.x + radius, com.y + radius, com.z + radius);
@@ -189,8 +198,8 @@ public final class ShipEntityImpacts {
             String why = excluded(ship, root);
             if (why == null && clientReports(root)) why = "its own client reports this ship's hits on it";
             if (why != null) {
-                if (root instanceof ServerPlayer player && SERVER.debugShipContactLog.get()) {
-                    logSkip(level, ship, player, why);
+                if ((root instanceof ServerPlayer && SERVER.debugShipContactLog.get()) || SERVER.debugShipCollisionLog.get()) {
+                    logSkip(level, ship, root, why);
                 }
                 continue;
             }
@@ -202,7 +211,7 @@ public final class ShipEntityImpacts {
     /** Last tick each player's skip was logged, per ship (debugShipContactLog: once a second, only while touching). */
     private static final Map<Entity, long[]> SKIP_LOGGED = Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static void logSkip(ServerLevel level, ShipRef ship, ServerPlayer player, String why) {
+    private static void logSkip(ServerLevel level, ShipRef ship, Entity player, String why) {
         if (!ship.touchesBlock(player.getBoundingBox().inflate(0.5))) return;
         long now = level.getGameTime();
         long[] last = SKIP_LOGGED.computeIfAbsent(player, p -> new long[]{Long.MIN_VALUE, Long.MIN_VALUE});
@@ -221,7 +230,7 @@ public final class ShipEntityImpacts {
     private static String excluded(ShipRef ship, Entity root) {
         if (DamageImmunityRules.unphysableIgnoringAi(root)) return "unphysable"; // items, orbs, blacklist, dead
         if (root.isSpectator()) return "spectator";
-        if (root instanceof Player player && player.isCreative()) return "creative";
+        // creative players are knocked about like anyone else (never hurt: DamageImmunityRules)
         if (root.getType().is(FullStopTags.SHIP_IMMUNE)) return "ship_immune";
         // A seat that lives on this ship (its root sits in the ship's shipyard).
         if (ship.equals(Ships.managing(root))) return "a seat of this ship";
@@ -229,10 +238,15 @@ public final class ShipEntityImpacts {
         // it right underfoot - not merely above some part of the hull, as a boat is when a bow
         // reaches under it), or seated on it - or carried with it by VS at all (it left the deck
         // less than a second ago: VS still moves it with the ship, so the ship can't strike it).
-        if (ship.equals(ShipEntities.standingOn(root, 5)) || (root.onGround() && ship.isUnderfoot(root))) return STANDING_ON;
+        // VS's record counts only with the ship under the body: VS also records a body the hull merely touched from the
+        // side (a mob floating in zero gravity beside a spinning arm), and left out, the arm went through it while VS
+        // pushed it out of the arm a little at a time. A body VS really carries moves with the hull and meets it
+        // closing at nothing, which the swept test below answers anyway.
+        boolean underfoot = ship.isUnderfoot(root);
+        if ((underfoot && ship.equals(ShipEntities.standingOn(root, 5))) || (root.onGround() && underfoot)) return STANDING_ON;
         for (Entity member : EntityStack.selfAndPassengers(root)) {
             if (ship.equals(ShipEntities.mountedTo(member))) return "seated on it";
-            if (ShipCompat.carriedBy(member, ship)) return CARRIED;
+            if (ShipCompat.carriedBy(member, ship) && (underfoot || member instanceof Player)) return CARRIED;
             // Another mod owns this body's impacts (an MKW kart and its driver in a race, or in
             // its own scripted hops). A hull is not an entity: a CONTACT claim (entity-meets-entity,
             // which MKW keeps for free-roaming karts) doesn't keep ships off.
@@ -263,9 +277,6 @@ public final class ShipEntityImpacts {
                 state.sweepSeconds(now));
         if (meeting == null) return;
         double t = meeting.t();
-        // Within a hit's cooldown only a hull that has actually caught the body up again pushes
-        // it on - not one that would, going by a velocity that hasn't caught up with the push.
-        if (cooling && t > 0.0) return;
 
         // The contact the hull drives into hardest (in the ship's frame as it is now).
         ShipContact best = null;
@@ -290,26 +301,39 @@ public final class ShipEntityImpacts {
 
         // The ship must be doing the hitting: its own speed into the entity at least what the
         // entity brings (running into a hull is ShipEntityHits' business, or an ordinary wall).
+        // pushMinSpeed at the body's own size (a 1/16 body is pushed by a hull 1/16 as fast).
         double hullIn = motion.hullVelocity(bestPoint, t).dot(normalNow);
-        if (hullIn < Math.max(SERVER.pushMinSpeed.get(), -motion.turn(entityV, -t).dot(normalNow))) return;
+        double pushMin = SERVER.pushMinSpeed.get() * net.camacraft.camafy.compat.scale.EntityScale.motion(root);
+        if (hullIn < Math.max(pushMin, -motion.turn(entityV, -t).dot(normalNow))) return;
+
+        // a slow hull only pushes: no bounce, no lift (see gentlePushSpeed)
+        boolean gentle = ShipContactPhysics.gentle(root, approach);
+        // Within a hit's cooldown only a hull that has actually caught the body up again strikes it on - not one that
+        // would, going by a velocity that hasn't caught up with the push. A slow hull's push is a contact, not a strike:
+        // the face reaching the body within this tick pushes it now by as much as the face will have come into it by the
+        // tick's end (the body ends the tick against the face, and moves with it); later than that, it waits. Pushed
+        // only once it had sunk in, a body the hull had given its speed slid ahead, slowed (on the ground to half its
+        // speed a tick), and was caught and kicked again - a push in jerks (the owner's stutter).
+        if (t > 0.0 && (gentle ? t > TICK_SECONDS : cooling)) return;
+        double share = gentle && t > 0.0 ? 1.0 - t / TICK_SECONDS : 1.0;
 
         // The shared two-body law (ShipContactPhysics), with the ship's effective mass where it hit.
         Vec3 normal = motion.turn(normalNow, t); // the same normal in the world, as they meet
         double effective = ShipInertia.effectiveMassKg(ship, state.mass(), bestPoint, normalNow);
         boolean weightless = Gravity.isWeightless(root);
         ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(approach, ShipContactPhysics.bodyKg(root), effective,
-                ShipContactPhysics.restitution(normal, frame, weightless));
+                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless));
         double entityKg = exchange.entityKg();
         double shipKg = exchange.shipKg();
         double speedLost = exchange.speedLost();
-        double kick = exchange.kick();
+        double kick = exchange.kick() * share;
 
         // Friction: the hull sliding past the body drags it along, at most hullFriction times the
         // normal kick (Coulomb), and no further than until the two move together there.
         Vec3 slip = bestRelative.subtract(normalNow.scale(bestRelative.dot(normalNow)));
         double slipSpeed = slip.length();
-        double share = Double.isInfinite(shipKg) || !(shipKg > 0.0) ? 1.0 : shipKg / (shipKg + entityKg);
-        double frictionDv = slipSpeed > 1.0e-6 ? Math.min(SERVER.hullFriction.get() * kick, share * slipSpeed) : 0.0;
+        double shipShare = Double.isInfinite(shipKg) || !(shipKg > 0.0) ? 1.0 : shipKg / (shipKg + entityKg);
+        double frictionDv = slipSpeed > 1.0e-6 ? Math.min(SERVER.hullFriction.get() * kick, shipShare * slipSpeed) : 0.0;
         Vec3 slipDirNow = frictionDv > 0.0 ? slip.scale(1.0 / slipSpeed) : Vec3.ZERO;
         Vec3 change = normal.scale(kick).add(motion.turn(slipDirNow, t).scale(frictionDv));
         // A body knocked sideways off its feet leaves the ground (as vanilla's knockback lifts it):
@@ -317,12 +341,13 @@ public final class ShipEntityImpacts {
         // coming, would only shove it along. Scaled by its gravity: none in zero gravity, where
         // there is no ground friction to beat and a lift would carry it off for good.
         double lift = 0.0;
-        if (root.onGround() && Math.abs(frame.vertical(normal)) < ShipContactPhysics.FROM_BELOW) {
+        if (!gentle && root.onGround() && Math.abs(frame.vertical(normal)) < ShipContactPhysics.FROM_BELOW) {
             Vec3 up = frame.up();
             double across = change.subtract(up.scale(frame.vertical(change))).length();
             lift = SERVER.hitLift.get() * ShipContactPhysics.liftShare(root) * across;
             change = change.add(up.scale(lift));
         }
+        change = ShipContactPhysics.capLaunch(root, entityV, change);
 
         boolean pinned = isPinned(level, ship, root, box, normal, frame);
         if (pinned && cooling) return; // crushed, and already hurt for this hit
@@ -343,15 +368,15 @@ public final class ShipEntityImpacts {
 
             if (SERVER.reactionImpulses.get() && !pushed.equals(Vec3.ZERO)) {
                 // the contact force back on the ship, in its frame as it is now: normal and friction
-                Vec3 impulse = normalNow.scale(exchange.impulse()).add(slipDirNow.scale(entityKg * frictionDv));
+                Vec3 impulse = normalNow.scale(exchange.impulse() * share).add(slipDirNow.scale(entityKg * frictionDv));
                 ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), bestPoint);
             }
         }
 
-        if (!cooling) {
+        if (!cooling && !gentle) {
             hitEffects(level, root, bestPoint, hull, approach);
-            if (cap != null) cap.markShipHit(ship.id(), now, HIT_COOLDOWN_TICKS);
         }
+        if (!cooling && cap != null) cap.markShipHit(ship.id(), now, HIT_COOLDOWN_TICKS);
         LAST_STRUCK.put(root, new Struck(now, ship.id(), approach, t, pushed, !cooling));
 
         if (SERVER.debugShipCollisionLog.get() || (root instanceof Player && SERVER.debugShipContactLog.get())) {
@@ -376,9 +401,10 @@ public final class ShipEntityImpacts {
         double vertical = frame.vertical(normal);
         boolean hullAbove = vertical < -0.7;
         boolean hullBelow = vertical > 0.7;
-        // Damage first: vanilla's own on-hurt knockback must not overwrite the push after it.
-        double damage = KineticDamageCalculator.damageForSpeedLost(root, speedLost, hullAbove || hullBelow, List.of(hull))
-                * SERVER.entityDamageMultiplier.get();
+        // Damage first: vanilla's own on-hurt knockback must not overwrite the push after it. The speed lost as
+        // the body's own size sees it (a 1/16 player struck at 8 m/s is struck as a full-size one at 128).
+        double damage = KineticDamageCalculator.damageForSpeedLost(root, ShipContactPhysics.atOwnScale(root, speedLost),
+                hullAbove || hullBelow, List.of(hull)) * SERVER.entityDamageMultiplier.get();
         if (pinned) damage *= SERVER.pinnedDamageMultiplier.get();
         if (damage < 1) return false;
         Entity credited = SERVER.creditPilot.get() ? pilot.get() : null;
@@ -397,7 +423,8 @@ public final class ShipEntityImpacts {
     }
 
     private static void hitEffects(ServerLevel level, Entity root, Vec3 point, BlockState hull, double approach) {
-        CollisionParticleSpawner.spawnParticle(level, point, Collision.CollisionType.SOLID, hull);
+        CollisionParticleSpawner.spawnParticle(level, point, Collision.CollisionType.SOLID, hull,
+                net.camacraft.camafy.compat.scale.EntityScale.heightFactor(root));
         float volume = Mth.clamp((float) (approach * 0.05), 0.2f, 1.0f);
         float pitch = Mth.clamp(0.9f + (float) (approach / 100.0) * 0.8f, 0.9f, 1.7f);
         FSSoundPlayer.playSoundServer(root, hull.getSoundType().getFallSound(), SoundSource.BLOCKS, volume, pitch);
@@ -449,8 +476,18 @@ public final class ShipEntityImpacts {
         Vec3 v = ship.velocity();
         Vec3 w = ship.angularVelocity();
         if (why == null && (point == null || normal == null || com == null || v == null || w == null)) why = "the ship can't be resolved";
-        if (why == null && point.distanceTo(player.getBoundingBox().getCenter()) > 4.0 + report.ownMps().length() * 0.25) {
-            why = "too far from the player (" + fmt(point.distanceTo(player.getBoundingBox().getCenter())) + " blocks)";
+        if (why == null) {
+            // Where the client met the hull, against where the player is here. This server's pose of the ship runs
+            // ahead of the client's - a fast rotor is a good part of a turn further round - and the reported spot of the
+            // hull has turned on with it: taken as a place, a 240 RPM arm's hit was 8 blocks from the player and thrown
+            // away (no damage, no push back on the ship). Its distance from the ship's centre, which no turning
+            // changes, is what must match the player's; the ship's travel and the player's own are allowed for.
+            Vec3 centre = player.getBoundingBox().getCenter();
+            double slack = 4.0 + report.ownMps().length() * 0.25 + v.length() * 0.25;
+            double off = Math.abs(point.distanceTo(com) - centre.distanceTo(com));
+            AABB hullBox = ship.worldAabb();
+            if (off > slack) why = "too far from the player (" + fmt(off) + " blocks off the hull's reach)";
+            else if (hullBox != null && !hullBox.inflate(slack).contains(centre)) why = "too far from the ship";
         }
         if (why != null) {
             if (log) LOGGER.info("[FullStop] {} reported a hit by ship {} (closing {} m/s): ignored, {}", player.getName().getString(),
@@ -504,10 +541,14 @@ public final class ShipEntityImpacts {
             impulseNs = ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), point).length();
         }
 
-        if (!cooling) {
-            hitEffects(level, player, point, hull, approach);
-            if (cap != null) cap.markShipHit(ship.id(), now, HIT_COOLDOWN_TICKS);
+        if (!cooling && !ShipContactPhysics.gentle(player, approach)) {
+            // where the hull met the player as its client saw it - on the player's side facing the hull - not where this
+            // server's pose of a fast rotor has taken that spot of the hull since (up to a turn's worth further round)
+            AABB box = player.getBoundingBox();
+            Vec3 met = box.getCenter().subtract(report.normal().scale(0.5 * Math.min(box.getXsize(), box.getYsize())));
+            hitEffects(level, player, met, hull, approach);
         }
+        if (!cooling && cap != null) cap.markShipHit(ship.id(), now, HIT_COOLDOWN_TICKS);
         LAST_STRUCK.put(player, new Struck(now, ship.id(), approach, 0.0, applied, !cooling));
         if (log) {
             LOGGER.info("[FullStop] ship {} {} {} (reported by its client): closing {} m/s (client {}; hull {} m/s there, "
@@ -531,7 +572,8 @@ public final class ShipEntityImpacts {
      */
     private static Vec3 ownVelocity(Entity root, GravityFrame frame) {
         if (root instanceof Player) return VelocityMath.entityVelocity(root);
-        Vec3 own = Gravity.getWorldVelocity(root, frame).scale(20.0);
+        // (a body Pehkui resized moves by its motion scale's share of its deltaMovement: its real velocity)
+        Vec3 own = net.camacraft.camafy.compat.scale.EntityScale.realVelocity(root, Gravity.getWorldVelocity(root, frame)).scale(20.0);
         if (root.onGround()) {
             double down = frame.vertical(own);
             if (down < 0.0) own = own.subtract(frame.up().scale(down));

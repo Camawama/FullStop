@@ -48,12 +48,13 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * closing speed ({@code pushMinSpeed} or more), the player is given the same kick the server's
  * law gives any body - {@code (1 + entityRestitution)} times the closing speed along the contact
  * normal, Coulomb friction along the hull ({@code hullFriction}), lift off the ground
- * ({@code hitLift}) - at the end of this very tick, so the next move already carries it clear. The
- * ship's mass isn't known here: it is taken as far heavier than the player, and the server, which
- * bills the damage and pushes the ship back ({@link ShipContactPacket}), corrects the kick when the
- * ship turns out light. Never for the ship VS carries the player with, a hull rising under it (a
- * deck: standing on it), creative or spectating players, or while another mod owns the player's
- * motion (MOTION) or impacts (IMPACT: no report).
+ * ({@code hitLift}), no faster than {@code maxHitLaunchSpeed} - at the end of this very tick, so the
+ * next move already carries it clear. The ship's mass isn't known here: it is taken as far heavier
+ * than the player, and the server, which bills the damage and pushes the ship back
+ * ({@link ShipContactPacket}), corrects the kick when the ship turns out light. Never for the ship VS
+ * carries the player with, a hull rising under it (a deck: standing on it), spectators, riders, or
+ * while another mod owns the player's motion (MOTION) or impacts (IMPACT: no report). Creative
+ * players are knocked about like anyone else; the server hurts them no more than any creative player.
  */
 public final class ClientShipContacts {
 
@@ -76,9 +77,9 @@ public final class ClientShipContacts {
         LocalPlayer player = minecraft.player;
         if (self != player || player == null || !FullStopConfig.SERVER_SPEC.isLoaded() || !ShipCompat.collisionsActive()) return;
         boolean log = SERVER.debugShipContactLog.get();
-        if (player.isSpectator() || player.getAbilities().instabuild || player.isPassenger()) {
+        if (player.isSpectator() || player.isPassenger()) {
             if (log) LOGGER.info("[FullStop] client: a hull shoved you by {} but you are {}: left to VS", fmt(result.subtract(movement)),
-                    player.isPassenger() ? "riding" : "in creative/spectator");
+                    player.isPassenger() ? "riding" : "spectating");
             return;
         }
         FullStopCapability cap = FullStopCapability.grabCapability(player);
@@ -90,7 +91,7 @@ public final class ClientShipContacts {
         GravityFrame frame = cap.getFrame();
         AABB after = before.move(result);
         // What the player was doing before the hull met it (m/s): the move it asked for.
-        Vec3 own = movement.scale(20.0);
+        Vec3 own = grounded(player, frame, movement.scale(20.0));
         Touch best = touch(player, after, own, carriedBefore);
         if (best == null) {
             if (log) LOGGER.info("[FullStop] client: shoved by {} b/t but no hull of a ship (other than the one carrying you) "
@@ -101,20 +102,27 @@ public final class ClientShipContacts {
     }
 
     /**
-     * A hull about to strike the local player during this tick, caught BEFORE its move: called at
-     * the start of the player's tick. A fast hull (a rotor arm) crosses more than a player's width
-     * in one tick, and VS, resolving only the overlap it ends up with, pushed the player out of
-     * whichever face was nearest - often the back of the arm, which moves away from the player - so
-     * the hit read as no hit and the hull went through ({@link #onShove} saw it "not strike"). Here
-     * the player's box is swept against every nearby ship over the coming tick, in the ship's own
-     * frame with the two bodies' relative motion ({@link ShipSweptContact}), and a hull that will
-     * meet it with the closing speed of a hit strikes now: the kick goes straight into the
-     * player's velocity, so this very move already carries it clear, and VS lets go of the player
-     * ({@code letGo}) so it flies straight rather than turning with what struck it.
+     * A hull striking the local player, caught BEFORE its move: called at the start of the player's
+     * tick. A fast hull (a rotor arm) crosses more than a player's width in one tick, and VS,
+     * resolving only the overlap it ends up with, pushed the player out of whichever face was
+     * nearest - often the back of the arm, which moves away from the player - so the hit read as no
+     * hit and the hull went through ({@link #onShove} saw it "not strike").
+     *
+     * <p>Here the player's box is swept against every nearby ship as it moved from last tick's pose
+     * to this tick's ({@link ShipSweptContact.Posed}: the poses this client just received, which it
+     * draws over the frames of this tick - VS moves its ships before the player ticks). A hull that
+     * met the player during that move with the closing speed of a hit strikes: the player is put
+     * where the hull carried the spot they met at, against its face as it is now (the same place
+     * the frames show the hull push it to), the kick goes straight into its velocity so this very
+     * move carries it clear, and VS lets go of it ({@code letGo}) so it flies straight rather than
+     * turning with what struck it. It used to sweep the coming tick with the ship's velocity and spin
+     * extrapolated: that struck a tick before the drawn hull got there (a 120 RPM arm launched a
+     * player two blocks before reaching it on screen), and a spin a little off met players the
+     * hull never came near.</p>
      */
     public static void predict(LocalPlayer player) {
         if (!FullStopConfig.SERVER_SPEC.isLoaded() || !ShipCompat.collisionsActive()) return;
-        if (player.isSpectator() || player.getAbilities().instabuild || player.isPassenger()) return;
+        if (player.isSpectator() || player.isPassenger()) return;
         FullStopCapability cap = FullStopCapability.grabCapability(player);
         if (cap == null) return;
         GravityFrame frame = cap.getFrame();
@@ -126,13 +134,16 @@ public final class ClientShipContacts {
         boolean log = SERVER.debugShipContactLog.get();
 
         // The player's motion in the world this tick (m/s): its own, plus the deck VS carries it with.
-        Vec3 own = Gravity.getWorldVelocity(player, frame).scale(20.0).add(ShipCompat.shipDragVelocityMps(player));
+        // (a player Pehkui shrank moves by its motion scale's share of its deltaMovement: its real velocity)
+        Vec3 own = grounded(player, frame, net.camacraft.camafy.compat.scale.EntityScale.realVelocity(player, Gravity.getWorldVelocity(player, frame)).scale(20.0))
+                .add(ShipCompat.shipDragVelocityMps(player));
         ShipRef deck = ShipCompat.carryingShip(player);
         if (deck != null && !(player.onGround() && ShipEntities.ticksSinceShip(player) <= 1)) deck = null;
         AABB box = player.getBoundingBox();
         Touch best = null;
         Vec3 bestNormal = null;
         double bestT = 0.0;
+        ShipSweptContact.Motion bestMotion = null;
         for (ShipRef ship : Ships.intersecting(player.level(), box.inflate(PREDICT_REACH))) {
             // the deck it stands on moves with it: that one is VS's to carry. A ship whose hit is
             // cooling down is swept too: a rotor arm that flung the player catches up with it again
@@ -140,42 +151,189 @@ public final class ClientShipContacts {
             // out through its back, and vanilla stopped the player dead - it dropped straight down.
             // It pushes on instead (deliver: no second hit reported).
             if (ship.equals(deck)) continue;
-            ShipSweptContact.Relative relative = ShipSweptContact.relativeTo(ship, own);
+            // (its own velocity stands in for its motion over the tick: a position jump - a teleport, a respawn - is no motion)
+            ShipSweptContact.Posed motion = ShipSweptContact.lastTick(ship, own);
             AABB hullBounds = ship.worldAabb();
-            if (relative == null || hullBounds == null) continue;
-            ShipSweptContact.Meeting meeting = ShipSweptContact.sweep(ship, hullBounds, relative, box, 0.0, TICK_SECONDS);
+            if (motion == null || hullBounds == null) continue;
+            ShipSweptContact.Meeting meeting = ShipSweptContact.sweep(ship, hullBounds, motion, box, -TICK_SECONDS, 0.0);
             if (meeting == null) continue;
             double t = meeting.t();
             for (ShipContact contact : meeting.contacts()) {
                 // (the sweep works in the world as the ship is posed now: the ship's frame now)
                 Vec3 at = ShipSweptContact.facePoint(ship, contact, meeting.box().getCenter());
                 if (at == null) continue;
-                // the hull's velocity there and its face normal at the moment they meet, in the world
-                Vec3 hull = relative.turn(relative.hullVelocity(at, t), t);
-                Vec3 normal = relative.turn(contact.normal(), t);
+                // the hull's velocity there (as it moved over the tick) and its face normal, as they are now
+                Vec3 hull = hullVelocity(ship, at);
+                Vec3 normal = ship.faceNormal(contact.face());
+                if (normal == null) continue;
                 double closing = hull.subtract(own).dot(normal);
                 if (best == null || closing > best.closing()) {
                     best = new Touch(ship, contact, at, hull, closing);
                     bestNormal = normal;
                     bestT = t;
+                    bestMotion = motion;
                 }
             }
         }
-        if (best == null) return;
+        // a slow hull pushes rather than strikes, whether it is about to reach the player or already has: never a
+        // jump back out through its face, only the speed that has the player end the tick against it
+        if (best == null || ShipContactPhysics.gentle(player, best.closing())) {
+            pushAhead(player, cap, frame, box, own, deck, motionFree, impactFree, log);
+            return;
+        }
         boolean struck = deliver(player, cap, frame, best, bestNormal, own, motionFree, impactFree, true,
-                String.format(Locale.ROOT, "is about to strike you (in %.0f ms)", bestT * 1000.0), log);
+                String.format(Locale.ROOT, "struck you (%.0f ms ago, as drawn this tick)", -bestT * 1000.0), log);
         if (struck && motionFree) {
-            // VS moves the hull to where it ends this tick before it resolves the player's move, so the
-            // spot the player starts from is already inside the hull by the ground the hull covers after
-            // meeting it: resolved from there the move is stopped dead, kick and all. The hull has pushed
-            // the player that far by then: start it at the hull's face as it ends the tick.
-            double hullIn = best.hull().dot(bestNormal);
-            double depth = hullIn * TICK_SECONDS - best.closing() * bestT + ShipSweptContact.SKIN;
-            if (depth > 0.0) {
-                player.setPos(player.position().add(bestNormal.scale(depth)));
+            // The hull met the player part-way through its move and has gone on since, carrying the spot where they
+            // met with it: put the player there, against the face as the hull is now - where the drawn hull pushes
+            // it - so this move starts clear of the hull. (Resolved from inside the hull, the move was stopped dead,
+            // kick and all; left behind a thin arm that had passed, the player ran into the arm's back.)
+            Vec3 there = bestMotion.image(player.position(), bestT).add(bestNormal.scale(ShipSweptContact.SKIN));
+            if (there.distanceToSqr(player.position()) > 1.0e-8) {
+                player.setPos(there);
                 PhysicsOwnership.markDiscontinuity(player);
             }
         }
+    }
+
+    /**
+     * The player's velocity (m/s, world) with what the ground takes back left out: standing, vanilla adds a tick's gravity
+     * that the ground then stops, so a grounded player reads 1.57 m/s downward while going nowhere. Counted as motion,
+     * a hull's friction "matched" it and lifted a player it pushed off its feet on every push (a hop, on which the player
+     * slid on ahead of the hull and fell behind it again).
+     */
+    private static Vec3 grounded(LocalPlayer player, GravityFrame frame, Vec3 own) {
+        if (!player.onGround()) return own;
+        double down = frame.vertical(own);
+        return down < 0.0 ? own.subtract(frame.up().scale(down)) : own;
+    }
+
+    /**
+     * A slow hull (under {@code gentlePushSpeed} at the player's size) reaching the player within the coming tick: the
+     * player gets just the speed along the face's normal that has it end the tick against the face - where the face will
+     * be then - and no more, and the hull's friction for that share. A push is a contact, not a collision: kicked to the
+     * hull's speed only once it had sunk in, a pushed player slid ahead, slowed on the ground (to half its speed a tick),
+     * was caught again two or three ticks later and snapped back out of the hull and kicked again - the owner's stuttery
+     * push. Now it moves with the face, by as much each tick as the face would have pushed it in. The needed speed follows
+     * the face as this client moves it (from last tick's pose to this one's), for a face that goes on as it came; nothing
+     * moves before the face gets there (the needed speed is nil while the face is further off than it comes in a tick),
+     * so it never throws a player early, as the old look-ahead for hits did. A face the player is already sunk into is
+     * left over the tick the same way, never by setting the player back out through it (such a jump, against a face
+     * that had turned since, left a pushed player stuck in the arm for three ticks). Fast hulls strike: {@link #predict}'s sweep.
+     *
+     * @return whether it pushed the player
+     */
+    private static boolean pushAhead(LocalPlayer player, FullStopCapability cap, GravityFrame frame, AABB box, Vec3 own,
+                                     @Nullable ShipRef deck, boolean motionFree, boolean impactFree, boolean log) {
+        if (!motionFree) return false;
+        double motionScale = net.camacraft.camafy.compat.scale.EntityScale.motion(player);
+        // no slow face comes further than this in a tick
+        double margin = SERVER.gentlePushSpeed.get() * motionScale * TICK_SECONDS;
+        boolean weightless = Gravity.isWeightless(player);
+        Touch best = null;
+        Vec3 bestChange = null;
+        double bestKick = 0.0;
+        for (ShipRef ship : Ships.intersecting(player.level(), box.inflate(margin + 0.5))) {
+            if (ship.equals(deck)) continue;
+            double skin = ShipSweptContact.skin(ShipSweptContact.feature(box, ship.scale()));
+            double reach = margin + skin;
+            for (ShipContact contact : ship.contacts(box.inflate(reach))) {
+                Vec3 normal = contact.normal();
+                if (ShipContactPhysics.fromBelow(normal, frame, weightless)) continue; // a deck rising under it: VS's
+                Vec3 at = ShipSweptContact.facePoint(ship, contact, box.getCenter());
+                if (at == null) continue;
+                Vec3 hull = steadyHullVelocity(ship, at);
+                double hullIn = hull.dot(normal);
+                double ownOut = own.dot(normal);
+                double closing = hullIn - ownOut;
+                if (!(hullIn > 0.0) || !(closing > 0.0)) continue;
+                if (!ShipContactPhysics.gentle(player, closing)) continue; // a hit: the sweep's, when it lands
+                // how far the player's box is from the face's plane (negative: sunk into it), and the speed along its
+                // normal that ends the tick against it
+                double half = 0.5 * (Math.abs(normal.x) * box.getXsize() + Math.abs(normal.y) * box.getYsize()
+                        + Math.abs(normal.z) * box.getZsize());
+                double gap = box.getCenter().subtract(at).dot(normal) - half;
+                if (gap > reach) continue;
+                // the face's speed, and a share of the gap still to close or open (all of it where the player has sunk in)
+                double need = hullIn - (gap < 0.0 ? 1.0 : GAP_SHARE) * (gap - skin) / TICK_SECONDS;
+                double kick = need - ownOut;
+                if (!(kick > 1.0e-4) || kick <= bestKick) continue;
+                // the hull's friction for that share of the push: it drags the player along its face, no further than
+                // until the two move together there
+                Vec3 relative = hull.subtract(own);
+                Vec3 slip = relative.subtract(normal.scale(relative.dot(normal)));
+                double slipSpeed = slip.length();
+                double friction = slipSpeed > 1.0e-6 ? Math.min(SERVER.hullFriction.get() * kick, slipSpeed) : 0.0;
+                Vec3 change = normal.scale(kick).add(friction > 0.0 ? slip.scale(friction / slipSpeed) : Vec3.ZERO);
+                best = new Touch(ship, contact, at, hull, closing);
+                bestChange = change;
+                bestKick = kick;
+            }
+        }
+        if (best == null) return false;
+        // real motion in the world, into the player's own velocity (a shrunk player moves by its share of it: BodyPush)
+        Vec3 changeBpt = net.camacraft.camafy.compat.scale.EntityScale.velocityFor(player, bestChange.scale(0.05));
+        Gravity.setWorldVelocity(player, Gravity.getWorldVelocity(player, frame).add(changeBpt), frame);
+        player.hasImpulse = true;
+        if (impactFree) {
+            // the push back on the ship (no hit: nothing to hurt, no hit sound)
+            Vec3 local = best.ship().toShip(best.point());
+            if (local != null) {
+                PacketHandler.sendToServer(new ShipContactPacket(best.ship().id(), best.contact().pos(), best.contact().face(),
+                        local, best.contact().normal(), own, best.hull(), best.closing(), bestChange, false));
+            }
+        }
+        if (log) {
+            LOGGER.info("[FullStop] client: ship {} pushes you along (closing {} m/s, its face {} m/s into you): +{} m/s along "
+                            + "its normal, change ({}) m/s", best.ship().id(), fmt(best.closing()), fmt(best.hull().dot(best.contact().normal())),
+                    fmt(bestKick), fmt(bestChange));
+        }
+        return true;
+    }
+
+    /**
+     * The share of the gap to the face a push closes in one tick (see {@link #pushAhead}). Closing all of it at once made
+     * the pushed player move in step with the tick-to-tick unevenness of the ship's own motion, half a step behind it:
+     * Valkyrien Skies moves a ship by uneven steps on this client (a steady 10 RPM rotor turned 2.5 and 3.5 degrees on
+     * alternate ticks), and a player given each last step's speed moved 5 and 3 m/s on alternate ticks.
+     */
+    private static final double GAP_SHARE = 0.3;
+
+    /** Per ship: the tick last asked about, that tick's PREV_TICK pose, and the pose a tick before that. */
+    private static final class PoseHistory {
+        long tick = Long.MIN_VALUE;
+        org.joml.Matrix4d prev;
+        org.joml.Matrix4d twoBack;
+    }
+
+    private static final java.util.Map<Long, PoseHistory> HISTORY = new java.util.HashMap<>();
+
+    /** The ship's pose two ticks back (last tick's PREV_TICK), or null until it is known. */
+    @Nullable
+    private static org.joml.Matrix4d twoTicksBack(ShipRef ship, long tick) {
+        PoseHistory h = HISTORY.computeIfAbsent(ship.id(), id -> new PoseHistory());
+        if (h.tick != tick) {
+            h.twoBack = h.tick == tick - 1 ? h.prev : null;
+            h.prev = ship.shipToWorld(ShipRef.Pose.PREV_TICK);
+            h.tick = tick;
+            if (HISTORY.size() > 64) HISTORY.values().removeIf(old -> old.tick < tick - 20);
+        }
+        return h.twoBack;
+    }
+
+    /**
+     * The hull's velocity at {@code point} (m/s, world) over the last two ticks: its motion from its pose two ticks back to
+     * this one's, halved. Valkyrien Skies moves a ship by uneven steps on this client, long and short on alternate ticks;
+     * over two ticks the speed is its own. Falls back to {@link #hullVelocity} until two ticks are known.
+     */
+    private static Vec3 steadyHullVelocity(ShipRef ship, Vec3 point) {
+        long tick = Minecraft.getInstance().level == null ? 0L : Minecraft.getInstance().level.getGameTime();
+        org.joml.Matrix4d twoBack = twoTicksBack(ship, tick);
+        Vec3 local = twoBack == null ? null : ship.toShip(point);
+        if (local == null) return hullVelocity(ship, point);
+        org.joml.Vector3d then = twoBack.transformPosition(new org.joml.Vector3d(local.x, local.y, local.z));
+        Vec3 moved = point.subtract(then.x, then.y, then.z).scale(10.0);
+        return moved.lengthSqr() > 1.0e-10 ? moved : hullVelocity(ship, point);
     }
 
     /**
@@ -191,25 +349,31 @@ public final class ClientShipContacts {
         // The server's two-body law with the ship taken as far heavier than the player. In zero
         // gravity a hull from below hits too (nothing stands on a deck) and there is no lift.
         boolean weightless = Gravity.isWeightless(player);
+        // a slow hull only pushes: no bounce, no lift (gentlePushSpeed); the closing speed at the player's own scale
+        boolean gentle = ShipContactPhysics.gentle(player, touch.closing());
         ShipContactPhysics.HullKick hit = ShipContactPhysics.hullKick(own, touch.hull(), normal, player.onGround(), frame,
-                SERVER.pushMinSpeed.get(), ShipContactPhysics.restitution(normal, frame, weightless), SERVER.hullFriction.get(),
-                SERVER.hitLift.get() * ShipContactPhysics.liftShare(player), weightless);
+                SERVER.pushMinSpeed.get() * net.camacraft.camafy.compat.scale.EntityScale.motion(player),
+                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless), SERVER.hullFriction.get(),
+                gentle ? 0.0 : SERVER.hitLift.get() * ShipContactPhysics.liftShare(player), weightless);
         if (hit == null) {
             if (log) LOGGER.info("[FullStop] client: ship {} touches you but doesn't strike you (hull {} m/s into you, closing {} m/s, "
                             + "you {} m/s into it, normal ({})): left to VS", touch.ship().id(), fmt(hullIn), fmt(touch.closing()),
                     fmt(-own.dot(normal)), fmt(normal));
             return false;
         }
-        Vec3 change = hit.change();
+        Vec3 change = ShipContactPhysics.capLaunch(player, own, hit.change());
         long tick = player.level().getGameTime();
         boolean cooling = cap.isClientContactCooling(touch.ship().id(), tick);
         if (motionFree) {
+            // real motion in the world, into the player's own velocity: a player Pehkui shrank moves by its motion
+            // scale's share of it (BodyPush)
+            Vec3 changeBpt = net.camacraft.camafy.compat.scale.EntityScale.velocityFor(player, change.scale(0.05));
             if (now) {
-                Gravity.setWorldVelocity(player, Gravity.getWorldVelocity(player, frame).add(change.scale(0.05)), frame);
+                Gravity.setWorldVelocity(player, Gravity.getWorldVelocity(player, frame).add(changeBpt), frame);
                 player.hasImpulse = true;
                 liftOff(player, frame, change);
             } else {
-                cap.queueShipKick(change.scale(0.05));
+                cap.queueShipKick(changeBpt);
             }
             // struck, it flies: VS carrying it on with the hull (round with a rotor) would bend its path
             ShipEntities.letGo(player, touch.ship().id(), false);

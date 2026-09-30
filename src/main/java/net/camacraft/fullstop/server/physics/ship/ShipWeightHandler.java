@@ -121,6 +121,10 @@ public final class ShipWeightHandler {
             // (a Gravity Unbound hull walker stands on a wall, which the world-down probe misses).
             if (!ship.isUnderfoot(entity) && !ship.equals(ShipEntities.standingOn(entity, 2))) continue;
             weighed.add(entity.getId());
+            // Held down by a gravity field on the ship itself (Gravity Unbound's plating on it): its weight is the ship
+            // pulling on it and it pressing back - the ship's own business, as the crew of a ship in space weigh
+            // nothing to it. Counted, a ship in zero gravity drove itself along with whoever stood on its plating.
+            if (Gravity.ridesShipField(entity)) continue;
 
             double kg = stackWeightKg(entity);
             if (kg < minKg) continue;
@@ -157,6 +161,7 @@ public final class ShipWeightHandler {
                 if (!players && rider instanceof Player) continue;
                 if (!ship.equals(ShipEntities.mountedTo(rider))) continue;
                 weighed.add(rider.getId());
+                if (Gravity.ridesShipField(rider)) continue; // its gravity is the ship's own field: see above
                 double kg = stackWeightKg(rider);
                 if (kg < minKg) continue;
                 Vec3 down = gravityFields ? Gravity.pullDirection(rider) : GravityFrame.WORLD_UP.scale(-1);
@@ -260,7 +265,7 @@ public final class ShipWeightHandler {
         if (!SERVER.includePlayers.get() && entity instanceof Player) return;
 
         ShipRef ship = ShipEntities.shipUnderfoot(entity);
-        if (ship == null) return;
+        if (ship == null || Gravity.ridesShipField(entity)) return; // pushing off in the ship's own field: see process
         double kg = stackWeightKg(entity);
         if (kg < SERVER.minPhysicsWeightKg.get()) return;
 

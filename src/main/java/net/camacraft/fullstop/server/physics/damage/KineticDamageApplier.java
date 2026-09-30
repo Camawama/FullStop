@@ -156,9 +156,11 @@ public class KineticDamageApplier {
 
             // Only a hit that actually landed throws the rider off: a hurt()
             // cancelled by another mod (a racer's damage shield) or fully
-            // absorbed must not eject them anyway.
+            // absorbed must not eject them anyway. A ship's seats hold their
+            // riders whatever happens (seat belts: see deckMomentumSeated).
             if (anyHurt && entity.isPassenger() && damage > 5
-                    && !PhysicsClaims.handsOff(entity, PhysicsAspect.IMPACT)) {
+                    && !PhysicsClaims.handsOff(entity, PhysicsAspect.IMPACT)
+                    && net.camacraft.fullstop.common.compat.ShipCompat.seatShip(entity) == null) {
                 entity.stopRiding();
             }
         }
@@ -345,10 +347,11 @@ public class KineticDamageApplier {
         }
 
         // A hit that landed hard throws the riders off (not those another mod
-        // keeps seated, an MKW racer).
+        // keeps seated, an MKW racer, nor anyone in a ship's seat).
         if (anyHurt && damage > 5) {
             for (Entity rider : riders) {
-                if (rider.getVehicle() == root && !PhysicsClaims.handsOff(rider, PhysicsAspect.IMPACT)) {
+                if (rider.getVehicle() == root && !PhysicsClaims.handsOff(rider, PhysicsAspect.IMPACT)
+                        && net.camacraft.fullstop.common.compat.ShipCompat.seatShip(rider) == null) {
                     rider.stopRiding();
                 }
             }

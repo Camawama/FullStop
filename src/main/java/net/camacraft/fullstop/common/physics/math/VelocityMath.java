@@ -18,7 +18,8 @@ public class VelocityMath {
             return cap.getCurrentScaledVelocity();
         }
         // deltaMovement may be in the entity's local frame (Gravity Unbound).
-        return Gravity.getWorldVelocity(entity, FullStopCapability.currentFrame(entity)).scale(20);
+        // a body Pehkui resized moves by its motion scale's share of its deltaMovement
+        return net.camacraft.camafy.compat.scale.EntityScale.realVelocity(entity, Gravity.getWorldVelocity(entity, FullStopCapability.currentFrame(entity))).scale(20);
     }
 
     public static double calculateApproachVelocity(Entity attacker, Entity target) {

@@ -200,6 +200,14 @@ mixin {
     config 'mixins.fullstop.client.json'
 }
 
+// The mixin annotation processor writes the refmap next to compileJava's outputs, not as one of them. With the
+// build cache on (gradle.properties), a compileJava restored FROM-CACHE (after a clean, or back on a branch built
+// before) came without it, and the jar crashed the game at startup: "Critical injection failure ... No refMap
+// loaded". compileJava is never taken from the cache.
+tasks.named('compileJava') {
+    outputs.cacheIf { false }
+}
+
 tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,

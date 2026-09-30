@@ -197,9 +197,11 @@ public final class ShipDeckMomentum {
             if (!entity.getBoundingBox().intersects(deckBox) || entity.isRemoved()) continue;
             if (entity.isPassenger()) {
                 // a rider's vehicle is handled as the body (a boat on the deck carries its crew);
-                // only a seat that is part of THIS ship throws its occupant, and only if asked
-                if (seated && ship.equals(ShipEntities.mountedTo(entity)) && throwable(entity)) {
-                    throwSeated(ship, state, mode, entity, allowance, lift, now);
+                // only a seat that is part of THIS ship throws its occupant, and only if asked -
+                // otherwise the seat holds it, and it takes the jolt where it sits
+                if (ship.equals(ShipEntities.mountedTo(entity)) && throwable(entity)) {
+                    if (seated) throwSeated(ship, state, mode, entity, allowance, lift, now);
+                    else hurtSeated(level, ship, state, mode, entity, allowance, now, log);
                 }
                 continue;
             }
@@ -269,6 +271,71 @@ public final class ShipDeckMomentum {
         entity.hurtMarked = true;
         PacketHandler.syncLaunchToPlayer(entity);
         record(entity, new Throw(now, ship.id(), lost, world, true, at), ship);
+    }
+
+    /** The last tick each ship struck something at crash speed, per level (Camafy's collision reports). */
+    private static final java.util.Map<ServerLevel, it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap> LAST_CRASH =
+            new java.util.WeakHashMap<>();
+    /** A seat only hurts its rider this soon (ticks) after its ship struck something. */
+    private static final int CRASH_WINDOW_TICKS = 10;
+    /** A contact slower than this (m/s) is no crash. */
+    private static final double CRASH_MPS = 2.0;
+
+    /** Notes the ships that struck terrain or another ship this tick (once per level tick, after the collisions are in). */
+    static void noteCrashes(ServerLevel level, long now) {
+        List<net.camacraft.camafy.compat.vs.ShipCollision> collisions = net.camacraft.camafy.compat.vs.ShipCollisions.thisTick(level);
+        it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap last = LAST_CRASH.get(level);
+        if (last != null && now % 200 == 0) last.long2LongEntrySet().removeIf(e -> now - e.getLongValue() > 200);
+        if (collisions.isEmpty()) return;
+        if (last == null) {
+            last = new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap();
+            LAST_CRASH.put(level, last);
+        }
+        for (net.camacraft.camafy.compat.vs.ShipCollision collision : collisions) {
+            double fastest = 0.0;
+            for (net.camacraft.camafy.compat.vs.ShipCollision.Contact contact : collision.contacts()) {
+                fastest = Math.max(fastest, contact.approachMps());
+            }
+            if (fastest < CRASH_MPS) continue;
+            last.put(collision.ship().id(), now);
+            if (collision.other() != null) last.put(collision.other().id(), now);
+        }
+    }
+
+    private static boolean crashedLately(ServerLevel level, ShipRef ship, long now) {
+        it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap last = LAST_CRASH.get(level);
+        return last != null && last.containsKey(ship.id()) && now - last.get(ship.id()) <= CRASH_WINDOW_TICKS;
+    }
+
+    /**
+     * A seated rider held in its seat through a jolt (seat belts: deckMomentumSeated off). It goes wherever the seat
+     * goes, so it takes the jolt as an impact instead: the deck's change beyond what it could hold on through, at
+     * half the damage (the seat takes the rest, as a vehicle's riders take half of its crash). Only a crash - the ship
+     * struck terrain or another ship just now - hurts its crew. A ship turning, spinning or speeding up hard doesn't,
+     * however its speed changed: a rotor spinning so fast that it turns more than half a revolution a tick can't be
+     * told from one reversing, and its seated rider "crashed" at the seat's full 425 m/s (the owner's test).
+     */
+    private static void hurtSeated(ServerLevel level, ShipRef ship, ShipTracker.State state, ShipTracker.JoltMode mode, Entity entity,
+                                   double allowance, long now, boolean log) {
+        if (!(entity instanceof LivingEntity living) || net.camacraft.fullstop.common.physics.rules.DamageImmunityRules.isDamageImmune(living)) return;
+        if (PhysicsClaims.handsOff(entity, PhysicsAspect.IMPACT)) return;
+        if (!crashedLately(level, ship, now)) return;
+        ShipTracker.Jolt jolt = state.joltAt(entity.position(), mode);
+        if (jolt.persisted() < MIN_PERSISTED) return;
+        Vec3 kept = beyondGrip(jolt.change(), allowance * gripShare(entity));
+        double speed = kept.length();
+        if (speed < MIN_EXCESS) return;
+        GravityFrame frame = FullStopCapability.currentFrame(entity);
+        boolean vertical = Math.abs(frame.vertical(kept)) > 0.7 * speed;
+        double damage = 0.5 * net.camacraft.fullstop.server.physics.damage.KineticDamageCalculator.damageForSpeedLost(
+                entity, speed, vertical, List.of());
+        if (damage < 1) return;
+        boolean hurt = entity.hurt(net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.seatCrash(entity,
+                net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.velocityDisplay(speed)), (float) damage);
+        if (log || SERVER.debugShipCollisionLog.get()) {
+            LOGGER.info("[FullStop] ship {}'s crash held {} in its seat: the seat lost ({}) m/s beyond the grip, {} damage{}",
+                    ship.id(), entity.getName().getString(), fmt(kept), fmt(damage), hurt ? "" : " (not taken)");
+        }
     }
 
     /** {@code lost} less the grip allowance, along its own direction; zero within it. */

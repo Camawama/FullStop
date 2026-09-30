@@ -736,10 +736,13 @@ public final class ShipCollisionTests {
                     double e = FullStopConfig.SERVER.entityRestitution.get();
                     double approach = watch.shipV.x - watch.before.x;
                     double share = watch.shipKg / (watch.shipKg + watch.mobKg);
-                    double expected = watch.before.x + (1.0 + e) * approach * share;
+                    double law = watch.before.x + (1.0 + e) * approach * share;
+                    // no faster than maxHitLaunchSpeed (the damage still follows the whole hit)
+                    double limit = FullStopConfig.SERVER.maxHitLaunchSpeed.get();
+                    double expected = limit > 0.0 ? Math.min(law, Math.max(limit, Math.abs(watch.before.x))) : law;
                     double error = Math.abs(watch.launch.x - expected) / Math.max(1.0, Math.abs(expected));
                     report(what, String.format(Locale.ROOT, "tick %d: ship %.2f m/s (%.0f kg), villager %.1f kg moving %.2f m/s "
-                                    + "before; approach %.2f m/s, restitution %.2f -> expected launch %.2f m/s along +x, measured "
+                                    + "before; approach %.2f m/s, restitution %.2f -> expected launch %.2f m/s along +x (capped), measured "
                                     + "(%.2f, %.2f, %.2f) m/s (%.1f%% off); villager health %.1f -> %.1f, %s; damageEntities=%s; "
                                     + "ship in FullStop's grace %d of %d ticks after the push; %d new physics frames in them, "
                                     + "fastest seen %.2f m/s",

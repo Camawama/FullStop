@@ -6,6 +6,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.EntityCollisionRules;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
+import net.camacraft.fullstop.server.physics.interaction.BodyCollisions;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.FallingBlockEntity;
@@ -29,7 +30,9 @@ public class ServerCollisionDetector {
 
         // A mover whose entity contacts another mod owns (an MKW kart's driver)
         // collides with no one here; neither does anything such a mod owns.
-        if (SERVER.entityCollisionDamage.get() && !fullstop.isClaimed(PhysicsAspect.CONTACT)) {
+        // The legacy per-entity collisions only run while Entity Collisions
+        // (BodyCollisions, a pairwise pass) is off: both would exchange momentum.
+        if (SERVER.entityCollisionDamage.get() && !BodyCollisions.enabled() && !fullstop.isClaimed(PhysicsAspect.CONTACT)) {
             Level level = entity.level();
             AABB box = entity.getBoundingBox();
             Vec3 movement = fullstop.getPreviousNativeVelocity();

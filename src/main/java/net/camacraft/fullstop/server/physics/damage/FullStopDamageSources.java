@@ -246,6 +246,20 @@ public final class FullStopDamageSources {
         };
     }
 
+    /**
+     * A rider held in a ship's seat through its ship's crash ({@code fullstop:kinetic}): the seat stopped
+     * with the ship, and the rider with it.
+     */
+    public static DamageSource seatCrash(Entity victim, VelocityDisplay velocity) {
+        return new KineticSource(holder(victim, KINETIC)) {
+            @Override
+            @NotNull
+            public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
+                return Component.translatable("death.fullstop.ship.seat", dead.getDisplayName()).append(velocitySuffix(velocity));
+            }
+        };
+    }
+
     // --- Entity-collision damage -------------------------------------------
 
     /**
@@ -335,6 +349,37 @@ public final class FullStopDamageSources {
                 return Component.translatable("death.fullstop.entity.collided",
                                 victim.getDisplayName(), collided.getDisplayName())
                         .append(velocitySuffix(velocity));
+            }
+        };
+    }
+
+    /**
+     * Two bodies colliding (Entity Collisions, {@code BodyCollisions}): {@code fullstop:kinetic}, an
+     * impact like any other (#camafy:is_impact; FullStop applies the armour). When {@code by} struck
+     * the victim, whoever answers for it ({@link #responsible}: its rider, or itself) is the attacker,
+     * so PvP, team and minigame rules and kill credit apply; null when the victim ran into
+     * {@code other} itself (then, as for a wall, nobody is).
+     *
+     * @param key which {@code death.fullstop.entity.*} message: hit_by, crushed_by, collided,
+     *            slammed, fell_on or head
+     */
+    public static DamageSource bodyCollision(Entity victim, Entity other, @Nullable Entity by, VelocityDisplay velocity,
+                                             String key) {
+        Entity answering = by != null ? responsible(by) : null;
+        Entity causing = answering == victim ? null : answering;
+        return new KineticSource(holder(victim, KINETIC), by, causing) {
+            @Override
+            @NotNull
+            public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
+                Component otherName = other.getDisplayName().copy().withStyle(s -> s.withColor(velocity.color()));
+                String message = "death.fullstop.entity." + key;
+                boolean attack = key.equals("hit_by") || key.equals("crushed_by");
+                if (attack && causing != null && causing != other && causing != dead) {
+                    // "was hit by Steve's Horse"
+                    return Component.translatable(message + ".owned", dead.getDisplayName(), otherName,
+                            causing.getDisplayName()).append(velocitySuffix(velocity));
+                }
+                return Component.translatable(message, dead.getDisplayName(), otherName).append(velocitySuffix(velocity));
             }
         };
     }

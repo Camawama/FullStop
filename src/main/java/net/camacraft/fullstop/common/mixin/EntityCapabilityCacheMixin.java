@@ -12,8 +12,10 @@ import org.spongepowered.asm.mixin.Unique;
  * Caches the resolved FullStop capability on the entity itself, replacing a
  * Forge CapabilityDispatcher walk per {@code grabCapability} call (which the
  * physics loop makes for every entity every tick) with a field read. The cache
- * is dropped if the LazyOptional is invalidated (entity removal), and entities
- * get fresh instances on respawn/dimension change, so it can never go stale.
+ * is dropped if the LazyOptional is invalidated (entity removal), so it can
+ * never go stale: a player changing dimension is removed and revived as the
+ * same entity, and the next call resolves the provider's fresh LazyOptional
+ * (see {@code FullStopCapability.Provider#getCapability}).
  */
 @Mixin(Entity.class)
 public abstract class EntityCapabilityCacheMixin implements FullStopCapabilityCache {

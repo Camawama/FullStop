@@ -15,7 +15,9 @@
     "BoatLerpMixin",
     "EntityPushMixin",
     "EntityShipSweepMixin",
-    "RandomStrollGoalMixin"
+    "RandomStrollGoalMixin",
+    "ProjectileHitInvoker",
+    "AbstractArrowAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

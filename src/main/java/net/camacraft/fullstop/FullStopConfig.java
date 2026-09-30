@@ -46,6 +46,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue wildMode;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
+        public final ForgeConfigSpec.BooleanValue scaledKnockback;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
         public final ForgeConfigSpec.BooleanValue kineticDoorOpening;
         public final ForgeConfigSpec.BooleanValue kineticButtonPressing;
@@ -106,6 +107,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue hullFriction;
         public final ForgeConfigSpec.BooleanValue debugShipContactLog;
         public final ForgeConfigSpec.DoubleValue hitLift;
+        public final ForgeConfigSpec.DoubleValue maxHitLaunchSpeed;
+        public final ForgeConfigSpec.DoubleValue gentlePushSpeed;
+        public final ForgeConfigSpec.BooleanValue shipSonicBooms;
         public final ForgeConfigSpec.DoubleValue entityDamageMultiplier;
         public final ForgeConfigSpec.DoubleValue entityRestitution;
         public final ForgeConfigSpec.DoubleValue pinnedDamageMultiplier;
@@ -148,6 +152,17 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue deckThrowLift;
         public final ForgeConfigSpec.BooleanValue deckMomentumSeated;
         public final ForgeConfigSpec.BooleanValue releaseLeavingRiders;
+
+        // Entity Collisions (BodyCollisions)
+        public final ForgeConfigSpec.BooleanValue enableEntityCollisions;
+        public final ForgeConfigSpec.DoubleValue entityCollisionMinSpeed;
+        public final ForgeConfigSpec.DoubleValue entityCollisionRestitution;
+        public final ForgeConfigSpec.DoubleValue entityCollisionFriction;
+        public final ForgeConfigSpec.DoubleValue entityCollisionDamageMultiplier;
+
+        // Projectile Collisions (ProjectileCollisions)
+        public final ForgeConfigSpec.BooleanValue enableProjectileCollisions;
+        public final ForgeConfigSpec.DoubleValue projectileRestitution;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -252,6 +267,15 @@ public class FullStopConfig {
                     .comment("Default: true")
                     .define("enableGravityUnboundCompat", true);
 
+            this.scaledKnockback = builder
+                    .comment("Knockback goes by the sizes of the hitter and the victim relative to each other (Pehkui; VS Genesis's",
+                            "space shrinks everything to 1/16). Two bodies of the same size knock each other back as vanilla does;",
+                            "a full-size player's hit sends a 1/16 mob as far across the world as it sends a normal one (sixteen of",
+                            "its own lengths); a 1/16 player's hit barely moves a full-size mob.")
+                    .translation(key("scaledKnockback"))
+                    .comment("Default: true")
+                    .define("scaledKnockback", true);
+
             this.configVersion = builder
                     .comment("Bookkeeping, not a setting: which one-time migrations have already run on this file",
                             "(2 = WeightRS's ship-weight settings were imported). Leave it alone.")
@@ -338,7 +362,9 @@ public class FullStopConfig {
                     .defineInRange("minimumSolidImpactDamage", 2.0, 0.0, 100.0);
 
             this.entityCollisionDamage = builder
-                    .comment("When enabled, colliding with entities will cause kinetic damage. This is a highly experimental feature, use at your own risk!")
+                    .comment("Legacy: the old experimental entity collisions (a momentum exchange and damage per entity, and landing on a",
+                            "mob or boat rides it). Superseded by the Entity Collisions section: this only runs while",
+                            "enableEntityCollisions is off. Highly experimental, use at your own risk!")
                     .translation(key("entityCollisionDamage"))
                     .comment("Default: false")
                     .define("entityCollisionDamage", false);
@@ -555,10 +581,11 @@ public class FullStopConfig {
 
             builder.pop();
             builder.comment("What moving Valkyrien Skies ships do to what they hit, and what hits them. Needs Valkyrien Skies and",
-                            "enableValkyrienSkiesCompat. Entities riding a ship, creative/spectator players, entities tagged",
-                            "fullstop:ship_immune and anything another mod owns the contacts of (MKW Mobility's karts and their",
-                            "drivers while racing) are never hit. A vehicle with a rider (a boat, a cart, a free-roaming MKW kart)",
-                            "is hit as one body with everyone on it, and a driver's vehicle is pushed through the driver's client.")
+                            "enableValkyrienSkiesCompat. Entities riding a ship, spectators, entities tagged fullstop:ship_immune and",
+                            "anything another mod owns the contacts of (MKW Mobility's karts and their drivers while racing) are never",
+                            "hit; creative players are knocked about like anyone else but never hurt. A vehicle with a rider (a boat,",
+                            "a cart, a free-roaming MKW kart) is hit as one body with everyone on it, and a driver's vehicle is pushed",
+                            "through the driver's client.")
                     .push("Ship Collisions");
 
             this.enableShipCollisions = builder
@@ -635,6 +662,33 @@ public class FullStopConfig {
                     .translation(key("hitLift"))
                     .comment("Default: 0.3")
                     .defineInRange("hitLift", 0.3, 0.0, 2.0);
+
+            this.maxHitLaunchSpeed = builder
+                    .comment("The fastest (m/s) a hull's hit can launch an entity. The damage still follows the full speed of the",
+                            "hit; only the flight is capped. It is there for extreme rotors: an arm whose tip moves at many hundreds",
+                            "of m/s launched a player across dozens of blocks a tick, generating chunks faster than the game could",
+                            "(it dropped to a frame a second). Up to 250 m/s the fling is the hit's own: a 240 RPM arm launched a",
+                            "player at 139 m/s, 96 blocks, and the worst frame took 39 ms. Lower it on a slow server. 0 = no limit.")
+                    .translation(key("maxHitLaunchSpeed"))
+                    .comment("Default: 250.0")
+                    .defineInRange("maxHitLaunchSpeed", 250.0, 0.0, 1000.0);
+
+            this.gentlePushSpeed = builder
+                    .comment("A hull closing on an entity slower than this (m/s, at the entity's own scale) pushes it along instead",
+                            "of striking it: no bounce off the hull and no lift, so a slow ship or a slowly turning rotor shoves what it",
+                            "meets along smoothly, as a moving wall would. Faster than this it is a hit (entityRestitution, hitLift).",
+                            "Pushes never hurt: the damage thresholds are well above this.")
+                    .translation(key("gentlePushSpeed"))
+                    .comment("Default: 5.0")
+                    .defineInRange("gentlePushSpeed", 5.0, 0.0, 100.0);
+
+            this.shipSonicBooms = builder
+                    .comment("A ship whose hull moves faster than sound (343 m/s) anywhere - a fast ship, or the tips of a fast",
+                            "rotor - makes a sonic boom, as a fast entity does: once as it crosses the barrier, and once for each",
+                            "player within 96 blocks of it while it stays supersonic. Its riders don't boom on their own.")
+                    .translation(key("shipSonicBooms"))
+                    .comment("Default: true")
+                    .define("shipSonicBooms", true);
 
             this.pinnedDamageMultiplier = builder
                     .comment("Damage multiplier when the entity is pinned between the hull and a wall (or another ship) and can't",
@@ -977,6 +1031,86 @@ public class FullStopConfig {
                     .translation(key("releaseLeavingRiders"))
                     .comment("Default: true")
                     .define("releaseLeavingRiders", true);
+
+            builder.pop();
+            builder.comment("Mobs, players and vehicles (with whoever rides them, as one body) that run, fly or fall into each other.",
+                            "Minecraft only nudges overlapping entities apart, a few hundredths of a block a tick, so fast ones flew",
+                            "straight through each other. Supersedes the old experimental entityCollisionDamage (Kinetic Damage",
+                            "settings), which only runs while enableEntityCollisions is off.")
+                    .push("Entity Collisions");
+
+            this.enableEntityCollisions = builder
+                    .comment("Two bodies meeting faster than entityCollisionMinSpeed collide: along the line between them they exchange",
+                            "momentum by their masses (Camafy's body weights, riders included: config/camafy-weight.toml) with",
+                            "entityCollisionRestitution, friction acts across it, and each takes the kinetic damage of the speed it",
+                            "lost (the same thresholds and armour as any impact). Their paths are swept, so fast bodies can't pass",
+                            "through each other between ticks. A body landing on one that stands on the ground crushes it (the ground",
+                            "holds it up) and, as mobs aren't solid, falls on past it to land. A player's share of the push goes to",
+                            "its own client. Never: spectators, bats, armour stands, the ender dragon, NoAI mobs, anything climbing,",
+                            "sleeping or seated on a ship, riders of the same mount, two minecarts (vanilla bumps those), bodies another",
+                            "mod owns the contacts of (MKW's karts and racers), bodies whose scoreboard teams don't collide, and pairs",
+                            "a minigame host doesn't let touch.")
+                    .translation(key("enableEntityCollisions"))
+                    .comment("Default: true")
+                    .define("enableEntityCollisions", true);
+
+            this.entityCollisionMinSpeed = builder
+                    .comment("Slowest closing speed (m/s) that is a collision. Slower contacts are left to Minecraft's gentle pushing, so",
+                            "walking or sprinting into a crowd stays what it was. Reference: walk 4.3, sprint 5.6, two players",
+                            "sprinting into each other 11.2, a 3-block fall 12.3, a galloping horse 14.")
+                    .translation(key("entityCollisionMinSpeed"))
+                    .comment("Default: 10.0")
+                    .defineInRange("entityCollisionMinSpeed", 10.0, 0.5, 1000.0);
+
+            this.entityCollisionRestitution = builder
+                    .comment("How bouncy a collision between two bodies is: 0 = they end up moving together along the line between",
+                            "them, 1 = fully elastic. 0.3 matches a body hitting a ship (entityRestitution).")
+                    .translation(key("entityCollisionRestitution"))
+                    .comment("Default: 0.3")
+                    .defineInRange("entityCollisionRestitution", 0.3, 0.0, 1.0);
+
+            this.entityCollisionFriction = builder
+                    .comment("Friction between two bodies that meet at an angle: across the line between them each is dragged toward",
+                            "the other's motion by at most this times the push along it (Coulomb), and never past moving together.",
+                            "0 = a glancing hit only pushes them apart.")
+                    .translation(key("entityCollisionFriction"))
+                    .comment("Default: 0.3")
+                    .defineInRange("entityCollisionFriction", 0.3, 0.0, 2.0);
+
+            this.entityCollisionDamageMultiplier = builder
+                    .comment("Multiplies the damage two colliding bodies deal each other (after kineticDamageMultiplier). 0 = collisions",
+                            "push but never hurt.")
+                    .translation(key("entityCollisionDamageMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("entityCollisionDamageMultiplier", 1.0, 0.0, 100.0);
+
+            builder.pop();
+            builder.comment("Projectiles that meet in the air. Vanilla lets projectiles fly through each other (only fireballs and",
+                            "shulker bullets can be shot down, and those stay vanilla's).")
+                    .push("Projectile Collisions");
+
+            this.enableProjectileCollisions = builder
+                    .comment("Arrows (spectral and tipped too, and modded arrows), tridents and thrown eggs, snowballs, splash and",
+                            "lingering potions, ender pearls and bottles o' enchanting collide with each other in flight. Their paths",
+                            "are swept each tick, so two arrows can't pass through each other. Arrows and tridents exchange momentum",
+                            "by mass (Camafy's weights: an arrow 0.05 kg, a trident 2) with projectileRestitution: two arrows meeting",
+                            "head-on stop and tumble down, a glancing hit deflects both, and afterwards each is an ordinary arrow",
+                            "(it sticks where it lands and can be picked up as its pickup rule allows). Thrown items break where",
+                            "they meet as on any hit - an egg bursts, a snowball puffs, a potion splashes there, a bottle spills its",
+                            "experience, an ender pearl lands its thrower there - and slow the other by the momentum they carried.",
+                            "Projectiles a volley fires together never collide with each other, and Forge's projectile impact event",
+                            "is fired for each (a mod can cancel the hit).")
+                    .translation(key("enableProjectileCollisions"))
+                    .comment("Default: true")
+                    .define("enableProjectileCollisions", true);
+
+            this.projectileRestitution = builder
+                    .comment("How bouncy two arrows or tridents meeting in the air are: 0 = along the line between them they end up",
+                            "moving together, 1 = fully elastic. At 0.1 two arrows meeting head-on at the same speed each bounce back",
+                            "at a tenth of it. A thrown item that breaks never bounces.")
+                    .translation(key("projectileRestitution"))
+                    .comment("Default: 0.1")
+                    .defineInRange("projectileRestitution", 0.1, 0.0, 1.0);
 
             builder.pop();
         }

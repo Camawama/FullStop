@@ -808,6 +808,15 @@ public class FullStopCapability {
         frameMotionMps = clientCarryMps != null ? clientCarryMps : ShipCompat.shipDragVelocityMps(entity);
         pushMps = clientShoveMps != null ? clientShoveMps : shipPushMps(entity);
         actualVelocity = actualVelocity.subtract(frameMotionMps).subtract(pushMps);
+        // A rider in one of a ship's seats moves only with its seat: VS puts it where the seat is every tick, so
+        // all of its motion is the ship's. On a rotor that seat swings round at up to hundreds of m/s, and VS's
+        // uneven physics steps made it read as a rider flying past the speed of sound and stopping dead, over and
+        // over: sonic booms, and "impacts" that hurt it and threw it out of its seat. What the seat does to its
+        // rider is felt through the seat's acceleration (g-force) and a crash through ShipDeckMomentum.
+        if (ShipCompat.seatShip(entity) != null) {
+            frameMotionMps = frameMotionMps.add(actualVelocity);
+            actualVelocity = Vec3.ZERO;
+        }
 
         // Position discontinuity (respawn, /tp, mod teleports that fire no event):
         // no physical process triples an entity's speed past 60 m/s in a single
@@ -1607,7 +1616,7 @@ public class FullStopCapability {
         private final Entity entity;
 
         private FullStopCapability capability = null;
-        private final LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability);
+        private LazyOptional<FullStopCapability> lazyHandler = LazyOptional.of(this::createCapability);
 
         public Provider(Entity entity) {
             this.entity = entity;
@@ -1625,9 +1634,21 @@ public class FullStopCapability {
             return this.capability;
         }
 
+        /**
+         * The capability, handed out again after a revive. Forge invalidates an entity's
+         * capabilities every time it is removed, a player changing dimension included
+         * ({@code removePlayerImmediately}), and {@code revive()}s the player straight after; an
+         * invalidated LazyOptional never comes back, so with a single one the server lost this
+         * capability for a player after any dimension change (a {@code /tp} into another
+         * dimension, VS Genesis's space) until the player relogged, and FullStop measured and
+         * judged nothing for it. The entity's own provider hands out nothing while its
+         * capabilities are invalid, so a fresh LazyOptional here is only reached after the
+         * revive; the state behind it is the same object throughout.
+         */
         @Override
         public @NotNull <T> LazyOptional<T> getCapability(@NotNull Capability<T> cap, @Nullable Direction side) {
             if (cap == DELTAV_CAP) {
+                if (!lazyHandler.isPresent()) lazyHandler = LazyOptional.of(this::createCapability);
                 return lazyHandler.cast();
             }
             return LazyOptional.empty();

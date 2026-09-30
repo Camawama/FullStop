@@ -200,7 +200,12 @@ public final class ShipEntityHits {
 
         // The ship: pushed at the contact, unless the push would come back from what it did itself.
         Vec3 pushed = Vec3.ZERO;
-        double impulse = pushImpulse(cap, ship, now, fromBelow, rider, contact.approach(), exchange);
+        // Pulled in by a gravity field on the ship itself (Gravity Unbound's plating on it), a body landing on it or
+        // bumping into it is the ship's own business: the field pulled the ship toward the body just as hard, and the
+        // two came together with nothing to show for it. Pushed, a ship in space drove itself along each time someone
+        // was drawn onto its plating (and hard, with a loaded inventory).
+        boolean ownField = Gravity.ridesShipField(entity);
+        double impulse = ownField ? 0.0 : pushImpulse(cap, ship, now, fromBelow, rider, contact.approach(), exchange);
         if (fromBelow && impulse > 0.0) {
             // a landing tops up to its full impulse over its two ticks, never pushes twice
             double total = impulse;
@@ -221,7 +226,8 @@ public final class ShipEntityHits {
                     fmt(exchange.entityKg()), Double.isInfinite(exchange.shipKg()) ? "inf" : fmt(exchange.shipKg()),
                     fmt(exchange.restitution()), fmt(exchange.speedLost()), fmt(exchange.kick()), moved ? "" : " (left to VS)",
                     fmt(pushed.length()), String.format(Locale.ROOT, "%.2f,%.2f,%.2f", normal.x, normal.y, normal.z), fmt(damage),
-                    rider ? " (own ship: no push)" : cap.isShipFeedbackBlocked(ship.id(), now) ? " (thrown by it: no push)" : "");
+                    rider ? " (own ship: no push)" : ownField ? " (drawn in by its own field: no push)"
+                            : cap.isShipFeedbackBlocked(ship.id(), now) ? " (thrown by it: no push)" : "");
         }
         return new Outcome(true, damage, struck, false);
     }
@@ -243,7 +249,7 @@ public final class ShipEntityHits {
     /** Never collided with here (see ShipEntityImpacts' exclusions): FullStop or another mod leaves it be. */
     private static boolean excluded(Entity root) {
         if (DamageImmunityRules.unphysableIgnoringAi(root) || root.isSpectator()) return true;
-        if (root instanceof Player player && player.isCreative()) return true; // a wall, as ships ignore them too
+        // (creative players collide like anyone else, as ships hit them too; they are never hurt)
         if (root.getType().is(FullStopTags.SHIP_IMMUNE)) return true;
         // another mod owns its impacts (a CONTACT claim is about entities, and a hull isn't one)
         for (Entity member : EntityStack.selfAndPassengers(root)) {
@@ -328,7 +334,8 @@ public final class ShipEntityHits {
         // A server-side player's (or a driven vehicle's) deltaMovement is meaningless - its client
         // moves it: the measured velocity stands in for its own.
         boolean clientMoved = entity instanceof Player || entity.getControllingPassenger() instanceof Player;
-        Vec3 own = clientMoved ? cap.getCurrentScaledVelocity() : Gravity.getWorldVelocity(entity, frame).scale(20.0);
+        Vec3 own = clientMoved ? cap.getCurrentScaledVelocity()
+                : net.camacraft.camafy.compat.scale.EntityScale.realVelocity(entity, Gravity.getWorldVelocity(entity, frame)).scale(20.0);
         Vec3 world = own.add(carry);
         double change = normalSpeed - world.dot(normal);
         // as a change, to whoever simulates the body (BodyPush)
@@ -350,7 +357,8 @@ public final class ShipEntityHits {
         if (kept == null || ship == null) return null;
         Vec3 normal = cap.shipExchangeNormal();
         double wanted = kept.dot(normal);
-        Vec3 own = entity instanceof Player ? cap.getCurrentScaledVelocity() : Gravity.getWorldVelocity(entity, frame).scale(20.0);
+        Vec3 own = entity instanceof Player ? cap.getCurrentScaledVelocity()
+                : net.camacraft.camafy.compat.scale.EntityScale.realVelocity(entity, Gravity.getWorldVelocity(entity, frame)).scale(20.0);
         double have = own.add(ShipCompat.shipDragVelocityMps(entity)).dot(normal);
         if (have >= wanted - 0.5) return null;
         // against the hull again: pushed toward it by a little is enough to touch

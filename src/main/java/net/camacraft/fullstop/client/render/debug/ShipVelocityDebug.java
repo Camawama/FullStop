@@ -3,9 +3,11 @@ package net.camacraft.fullstop.client.render.debug;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.compat.vs.Ships;
+import net.camacraft.fullstop.common.physics.ShipSweptContact;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
@@ -22,12 +24,21 @@ import java.util.List;
 
 /**
  * FullStop's velocity debug view (F3+V) for Valkyrien Skies ships, in the same style as its
- * entity rays: from the corners, face centres and centre of mass of every moving ship's hull, a
- * ray along the velocity of the hull's material at that point ({@code v + w x r}, so a turning
- * ship shows its turn: the rays fan out) as long as one tick of that point's travel, green when
- * clear, red where it is about to strike terrain or another ship at collision speed (2 m/s or
- * more into the face), yellow where it only touches; fainter the slower it moves. The centre of
- * mass ray is drawn through the hull, so it shows from outside.
+ * entity rays: from the corners, face centres and centre of mass of every moving ship's hull, the
+ * path that point of the hull takes over the coming tick - along the ship's travel and round its
+ * turn, so a spinning ship's rays curve along the circles its hull sweeps instead of shooting off
+ * along their tangents (a fast rotor's tips cover many blocks a tick, and straight rays reached far
+ * out into air the hull never goes near). Green when clear, red where it is about to strike terrain
+ * or another ship at collision speed (2 m/s or more into the face), where the ray stops, yellow
+ * where it only touches; fainter the slower it moves. The centre of mass ray is drawn through the
+ * hull, so it shows from outside.
+ *
+ * <p>A ship turning about a fixed point - a rotor on a Clockwork bearing, pivoting at one end - has its centre of mass
+ * going round that point, not on in a straight line: its rays are circles about the point. Taking the centre of mass
+ * as travelling straight on while the hull turned about it made the rays of a fast rotor's tips spiral outward, far
+ * from where the hull goes. The point is the ship's instantaneous rotation axis ({@code com + w x v / |w|^2}), taken
+ * as a pivot when it stays put from one tick to the next; a freely turning ship's axis travels with it, and its rays
+ * follow its centre of mass straight on as before.</p>
  *
  * <p>The client knows each ship's velocity and spin from VS's own sync; should they read zero
  * while the ship visibly moves (an older sync), they are taken from its last two client
@@ -42,6 +53,10 @@ public final class ShipVelocityDebug {
     /** Only ships within this distance of the camera (blocks). */
     private static final double RANGE = 160.0;
     private static final double MIN_RAY_LENGTH = 0.15;
+    private static final double TICK_SECONDS = 0.05;
+    /** Longest turn (radians) one straight piece of an arc covers, and at most this many pieces. */
+    private static final double MAX_SEGMENT_TURN = Math.toRadians(6.0);
+    private static final int MAX_SEGMENTS = 24;
     private static final double SPEED_FOR_MAX_OPACITY = 20.0;
     private static final float MIN_SPEED_ALPHA = 0.2f;
     private static final int LINE_LIFE_TICKS = 5;
@@ -61,6 +76,11 @@ public final class ShipVelocityDebug {
 
     private record Seen(Vec3 position, Quaterniond rotation, long movedAt, long seenAt) {}
 
+    /** Each ship's instantaneous rotation axis point this tick, and last tick's (for telling a pivot from free turning). */
+    private static final Long2ObjectOpenHashMap<Axis> AXES = new Long2ObjectOpenHashMap<>();
+
+    private record Axis(long tick, @Nullable Vec3 point, @Nullable Vec3 before) {}
+
     private ShipVelocityDebug() {
     }
 
@@ -74,9 +94,11 @@ public final class ShipVelocityDebug {
         long now = level.getGameTime();
         if (seenIn != level) {
             SEEN.clear();
+            AXES.clear();
             seenIn = level;
         }
         SEEN.values().removeIf(seen -> now - seen.seenAt() > FORGET_TICKS);
+        AXES.values().removeIf(axis -> now - axis.tick() > FORGET_TICKS);
         for (ShipRef ship : Ships.intersecting(level, new AABB(camera, camera).inflate(RANGE))) {
             if (moving(ship, now)) draw(level, ship, viewer);
         }
@@ -117,6 +139,13 @@ public final class ShipVelocityDebug {
                 + blocks.getYSpan() * (double) blocks.getYSpan() + blocks.getZSpan() * (double) blocks.getZSpan());
         if (velocity.length() + spin.length() * halfDiagonal < MIN_SPEED) return;
 
+        // the ship's motion over the coming tick, to follow each point along the arc its turn makes of it: round its
+        // pivot if it turns about a fixed point, else round its centre of mass going straight on
+        ShipSweptContact.Relative ahead = new ShipSweptContact.Relative(centre, velocity, spin, Vec3.ZERO);
+        Vec3 pivot = pivot(ship.id(), centre, velocity, spin, level.getGameTime());
+        Vec3 about = pivot != null ? pivot : centre;
+        Vec3 carried = pivot != null ? spin.scale(spin.dot(velocity) / spin.lengthSqr()) : velocity;
+        int segments = Mth.clamp((int) Math.ceil(spin.length() * TICK_SECONDS / MAX_SEGMENT_TURN), 1, MAX_SEGMENTS);
         for (int i = 0; i < points.size(); i++) {
             Vec3 local = points.get(i);
             Vec3 now = ship.toWorld(local);
@@ -125,26 +154,69 @@ public final class ShipVelocityDebug {
             Vec3 pointVelocity = velocity.add(spin.cross(now.subtract(centre)));
             double speed = pointVelocity.length();
             if (speed < 1.0e-4) continue;
-            Vec3 direction = pointVelocity.scale(1.0 / speed);
-            double length = Math.max(speed * 0.05, MIN_RAY_LENGTH) + 0.01;
-            Vec3 end = drawn.add(direction.scale(length));
             boolean centreRay = i == points.size() - 1;
-
-            // What that point is about to run into: terrain or another ship, never this one.
-            BlockHitResult hit = Ships.clip(level, new ClipContext(drawn, end, ClipContext.Block.COLLIDER,
-                    ClipContext.Fluid.NONE, viewer), ship.id());
-            float r = 0.0f, g = 1.0f, b = 0.0f, a = 0.5f;
-            if (hit.getType() == HitResult.Type.BLOCK) {
-                Vec3 face = Ships.hitNormal(level, hit);
-                boolean colliding = face != null && -pointVelocity.dot(face) >= CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
-                r = 1.0f;
-                g = colliding ? 0.0f : 0.8f;
-                a = colliding ? 1.0f : 0.7f;
-            }
             float speedAlpha = (float) Math.min(Math.max(speed / SPEED_FOR_MAX_OPACITY, MIN_SPEED_ALPHA), 1.0);
-            RaycastLineRenderer.queueLine("ship_" + ship.id() + "_ray_" + i, drawn, end, r, g, b, a * speedAlpha,
-                    LINE_LIFE_TICKS, centreRay);
+            String id = "ship_" + ship.id() + "_ray_" + i + "_";
+            if (speed * TICK_SECONDS < MIN_RAY_LENGTH) {
+                // too slow to show an arc: a short stub along its motion, as before
+                Vec3 end = drawn.add(pointVelocity.scale((MIN_RAY_LENGTH + 0.01) / speed));
+                segment(level, ship, viewer, id + 0, drawn, end, pointVelocity, speedAlpha, centreRay);
+                continue;
+            }
+            // one tick of the point's travel, along the arc: its path in the world as the ship moves on and turns
+            Vec3 from = drawn;
+            for (int k = 1; k <= segments; k++) {
+                double t = TICK_SECONDS * k / segments;
+                Vec3 at = about.add(carried.scale(t)).add(ahead.turn(now.subtract(about), t));
+                Vec3 to = drawn.add(at.subtract(now));
+                Vec3 along = carried.add(spin.cross(at.subtract(about.add(carried.scale(t)))));
+                // the point meets something there: the arc stops at it
+                if (segment(level, ship, viewer, id + k, from, to, along, speedAlpha, centreRay)) break;
+                from = to;
+            }
         }
+    }
+
+    /**
+     * The fixed point the ship turns about, or null when it turns freely (or hardly at all): its instantaneous rotation
+     * axis point ({@code com + w x v / |w|^2}, the point of the axis nearest the centre of mass), when that stayed put
+     * since last tick - by less than a quarter of how far the centre of mass goes in a tick. A rotor on a bearing turns
+     * about the bearing, its axis still; a ship flying on while it spins carries its axis along with it.
+     */
+    @Nullable
+    private static Vec3 pivot(long shipId, Vec3 centre, Vec3 velocity, Vec3 spin, long tick) {
+        double spinSqr = spin.lengthSqr();
+        Vec3 point = spinSqr < 1.0e-6 ? null : centre.add(spin.cross(velocity).scale(1.0 / spinSqr));
+        Axis axis = AXES.get(shipId);
+        if (axis == null || axis.tick() != tick) {
+            axis = new Axis(tick, point, axis != null && axis.tick() == tick - 1 ? axis.point() : null);
+            AXES.put(shipId, axis);
+        }
+        if (point == null || axis.point() == null || axis.before() == null) return null;
+        double travel = velocity.length() * TICK_SECONDS;
+        return axis.before().distanceTo(axis.point()) < Math.max(0.02, 0.25 * travel) ? axis.point() : null;
+    }
+
+    /**
+     * One piece of a point's arc: green when clear, red where it runs into terrain or another ship at collision
+     * speed, yellow where it only touches. Returns whether it ran into something.
+     */
+    private static boolean segment(ClientLevel level, ShipRef ship, Entity viewer, String id, Vec3 from, Vec3 to, Vec3 velocity,
+                                   float speedAlpha, boolean centreRay) {
+        BlockHitResult hit = Ships.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER,
+                ClipContext.Fluid.NONE, viewer), ship.id());
+        float r = 0.0f, g = 1.0f, b = 0.0f, a = 0.5f;
+        boolean blocked = hit.getType() == HitResult.Type.BLOCK;
+        if (blocked) {
+            Vec3 face = Ships.hitNormal(level, hit);
+            boolean colliding = face != null && -velocity.dot(face) >= CommonCollisionDetector.MIN_APPROACH_SPEED_MPS;
+            r = 1.0f;
+            g = colliding ? 0.0f : 0.8f;
+            a = colliding ? 1.0f : 0.7f;
+            to = hit.getLocation();
+        }
+        RaycastLineRenderer.queueLine(id, from, to, r, g, b, a * speedAlpha, LINE_LIFE_TICKS, centreRay);
+        return blocked;
     }
 
     /**

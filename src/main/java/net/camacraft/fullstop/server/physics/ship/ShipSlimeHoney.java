@@ -40,11 +40,17 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * The speed a contact met at is the fastest the hull moved into it over the last few physics
  * frames (VS's PhysX measures its contacts after its solver has bounced the ship off, and a crash
  * can reach the game a frame late); the speed it leaves at is the ship's latest frame, read when
- * that frame shows the crash (a bounce waits for it, a few ticks at most). Momentum goes in through
+ * that frame shows the crash (a bounce waits for it, a few ticks at most). A slime bounce reads
+ * both at the ship's centre of mass and pushes there: it bounces the ship, it doesn't turn it.
+ * Pushed at the patch that met, off the ship's centre, every bounce added spin, and a spinning
+ * ship's corner met the ground far faster than the ship itself moved - the spin went into the
+ * next bounce, which sent it higher and spinning harder (the owner: slime ships gathered spin
+ * and bounced ever higher). VS's own collision still turns a ship landing on an edge. Slime also
+ * grips: each bounce takes {@link #SLIME_SPIN_LOSS} of the ship's spin out, as a rubbery surface
+ * does. Honey holds at the patch that met. Momentum goes in through
  * {@link ShipImpulses#applyCapped} (so {@code maxForceNewtons} bounds it; a bounce too big for one
- * physics step is finished over the next frames), at the contact point with the ship's effective
- * mass there, so an off-centre bounce also turns the ship. Works with VS's own collision events
- * (PhysX, Jolt) and Camafy's fallback for the classic backend alike, in any gravity.
+ * physics step is finished over the next frames). Works with VS's own collision events (PhysX,
+ * Jolt) and Camafy's fallback for the classic backend alike, in any gravity.
  */
 public final class ShipSlimeHoney {
 
@@ -54,6 +60,8 @@ public final class ShipSlimeHoney {
     private static final int APPROACH_TICKS = 4;
     /** Ticks a ship (or pair) isn't bounced again after a bounce: the same crash's later contacts. */
     private static final int COOLDOWN_TICKS = 6;
+    /** The share of a ship's spin a slime bounce takes out (slime's grip on the hull as it springs back). */
+    private static final double SLIME_SPIN_LOSS = 0.4;
     /** Ticks a queued bounce may wait for the frame that shows the crash, or finish a capped push. */
     private static final int PENDING_TICKS = 8;
     /** A hull block whose face is this close (m) to a crash's contact plane is part of the patch that met. */
@@ -85,6 +93,8 @@ public final class ShipSlimeHoney {
         /** New physics frames to wait before looking again (an impulse queued isn't in the frame yet). */
         int waitFrames;
         boolean applied;
+        /** A slime bounce: read and pushed at the centre of mass (honey holds at {@link #point}). */
+        boolean throughCentre;
 
         Pending(long a, long b, Vec3 point, Vec3 normal, double target, double met, String what, long expires) {
             this.a = a;
@@ -180,9 +190,15 @@ public final class ShipSlimeHoney {
         if (fastest < SERVER.slimeMinSpeed.get() || coolingDown(level, ship.id(), now)) return;
         double e = restitution(slimeBoth);
         Vec3[] at = centre(slime);
-        queue(level, now, new Pending(ship.id(), ShipRef.NO_ID, patchCentre(level, ship, at[0], at[1], null), at[1],
-                e * fastest, fastest,
-                slimeBoth ? "slime hull on slime" : "slime against terrain", now + PENDING_TICKS), ship.id());
+        Vec3 patch = patchCentre(level, ship, at[0], at[1], null);
+        // how fast the ship itself (its centre of mass) met the surface (see the class notes)
+        Vec3 com = state.position();
+        double met = Math.max(-state.prevVelocityAt(com).dot(at[1]), state.recentInto(com, at[1], now, APPROACH_TICKS));
+        if (met < SERVER.slimeMinSpeed.get()) return;
+        Pending bounce = new Pending(ship.id(), ShipRef.NO_ID, patch, at[1], e * met, met,
+                slimeBoth ? "slime hull on slime" : "slime against terrain", now + PENDING_TICKS);
+        bounce.throughCentre = true;
+        queue(level, now, bounce, ship.id());
     }
 
     // ------------------------------------------------------------------
@@ -237,8 +253,16 @@ public final class ShipSlimeHoney {
         if (fastest < SERVER.slimeMinSpeed.get() || coolingDown(level, key, now)) return;
         double e = restitution(slimeBoth);
         Vec3[] at = centrePoints(slimePoints);
-        queue(level, now, new Pending(a.id(), b.id(), patchCentre(level, a, at[0], at[1], b), at[1], e * fastest, fastest,
-                slimeBoth ? "slime hulls" : "slime between ships", now + PENDING_TICKS), key);
+        Vec3 patch = patchCentre(level, a, at[0], at[1], b);
+        // how fast the two ships themselves (their centres of mass) closed along the contact's normal
+        Vec3 comA = stateA.position(), comB = stateB.position();
+        double met = Math.max(-stateA.prevVelocityAt(comA).subtract(stateB.prevVelocityAt(comB)).dot(at[1]),
+                -stateA.velocityAt(comA).subtract(stateB.velocityAt(comB)).dot(at[1]));
+        if (met < SERVER.slimeMinSpeed.get()) return;
+        Pending bounce = new Pending(a.id(), b.id(), patch, at[1], e * met, met,
+                slimeBoth ? "slime hulls" : "slime between ships", now + PENDING_TICKS);
+        bounce.throughCentre = true;
+        queue(level, now, bounce, key);
     }
 
     /**
@@ -321,9 +345,9 @@ public final class ShipSlimeHoney {
             return false;
         }
 
-        // separating speed at the contact now (positive: leaving the surface)
-        Vec3 va = stateA.velocityAt(p.point);
-        Vec3 vb = stateB != null ? stateB.velocityAt(p.point) : Vec3.ZERO;
+        // separating speed now (positive: leaving the surface): of the ships themselves for a bounce, at the contact for honey
+        Vec3 va = stateA.velocityAt(p.throughCentre ? stateA.position() : p.point);
+        Vec3 vb = stateB == null ? Vec3.ZERO : stateB.velocityAt(p.throughCentre ? stateB.position() : p.point);
         double leaving = va.subtract(vb).dot(p.normal);
         // the latest frame still shows the ship coming in: the crash isn't in it yet
         if (!p.applied && leaving < -0.25 * Math.max(p.met, 1.0)) return false;
@@ -352,8 +376,10 @@ public final class ShipSlimeHoney {
 
         double massA = a.isStatic() ? Double.POSITIVE_INFINITY : stateA.mass();
         double massB = b == null || b.isStatic() ? Double.POSITIVE_INFINITY : stateB.mass();
-        double effA = ShipInertia.effectiveMassKg(a, massA, p.point, direction);
-        double effB = b == null ? Double.POSITIVE_INFINITY : ShipInertia.effectiveMassKg(b, massB, p.point, direction);
+        // a bounce pushes through each centre of mass, where a ship's effective mass is its mass
+        double effA = p.throughCentre ? massA : ShipInertia.effectiveMassKg(a, massA, p.point, direction);
+        double effB = b == null ? Double.POSITIVE_INFINITY
+                : p.throughCentre ? massB : ShipInertia.effectiveMassKg(b, massB, p.point, direction);
         double inverse = (Double.isFinite(effA) && effA > 0 ? 1.0 / effA : 0.0)
                 + (Double.isFinite(effB) && effB > 0 ? 1.0 / effB : 0.0);
         if (!(inverse > 0.0)) return true;
@@ -361,10 +387,15 @@ public final class ShipSlimeHoney {
         Vec3 j = direction.scale(impulse);
         double given = 0.0;
         if (Double.isFinite(massA)) {
-            given = ShipImpulses.applyCapped(level, a, j, p.point).length();
+            given = ShipImpulses.applyCapped(level, a, j, p.throughCentre ? stateA.position() : p.point).length();
         }
         if (b != null && Double.isFinite(massB)) {
-            given = Math.max(given, ShipImpulses.applyCapped(level, b, j.scale(-1.0), p.point).length());
+            given = Math.max(given, ShipImpulses.applyCapped(level, b, j.scale(-1.0), p.throughCentre ? stateB.position() : p.point).length());
+        }
+        if (p.throughCentre && !p.applied) {
+            // slime grips as it springs back: part of the spin goes with the bounce
+            if (Double.isFinite(massA)) net.camacraft.camafy.compat.vs.ShipForces.dampSpin(level, a.id(), SLIME_SPIN_LOSS);
+            if (b != null && Double.isFinite(massB)) net.camacraft.camafy.compat.vs.ShipForces.dampSpin(level, b.id(), SLIME_SPIN_LOSS);
         }
         debug("ship {}{}: {} - leaving at {} m/s, wants {}: {} N s along {} at {} (effective mass {} kg){}", p.a,
                 b == null ? "" : " and ship " + p.b, p.what, fmt(leaving), fmt(p.target), fmt(impulse), vec(direction),

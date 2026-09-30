@@ -6,7 +6,7 @@
 - [ ] **Stack 3+ mobs (or drop an iron golem onto a cow).** *Expect:* the BOTTOM carrier starts taking periodic squish damage ("was squished too much" on death); a single similar-sized rider deals none. The stack sheds from the bottom up as carriers die.
 - [ ] **Two players + supersonic flyby (VS ship or command).** *Expect:* flyer booms once at the crossing; the bystander hears ONE boom exactly when the flyer passes within ~96 blocks (louder the closer), and never again during that supersonic run. Drop subsonic, cross again → everyone booms once more.
 
-- [ ] **Jump onto a cow (entity collisions on).** *Expect:* it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
+- [ ] **Jump onto a cow (legacy entity collisions: `enableEntityCollisions` off, `entityCollisionDamage` on).** *Expect:* it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
 - [ ] **Stack test: cow on cow (or two mobs on one).** *Expect:* the carrier is slower the heavier the stack.
 - [ ] **Ride/push a loaded mob into deep water.** *Expect:* the carrier rides low / gets pushed under proportionally to the load — cow-on-cow submerges the lower one; unridden mobs float exactly as vanilla.
 - [ ] **Saddled horse/pig regression.** *Expect:* steered mounts behave exactly as vanilla — no panic on mounting, no wandering while you steer.
@@ -44,7 +44,7 @@
 - [ ] **Shift-dismount a moving boat (retest).** *Expect:* you fly out with the boat's velocity — the seed now outlives the server's dismount position packet.
 - [ ] **Boat slime-wall ricochet while riding.** *Expect:* the boat snaps to the rebound heading and your view eases around SMOOTHLY to match (same gradual turn as the on-foot bounce camera) — no head snap. Moving the mouse mid-turn cancels the auto-turn, same as on foot.
 - [ ] **Shift-dismount a moving boat (retest #3).** *Expect:* BOTH keep moving — you fly out with the boat's velocity AND the boat glides on without you. No "collision" between you and the boat right after exit (the boat must not dead-stop and slingshot you — the pair is collision-exempt for 2 s).
-- [ ] **Sprint into a standing player/mob with entity collisions on.** *Expect:* sane momentum exchange — and a MOVING player being grazed no longer absorbs the full impact as if they were a wall (their measured velocity counts now).
+- [ ] **Sprint into a standing player/mob with the legacy entity collisions on.** *Expect:* sane momentum exchange — and a MOVING player being grazed no longer absorbs the full impact as if they were a wall (their measured velocity counts now).
 
 - [ ] **Drive a boat fast into a slime wall, 10× in a row.** *Expect:* a full-strength rebound EVERY time, applied instantly (the bounce now runs on YOUR client, pre-contact) — no twitch-then-dead-stop, no "sometimes works".
 - [ ] **Watch the boat itself on that bounce.** *Expect:* the BOAT turns to face the rebound direction (ricochet), while your camera does NOT move.
@@ -153,7 +153,18 @@ Useful setup commands:
 - [ ] **Slime block on a wall / hanging from ceiling.** *Expect:* still sticks (any-face support intact) `[REG]`.
 - [ ] **Sand column collapse & slime attached to sand.** *Expect:* unchanged cascade behavior `[REG]`.
 
-## 8. Entity collisions (set `entityCollisionDamage = true` in server config first)
+## 8. Mid-air collisions (`enableEntityCollisions`, `enableProjectileCollisions`: on by default)
+
+- [ ] **Elytra into a flying mob (or a phantom swooping into you).** *Expect:* both are knocked apart along the line between them and each takes kinetic damage for the speed it lost; the server finds the hit, so the change can arrive 1-3 ticks late - check it doesn't look like a snap.
+- [ ] **PvP off (`pvp=false`): two players colliding at speed.** *Expect:* neither is hurt; with pvp on, the damage is credited to the other player.
+- [ ] **Shield up when a mob slams into you.** *Expect:* decide whether blocking should soak the kinetic hit (it is kinetic damage, not an attack).
+- [ ] **Two players sprinting head-on (11.2 m/s closing).** *Expect:* they bounce apart with no damage (over the 10 m/s `entityCollisionMinSpeed`); raise it if that feels wrong.
+- [ ] **Mob-farm drop chute.** *Expect:* mobs landing on mobs at the bottom crush them ("crushed by", no player kill credit) - check your farms still give XP.
+- [ ] **Shoot an arrow into an arrow, an egg into an egg.** *Expect:* arrows head-on stop and drop, glancing ones deflect; eggs burst where they meet (the pieces drawn there, not where the egg was a tick later).
+- [ ] **Shoot down a thrown ender pearl.** *Expect:* its thrower is teleported to the meeting point and takes vanilla's 5 damage (vanilla does the same when a pearl hits a flying mob).
+- [ ] **Horse or boat on ice ramming a mob.** *Expect:* a hard hit, the mob knocked away; the rider stays mounted.
+
+### Legacy entity collisions (set `enableEntityCollisions = false` and `entityCollisionDamage = true` in server config first)
 
 - [ ] **Sprint into a cow.** *Expect:* modest push (not a perfectly elastic launch), both sides sync (no rubber-band).
 - [ ] **Creative-mode dash into mobs.** *Expect:* YOU take nothing, but the mobs still take collision damage `[FIX]`.
@@ -346,14 +357,14 @@ Needs MKW Mobility with its Camafy physics claims (karts ALL; seated drivers IMP
 - [ ] **Free roam: hop off a moving kart.** *Expect:* you keep the kart's momentum; no phantom impact at the moment you leave the seat; a real crash afterwards hurts as usual.
 - [ ] **Fall off a kart from a height (free roam).** *Expect:* FullStop landing damage applies once you are off the kart.
 - [ ] **Hit by a kart / hazard (shell, banana) as a bystander.** *Expect:* MKW's damage only — FullStop doesn't scale it by speed (no ~6× hazard hits).
-- [ ] **`entityCollisionDamage = true`: run into a parked kart and a driven kart on foot.** *Expect:* no FullStop momentum exchange or collision damage with the kart or its driver.
+- [ ] **Run into a parked kart and a driven kart on foot (the new collisions, and again with the legacy `entityCollisionDamage` ones).** *Expect:* no FullStop momentum exchange or collision damage with the kart or its driver.
 - [ ] **A mob run over by a kart, then flying into a wall.** *Expect:* Automobility's run-over hit, then FullStop's wall damage for the mob's flight (the mob is FullStop's).
 - [ ] **A VS ship rams a kart with a driver, in a race.** *Expect:* neither pushed nor damaged by the ship. A kart parked on a ship deck weighs on it; a kart landing on a deck thumps it. Free roam: §29.
 - [ ] **Ride a boat as a PASSENGER (second seat) while a player drives fast and turns.** *Expect:* no g-force blindness/nausea from the smooth ride (passengers replay the vehicle's motion now).
 
 ## 23. Modpack rules `[FIX]`
 
-- [ ] **`entityCollisionDamage = true`, a player drives a boat into another player on a `pvp=false` server.** *Expect:* no damage. With pvp on: "was hit by <driver>'s Boat", kill credit to the driver; a mob hit that way targets the driver.
+- [ ] **A player drives a boat into another player on a `pvp=false` server (the new collisions, and again with the legacy ones).** *Expect:* no damage. With pvp on: "was hit by <driver>'s Boat", kill credit to the driver; a mob hit that way targets the driver.
 - [ ] **`mobGriefing = false`: launch a mob into glass at speed; crash into glass yourself; fire your grappling hook into ice.** *Expect:* the mob breaks nothing; you and your hook still do.
 - [ ] **Crash into blocks inside a claim you don't own / a Game Start no-break arena.** *Expect:* nothing breaks or cracks (protection mods see a break event from you, or from "[Full Stop]" for mobs).
 - [ ] **`/gamerule drowningDamage false`, then high altitude / deep water.** *Expect:* no atmosphere/pressure damage to players (both are `#minecraft:is_drowning` now).

@@ -77,6 +77,11 @@ public class PhysicsDispatchServer {
             // destruction progress) and heals expired ones.
             KineticBlockInteractions.tickCracks(level);
 
+            // Bodies and projectiles meeting in mid-air (Entity / Projectile Collisions). Before each
+            // entity's own measurement below: a body stopped where it met another is measured from there.
+            net.camacraft.fullstop.server.physics.interaction.BodyCollisions.tick(level);
+            net.camacraft.fullstop.server.physics.interaction.ProjectileCollisions.tick(level);
+
             // Copy: handlers may mount/dismount entities, which mutates the entity list.
             // Every vehicle is processed before its passengers: a passenger of a
             // client-driven vehicle replays the vehicle's per-client-tick steps
@@ -492,68 +497,35 @@ public class PhysicsDispatchServer {
                 String.format(java.util.Locale.ROOT, "%.2f", damage));
     }
 
-    /** 343 m/s (speed of sound), squared for allocation- and sqrt-free comparison. */
-    private static final double SONIC_BOOM_SPEED_SQR = 343.0 * 343.0;
-    /**
-     * Re-arm threshold, with hysteresis below the barrier: the boom state only
-     * clears once the entity is CLEARLY subsonic again, so speed jitter right
-     * at 343 m/s can't machine-gun booms.
-     */
-    private static final double RESUBSONIC_SPEED_SQR = 330.0 * 330.0;
-
-    /** How far the shock cone reaches: players within this of a passing supersonic entity get the boom. */
-    private static final double BOOM_HEARING_RANGE = 96.0;
-    private static final double BOOM_HEARING_RANGE_SQR = BOOM_HEARING_RANGE * BOOM_HEARING_RANGE;
+    /** The speed of sound squared: anything slower that isn't being followed is skipped at once. */
+    private static final double SOUND_SPEED_SQR = SonicBooms.SOUND_MPS * SonicBooms.SOUND_MPS;
 
     /**
-     * A sonic boom is a moving PRESSURE WAVE, modelled per listener: the boom
-     * fires once for the flyer at the subsonic→supersonic crossing (the
-     * particle marks that spot), and then every player the supersonic entity
-     * passes is swept by the shock cone exactly once — full-presence sound at
-     * their own ears, louder the closer the flyby, tracked per supersonic
-     * episode so nobody hears it twice until the entity drops subsonic (with
-     * hysteresis) and breaks the barrier again. Cost while supersonic is one
-     * distance check per player per tick; zero otherwise.
+     * An entity past the speed of sound booms for those it passes ({@link SonicBooms}: once per supersonic stretch, for
+     * each listener when the shock reaches them, from where it came). A ride stack booms once, from its bottom: its
+     * riders are aboard it.
      */
     private static void sonicBoom(Entity entity, FullStopCapability fullstop) {
-        double speedSqr = fullstop.getCurrentScaledVelocity().lengthSqr();
-        boolean sustainedSupersonic = speedSqr >= SONIC_BOOM_SPEED_SQR
-                && fullstop.getPreviousScaledVelocity().lengthSqr() >= SONIC_BOOM_SPEED_SQR;
-
-        if (!(entity.level() instanceof ServerLevel serverLevel)) return;
-
-        if (sustainedSupersonic) {
-            if (!fullstop.isSupersonic()) {
-                fullstop.setSupersonic(true);
-                serverLevel.sendParticles(ParticleTypes.SONIC_BOOM, entity.getX(), entity.getY(), entity.getZ(), 1, 0, 0, 0, 0);
-            }
-
-            for (net.minecraft.server.level.ServerPlayer player : serverLevel.players()) {
-                double distSqr = player.distanceToSqr(entity);
-                if (distSqr > BOOM_HEARING_RANGE_SQR) continue;
-                if (!fullstop.markBoomHeard(player.getUUID())) continue;
-
-                // The wave arrives AT the listener: closer flybys hit harder.
-                float presence = 1.0f - (float) (Math.sqrt(distSqr) / BOOM_HEARING_RANGE);
-                float volume = 1.0f + 3.0f * presence;
-                player.playNotifySound(SoundEvents.GENERIC_EXPLODE, SoundSource.NEUTRAL, volume,
-                        (1.0f + (serverLevel.random.nextFloat() - serverLevel.random.nextFloat()) * 0.2f) * 0.7f);
-                player.playNotifySound(SoundEvents.WARDEN_SONIC_BOOM, SoundSource.NEUTRAL, volume, 2.0f);
-            }
-        } else if (fullstop.isSupersonic() && speedSqr < RESUBSONIC_SPEED_SQR) {
-            fullstop.setSupersonic(false);
-        }
+        if (!(entity.level() instanceof ServerLevel serverLevel) || entity.isPassenger()) return;
+        Vec3 velocity = fullstop.getCurrentScaledVelocity();
+        if (!fullstop.isSupersonic() && velocity.lengthSqr() < SOUND_SPEED_SQR) return;
+        Entity root = entity.getRootVehicle();
+        fullstop.setSupersonic(SonicBooms.observe(serverLevel, SonicBooms.Key.entity(entity), entity.getBoundingBox().getCenter(),
+                velocity, player -> player.getRootVehicle() == root));
     }
 
     private static void impactAesthetic(Entity entity, Collision collision) {
         // Particles spawn AT the impact point (the ray hit location on the block
         // face), not at the entity's feet — blockStates and impactedHits are
         // built pairwise by the detector, so index i of one matches the other.
+        double size = net.camacraft.camafy.compat.scale.EntityScale.heightFactor(entity);
         for (int i = 0; i < collision.blockStates.size(); i++) {
             Vec3 at = i < collision.impactedHits.size()
                     ? collision.impactedHits.get(i).getLocation()
                     : entity.position();
-            CollisionParticleSpawner.spawnParticle(entity.level(), at, collision, collision.blockStates.get(i));
+            // a hit on a ship block can come back addressed in the ship's yard, far from where it was struck
+            if (at.distanceToSqr(entity.position()) > 16.0 * 16.0) at = entity.position();
+            CollisionParticleSpawner.spawnParticle(entity.level(), at, collision.collisionType, collision.blockStates.get(i), size);
         }
     }
 

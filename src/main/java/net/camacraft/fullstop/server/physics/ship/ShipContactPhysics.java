@@ -2,6 +2,7 @@ package net.camacraft.fullstop.server.physics.ship;
 
 import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.compat.gravity.GravityFrame;
+import net.camacraft.camafy.compat.scale.EntityScale;
 import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.physics.EntityStack;
 import net.camacraft.camafy.weight.Weights;
@@ -155,6 +156,44 @@ public final class ShipContactPhysics {
 
     /** {@link #hullKick}'s answer: closing speed, the hull's own speed into the body, and the body's velocity change. */
     public record HullKick(double closing, double hullIn, double kick, double friction, double lift, Vec3 change) {}
+
+    /**
+     * {@code change} shortened so the body leaves no faster than {@code maxHitLaunchSpeed} (or as fast as it
+     * already went, if that was faster): the direction the hit sends it in is kept. The damage still follows the
+     * hit's full speed. A 256 RPM rotor's arm moves at hundreds of m/s, and a player it launched that fast crossed
+     * dozens of blocks a tick and brought the game down to a frame a second generating chunks. The limit is the
+     * body's own: a player shrunk to 1/16 (VS Genesis's space) is held to 1/16 of it in the world.
+     *
+     * @param own the body's world velocity before the hit (m/s)
+     */
+    public static Vec3 capLaunch(Entity body, Vec3 own, Vec3 change) {
+        double max = SERVER.maxHitLaunchSpeed.get() * EntityScale.motion(body);
+        if (!(max > 0.0)) return change;
+        Vec3 after = own.add(change);
+        double speed = after.length();
+        double limit = Math.max(max, own.length());
+        if (!(speed > limit)) return change;
+        return after.scale(limit / speed).subtract(own);
+    }
+
+    /**
+     * Whether a hull closing on {@code body} at {@code closingMps} (world) only pushes it along: slower than
+     * {@code gentlePushSpeed} at the body's own scale. A push doesn't bounce the body off the hull or lift it:
+     * bounced, it flew ahead of a slow hull, stopped, and was caught and bounced again, a stutter every few ticks
+     * where a moving wall simply shoves.
+     */
+    public static boolean gentle(Entity body, double closingMps) {
+        return closingMps / EntityScale.motion(body) < SERVER.gentlePushSpeed.get();
+    }
+
+    /**
+     * A body's world speed as its own size sees it (m/s): a player shrunk to 1/16 hit at 8 m/s is hit as a
+     * full-size player is at 128. Pehkui moves a shrunk body by 1/16 of its velocity (Camafy's
+     * {@link EntityScale#motion}), so all its own speeds are 1/16 as large in the world.
+     */
+    public static double atOwnScale(Entity body, double worldMps) {
+        return worldMps / EntityScale.motion(body);
+    }
 
     /** Restitution of a contact whose hull normal is {@code normal} (see the class notes). */
     public static double restitution(Vec3 normal, GravityFrame frame) {
