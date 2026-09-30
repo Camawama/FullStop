@@ -10,6 +10,7 @@ import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.mixin.AbstractArrowAccessor;
 import net.camacraft.fullstop.common.mixin.ProjectileHitInvoker;
 import net.camacraft.fullstop.common.physics.math.SweptBoxes;
+import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
@@ -20,11 +21,6 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Projectile;
-import net.minecraft.world.entity.projectile.Snowball;
-import net.minecraft.world.entity.projectile.ThrownEgg;
-import net.minecraft.world.entity.projectile.ThrownEnderpearl;
-import net.minecraft.world.entity.projectile.ThrownExperienceBottle;
-import net.minecraft.world.entity.projectile.ThrownPotion;
 import net.minecraft.world.entity.projectile.ThrownTrident;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
@@ -48,8 +44,10 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
 /**
  * Projectiles that meet in the air ({@code enableProjectileCollisions}, Projectile Collisions).
- * Vanilla lets projectiles fly through each other; only "pickable" ones (fireballs, shulker bullets)
- * can be shot down, and those stay vanilla's. Once a tick, after every entity has moved, each
+ * Vanilla lets projectiles fly through each other: a projectile's own hit test only looks for
+ * "pickable" things (mobs, fireballs, shulker bullets), so an arrow can shoot a fireball down, but
+ * two arrows, a snowball and a fireball, or anything a mod throws pass through one another. Once a
+ * tick, after every entity has moved, each
  * projectile in flight is swept along this tick's motion against the others near its path
  * ({@link SweptBoxes}: two arrows closing at 120 m/s cross six blocks a tick), and a pair whose
  * boxes touch while closing collides where they met:
@@ -60,19 +58,21 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *   Two arrows meeting head-on stop and tumble down; a glancing hit deflects both; an arrow hitting
  *   a trident bounces off it. After that each is an ordinary arrow: it lands, sticks and can be
  *   picked up as its pickup rule allows. A deflected arrow is no longer a critical shot;</li>
- *   <li>thrown items - {@link Kind#BREAKS}: eggs, snowballs, splash and lingering potions, ender
- *   pearls, bottles o' enchanting - break where they met, as on anything they hit (their own hit
- *   behaviour runs: an egg bursts and may hatch a chick, a snowball puffs, a potion splashes there,
- *   a bottle spills its experience, an ender pearl lands its thrower there, as vanilla lands it on a
- *   mob in mid-air). The exchange is inelastic, so what survives is slowed or turned by the
- *   momentum the broken one carried.</li>
+ *   <li>every other projectile - {@link Kind#BREAKS}: thrown items (eggs, snowballs, splash and
+ *   lingering potions, ender pearls, bottles o' enchanting), fireballs and wither skulls, shulker
+ *   bullets, llama spit, and whatever a mod throws or shoots - meets the other as it would meet
+ *   anything it hits: its own hit behaviour runs with the other projectile as what it struck (an egg
+ *   bursts and may hatch a chick, a snowball puffs, a potion splashes there, a bottle spills its
+ *   experience, an ender pearl lands its thrower there, a fireball or wither skull explodes there, a
+ *   modded projectile does whatever it does). The exchange is inelastic, so what survives is slowed
+ *   or turned by the momentum the broken one carried.</li>
  * </ul>
  * Forge's {@link ProjectileImpactEvent} is fired for each of the two, the other as the entity hit:
  * a mod that has one skip the hit keeps both flying. Never: projectiles a volley fired together
  * (the same owner, both a few ticks old - a multishot crossbow's arrows leave it overlapping),
- * ones stuck in a block, returning tridents and other no-clip ones, riders and vehicles, bobbers,
- * grappling hooks and the rest of the modded projectiles (their hits are their mods' business),
- * and anything blacklisted or whose contacts another mod owns.
+ * ones stuck in a block, returning tridents and other no-clip ones, riders and vehicles, and the
+ * {@code #fullstop:no_projectile_collision} tag (fishing bobbers, firework rockets, grappling
+ * hooks: their hits are their own business), and anything whose contacts another mod owns.
  */
 public final class ProjectileCollisions {
 
@@ -101,7 +101,7 @@ public final class ProjectileCollisions {
     public enum Kind {
         /** Arrows and tridents: they survive it and exchange momentum. */
         RIGID,
-        /** Thrown items that break on whatever they hit. */
+        /** Everything else: it runs its own hit on what it met (thrown items break, fireballs explode). */
         BREAKS
     }
 
@@ -136,17 +136,17 @@ public final class ProjectileCollisions {
         // not ticked yet: where it was before its first move isn't known (a constructor that only sets the position)
         if (projectile.tickCount < 1) return null;
         if (projectile.isPassenger() || projectile.isVehicle()) return null;
-        // fireballs and shulker bullets: vanilla already lets anything hit them
-        if (projectile.isPickable()) return null;
+        // whose hits are their own business: bobbers, fireworks, grappling hooks, what a pack adds to the tag
+        if (projectile.getType().is(FullStopTags.NO_PROJECTILE_COLLISION)) return null;
         Kind kind;
         if (projectile instanceof AbstractArrow arrow) {
             if (((AbstractArrowAccessor) arrow).fullstop$inGround()) return null;
             kind = Kind.RIGID;
-        } else if (projectile instanceof ThrownEgg || projectile instanceof Snowball || projectile instanceof ThrownPotion
-                || projectile instanceof ThrownEnderpearl || projectile instanceof ThrownExperienceBottle) {
-            kind = Kind.BREAKS;
         } else {
-            return null;
+            // every other projectile - thrown items, fireballs and wither skulls, shulker bullets, llama spit, a
+            // mod's own - meets the other as it meets anything: its own hit behaviour runs. (Vanilla's own hit
+            // test still runs first where it can see the other: an arrow shooting a fireball down stays vanilla's.)
+            kind = Kind.BREAKS;
         }
         return PhysicsClaims.cachedHandsOff(projectile, PhysicsAspect.CONTACT) ? null : kind;
     }

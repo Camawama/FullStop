@@ -532,9 +532,17 @@ public final class ShipSpinTests {
         long watchFrom = Long.MAX_VALUE;
 
         Rotor(Rig rig, double omega, double inertiaPerKg) {
+            this(rig, omega, inertiaPerKg, HORIZONTAL_INERTIA_PER_KG);
+        }
+
+        /** Moment of inertia about a horizontal axis per kg (m^2): what the righting torque works against. */
+        final double horizontalInertiaPerKg;
+
+        Rotor(Rig rig, double omega, double inertiaPerKg, double horizontalInertiaPerKg) {
             this.rig = rig;
             this.omega = omega;
             this.inertiaPerKg = inertiaPerKg;
+            this.horizontalInertiaPerKg = horizontalInertiaPerKg;
         }
 
         void start() {
@@ -560,7 +568,7 @@ public final class ShipSpinTests {
             // Spin about the vertical toward omega; any spin about a horizontal axis (the axis
             // tipping) is damped out.
             double spinStep = Math.max(-1.0, Math.min(1.0, omega - w.y));
-            double across = 0.2 * mass * HORIZONTAL_INERTIA_PER_KG;
+            double across = 0.2 * mass * horizontalInertiaPerKg;
             ShipForces.applyAngularImpulse(rig.level, rig.ship.getId(), new Vec3(-w.x * across, spinStep * mass * inertiaPerKg,
                     -w.z * across));
             double tipped = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, up.y))));
@@ -715,6 +723,103 @@ public final class ShipSpinTests {
                     } else {
                         helper.assertTrue(planksLeft == counts[1], "equal blocks broke: " + out);
                     }
+                    helper.succeed();
+                });
+    }
+
+    // ------------------------------------------------------------------
+    // Hulls crossing hulls between frames (ShipHullClash)
+    // ------------------------------------------------------------------
+
+    /**
+     * A plus-shaped plank rotor of two crossed 3x3x17 arms (symmetric about its axis, which the
+     * rig can hold steady; a single arm precesses and climbs) spun to 256 RPM about its middle
+     * (its tips at 214 m/s: ten blocks a tick) and a floating 3x3x16 plank arm that drifts into
+     * its sweep at 1 m/s until their tips overlap by three blocks. Valkyrien Skies' solver never
+     * sees the tips cross between two frames (the owner's two rotors passed through each other, a
+     * plank or two lost); the swept clash must break what crosses, on both: the drifting arm its
+     * three nearest columns (27 blocks, then maybe the corners of the next), the rotor the outer
+     * blocks of the tips that swept them - and nothing further along the drifting arm.
+     */
+    @GameTest(template = FLAT, timeoutTicks = TIMEOUT, batch = BATCH)
+    public static void aPlankArmAt256RpmSweepingThroughAnotherPlankArmBreaksBothTips(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos o = lane(helper, 6);
+        // (both well clear of the ground: a spinning arm scraping it climbs and tumbles)
+        java.util.Set<BlockPos> plusArms = fillSet(level, o.offset(-1, 5, -8), o.offset(1, 7, 8), Blocks.OAK_PLANKS.defaultBlockState());
+        plusArms.addAll(fillSet(level, o.offset(-8, 5, -1), o.offset(8, 7, 1), Blocks.OAK_PLANKS.defaultBlockState()));
+        Rig spinner = Rig.build(helper, plusArms, Blocks.OAK_PLANKS, true);
+        if (spinner == null) return;
+        // along x, out of the sweep (radius 8.5): its near end 10 blocks out, its middle 18
+        Rig drifter = Rig.build(helper, fillSet(level, o.offset(10, 5, -1), o.offset(25, 7, 1), Blocks.OAK_PLANKS.defaultBlockState()),
+                Blocks.OAK_PLANKS, true);
+        if (drifter == null) return;
+        double omega = 256.0 * RPM;
+        double stopAt = o.getX() + 0.5 + 13.0; // the drifter's middle: its tip then reaches three blocks into the sweep
+        // two 3x3x17 arms crossed: about the axis (17^2 + 3^2) / 12 per kg, about a horizontal axis about half that
+        Rotor rotor = new Rotor(spinner, omega, (17.0 * 17.0 + 3.0 * 3.0) / 12.0, 0.5 * (17.0 * 17.0 + 3.0 * 3.0) / 12.0);
+        boolean[] drifting = {false};
+        long[] watchFrom = {-1};
+        int[] before = new int[2];
+        double[] topSpin = {0.0};
+        double[] nearest = {Double.POSITIVE_INFINITY};
+        helper.onEachTick(spinner::record);
+        helper.onEachTick(drifter::record);
+        helper.onEachTick(rotor::record);
+        helper.onEachTick(() -> {
+            if (rotor.spinning) {
+                Vec3 w = spinner.ref.angularVelocity();
+                if (w != null) topSpin[0] = Math.max(topSpin[0], Math.abs(w.y));
+            }
+            if (drifting[0]) {
+                double x = drifter.x();
+                nearest[0] = Math.min(nearest[0], x);
+                drifter.cruise(x > stopAt ? new Vec3(-1.0, 0.0, 0.0) : Vec3.ZERO, 5.0);
+                // kept level: every spin the rotor's touches give it is damped out, once per physics frame
+                ShipTracker.State state = ShipTracker.of(level).get(drifter.ship.getId(), level.getGameTime());
+                Vec3 w = drifter.ref.angularVelocity();
+                double mass = drifter.ref.mass();
+                if (state != null && state.newFrame() && w != null && Double.isFinite(mass)) {
+                    ShipForces.applyAngularImpulse(level, drifter.ship.getId(), w.scale(-0.2 * mass * (16.0 * 16.0 + 3.0 * 3.0) / 12.0));
+                }
+            }
+        });
+        String what = "plus rotor of 3x3x17 plank arms at 256 RPM, a floating 3x3x16 plank arm drifting into its sweep until their tips overlap by 3";
+        helper.startSequence()
+                .thenWaitUntil(spinner::demandReady)
+                .thenWaitUntil(drifter::demandReady)
+                .thenExecute(() -> {
+                    before[0] = spinner.count(Blocks.OAK_PLANKS);
+                    before[1] = drifter.count(Blocks.OAK_PLANKS);
+                    spinner.release();
+                    drifter.release();
+                })
+                .thenWaitUntil(spinner::demandSimulated)
+                .thenExecute(() -> {
+                    rotor.start();
+                    drifter.hover();
+                })
+                .thenWaitUntil(() -> rotor.demandAtSpeed(0.85))
+                .thenExecute(() -> {
+                    drifting[0] = true;
+                    watchFrom[0] = level.getGameTime();
+                })
+                .thenWaitUntil(() -> helper.assertTrue(level.getGameTime() - watchFrom[0] >= 260, "the arm drifts in and the tips cross"))
+                .thenExecute(() -> {
+                    int spinnerLeft = spinner.count(Blocks.OAK_PLANKS);
+                    int drifterLeft = drifter.count(Blocks.OAK_PLANKS);
+                    spinner.pin();
+                    drifter.pin();
+                    String out = String.format(Locale.ROOT, "rotor %d -> %d blocks, drifting arm %d -> %d (its middle got to %.1f blocks "
+                                    + "from the hub; aimed at %.1f); spin reached %.1f of %.1f rad/s, axis tipped at most %.1f deg | spinner: %s "
+                                    + "| drifter: %s", before[0], spinnerLeft, before[1], drifterLeft, nearest[0] - (o.getX() + 0.5),
+                            stopAt - (o.getX() + 0.5), topSpin[0], omega, rotor.tilt, spinner.summary(), drifter.summary());
+                    report(what, out);
+                    helper.assertTrue(drifterLeft < before[1], "the drifting arm lost nothing: " + out);
+                    helper.assertTrue(spinnerLeft < before[0], "the spinning arm lost nothing: " + out);
+                    helper.assertTrue(before[1] - drifterLeft >= 18, "the drifting arm lost too little (its three nearest columns are 27 blocks): " + out);
+                    helper.assertTrue(before[1] - drifterLeft <= 54, "the drifting arm lost blocks the sweep never reached: " + out);
+                    helper.assertTrue(before[0] - spinnerLeft >= 9, "the spinning arm lost too little (a tip's outermost column is 9 blocks): " + out);
                     helper.succeed();
                 });
     }

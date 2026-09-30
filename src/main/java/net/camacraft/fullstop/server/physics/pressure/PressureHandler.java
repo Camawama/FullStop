@@ -12,6 +12,7 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobType;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.Level;
 import net.minecraftforge.event.entity.living.LivingEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 
@@ -57,7 +58,9 @@ public class PressureHandler {
         if (!(living instanceof Player) && !FullStopConfig.SERVER.altitudePressureAffectsMobs.get()) return;
 
         int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
-        boolean inThinAir = living.getY() > altitudeStart && !living.isUnderWater();
+        // Only where the sky thins with height (highAltitudeDimensions: the overworld). VS Genesis's space, the
+        // Nether, the End and modded worlds have their own air, whatever their Y.
+        boolean inThinAir = living.getY() > altitudeStart && !living.isUnderWater() && thinAirDimension(living.level());
 
         // Acclimation is to thin air what Water Breathing is to water: no drain,
         // and no exposure build-up while it holds.
@@ -121,6 +124,15 @@ public class PressureHandler {
             living.setAirSupply(0);
             living.hurt(FullStopDamageSources.atmosphere(living), 2.0F);
         }
+    }
+
+    /** Whether {@code level} is one of {@code highAltitudeDimensions}: its air thins above the start level. */
+    public static boolean thinAirDimension(Level level) {
+        String id = level.dimension().location().toString();
+        for (String listed : FullStopConfig.SERVER.highAltitudeDimensions.get()) {
+            if (id.equals(listed)) return true;
+        }
+        return false;
     }
 
     private static void handleDepth(LivingEntity living) {

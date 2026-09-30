@@ -87,6 +87,10 @@ import static net.camacraft.fullstop.common.capability.FullStopCapability.grabCa
  * out to an entity 20 blocks from a fast rotor it made hundreds of m/s out of nothing and struck
  * what the hull would never reach.
  *
+ * <p>A slime hull (a block in {@code fullstop:bouncy}) hurts nothing it hits: it springs the body
+ * away at {@code slimeRestitution} instead of {@code entityRestitution}, from every side, as an
+ * entity hitting slime bounces off it unhurt (the owner's slime ships).
+ *
  * <p>Never hit: entities riding this ship (seated, standing on its deck, or carried with it by VS at
  * all - VS goes on moving what just left a deck with the ship for a second), spectators, entities
  * tagged {@code fullstop:ship_immune} or {@code fullstop:physics_blacklist}, and bodies whose impacts
@@ -317,12 +321,14 @@ public final class ShipEntityImpacts {
         if (t > 0.0 && (gentle ? t > TICK_SECONDS : cooling)) return;
         double share = gentle && t > 0.0 ? 1.0 - t / TICK_SECONDS : 1.0;
 
-        // The shared two-body law (ShipContactPhysics), with the ship's effective mass where it hit.
+        // The shared two-body law (ShipContactPhysics), with the ship's effective mass where it hit
+        // (a slime hull springs the body back harder, and hurts it not at all: see hurt).
         Vec3 normal = motion.turn(normalNow, t); // the same normal in the world, as they meet
         double effective = ShipInertia.effectiveMassKg(ship, state.mass(), bestPoint, normalNow);
         boolean weightless = Gravity.isWeightless(root);
+        BlockState hull = level.getBlockState(best.pos());
         ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(approach, ShipContactPhysics.bodyKg(root), effective,
-                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless));
+                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless, hull));
         double entityKg = exchange.entityKg();
         double shipKg = exchange.shipKg();
         double speedLost = exchange.speedLost();
@@ -351,9 +357,8 @@ public final class ShipEntityImpacts {
 
         boolean pinned = isPinned(level, ship, root, box, normal, frame);
         if (pinned && cooling) return; // crushed, and already hurt for this hit
-        BlockState hull = level.getBlockState(best.pos());
 
-        boolean hurt = !cooling && hurt(root, cap, hull, normal, frame, speedLost, approach, pinned, pilot);
+        boolean hurt = !cooling && hurt(root, cap, hull, normal, frame, speedLost, approach, pinned, pilot, ship.id());
 
         Vec3 pushed = Vec3.ZERO;
         // Not isAlive(): a hit that kills still throws the body (it keeps moving through its
@@ -396,8 +401,10 @@ public final class ShipEntityImpacts {
      * hull block, crushed when pinned), crediting the ship's pilot. Returns whether it hurt.
      */
     private static boolean hurt(Entity root, @Nullable FullStopCapability cap, BlockState hull, Vec3 normal, GravityFrame frame,
-                                double speedLost, double approach, boolean pinned, ShipPhysicsServer.Pilot pilot) {
+                                double speedLost, double approach, boolean pinned, ShipPhysicsServer.Pilot pilot, long shipId) {
         if (!SERVER.damageEntities.get()) return false;
+        // slime hurts nothing: it bounces (as slime does when an entity runs into it)
+        if (ShipSlimeHoney.bouncy(hull)) return false;
         double vertical = frame.vertical(normal);
         boolean hullAbove = vertical < -0.7;
         boolean hullBelow = vertical > 0.7;
@@ -409,7 +416,7 @@ public final class ShipEntityImpacts {
         if (damage < 1) return false;
         Entity credited = SERVER.creditPilot.get() ? pilot.get() : null;
         DamageSource source = FullStopDamageSources.ship(root, credited,
-                FullStopDamageSources.mutualVelocityDisplay(approach), pinned, hullAbove, hullBelow);
+                FullStopDamageSources.mutualVelocityDisplay(approach), pinned, hullAbove, hullBelow, shipId);
         boolean marked = root.hurtMarked;
         boolean hurt = KineticDamageApplier.applyShipHit(root, cap, source, damage, hullAbove, hullBelow);
         if (root instanceof ServerPlayer player && BodyPush.clientSimulated(player)) {
@@ -507,14 +514,14 @@ public final class ShipEntityImpacts {
         if (!(mass > 0.0)) mass = Double.POSITIVE_INFINITY;
         double effective = ShipInertia.effectiveMassKg(ship, mass, point, normal);
         boolean weightless = Gravity.isWeightless(player);
-        ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(approach, ShipContactPhysics.bodyKg(player), effective,
-                ShipContactPhysics.restitution(report.normal(), frame, weightless));
-        boolean pinned = isPinned(level, ship, player, player.getBoundingBox(), report.normal(), frame);
         BlockState hull = level.getBlockState(report.block());
         if (hull.isAir()) hull = net.minecraft.world.level.block.Blocks.STONE.defaultBlockState();
+        ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(approach, ShipContactPhysics.bodyKg(player), effective,
+                ShipContactPhysics.restitution(report.normal(), frame, weightless, hull));
+        boolean pinned = isPinned(level, ship, player, player.getBoundingBox(), report.normal(), frame);
 
         boolean hurt = !cooling && hurt(player, cap, hull, report.normal(), frame, exchange.speedLost(), approach, pinned,
-                new ShipPhysicsServer.Pilot(level, ship));
+                new ShipPhysicsServer.Pilot(level, ship), ship.id());
 
         // The ship's share, which the client couldn't know: take off what the client gave itself
         // beyond the two-body kick along the normal (a light ship doesn't throw a player as hard).

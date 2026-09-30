@@ -97,6 +97,13 @@ public final class FullStopTags {
     public static final TagKey<EntityType<?>> PHYSICS_PROJECTILES = entityTag("physics_projectiles");
 
     /**
+     * Projectiles that never collide with other projectiles in the air (ProjectileCollisions): fishing
+     * bobbers, firework rockets, grappling hooks - their hits are their own business. Every other
+     * projectile, vanilla or modded, collides.
+     */
+    public static final TagKey<EntityType<?>> NO_PROJECTILE_COLLISION = entityTag("no_projectile_collision");
+
+    /**
      * Blocks a Valkyrien Skies ship never breaks, however hard it hits them, and that never break
      * off a hull either: infinitely tough. Contains #minecraft:wither_immune.
      */

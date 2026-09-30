@@ -351,9 +351,11 @@ public final class ClientShipContacts {
         boolean weightless = Gravity.isWeightless(player);
         // a slow hull only pushes: no bounce, no lift (gentlePushSpeed); the closing speed at the player's own scale
         boolean gentle = ShipContactPhysics.gentle(player, touch.closing());
+        // (a slime hull springs the player back at slimeRestitution; the server hurts it not at all)
+        net.minecraft.world.level.block.state.BlockState hullBlock = player.level().getBlockState(touch.contact().pos());
         ShipContactPhysics.HullKick hit = ShipContactPhysics.hullKick(own, touch.hull(), normal, player.onGround(), frame,
                 SERVER.pushMinSpeed.get() * net.camacraft.camafy.compat.scale.EntityScale.motion(player),
-                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless), SERVER.hullFriction.get(),
+                gentle ? 0.0 : ShipContactPhysics.restitution(normal, frame, weightless, hullBlock), SERVER.hullFriction.get(),
                 gentle ? 0.0 : SERVER.hitLift.get() * ShipContactPhysics.liftShare(player), weightless);
         if (hit == null) {
             if (log) LOGGER.info("[FullStop] client: ship {} touches you but doesn't strike you (hull {} m/s into you, closing {} m/s, "

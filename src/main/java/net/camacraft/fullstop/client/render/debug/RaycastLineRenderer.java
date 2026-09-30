@@ -62,8 +62,10 @@ public final class RaycastLineRenderer {
     // Line Properties
     private static final int LINE_LIFE_TICKS = 5; // How long a line persists without updates (now truly ticks)
 
-    // Ray thickness in world units (used for quad rendering). Tweak to taste.
-    private static final float RAY_THICKNESS = 0.03f;
+    // Ray thickness in world units (used for quad rendering) for a full-size body. Tweak to taste. A body or ship a
+    // size mod shrank draws its rays thinner in proportion (see queueLine's thickness).
+    public static final float DEFAULT_THICKNESS = 0.03f;
+    private static final float RAY_THICKNESS = DEFAULT_THICKNESS;
 
     // Velocity Opacity Scaling
     private static final double SPEED_FOR_MAX_OPACITY = 20.0; // Speed in m/s for full opacity
@@ -76,9 +78,9 @@ public final class RaycastLineRenderer {
     private static long lastLifeUpdateGameTime = -1L;
 
     private record QueuedLine(String id, Vec3 start, Vec3 end, float r, float g, float b, float a, int life,
-                              boolean throughWalls) {}
+                              boolean throughWalls, float thickness) {}
     private record Line(String id, Vec3 start, Vec3 end, Vec3 prevStart, Vec3 prevEnd,
-                        float r, float g, float b, float a, int life, boolean throughWalls) {}
+                        float r, float g, float b, float a, int life, boolean throughWalls, float thickness) {}
 
     private RaycastLineRenderer() {}
 
@@ -94,8 +96,17 @@ public final class RaycastLineRenderer {
      */
     public static void queueLine(String id, Vec3 start, Vec3 end,
                                  float r, float g, float b, float a, int lifeTicks, boolean throughWalls) {
+        queueLine(id, start, end, r, g, b, a, lifeTicks, throughWalls, RAY_THICKNESS);
+    }
+
+    /**
+     * As above, {@code thickness} blocks wide: the rays of a body or ship a size mod shrank are drawn to its size
+     * ({@link #DEFAULT_THICKNESS} times its scale).
+     */
+    public static void queueLine(String id, Vec3 start, Vec3 end,
+                                 float r, float g, float b, float a, int lifeTicks, boolean throughWalls, float thickness) {
         synchronized (PENDING_LINES) {
-            PENDING_LINES.add(new QueuedLine(id, start, end, r, g, b, a, lifeTicks, throughWalls));
+            PENDING_LINES.add(new QueuedLine(id, start, end, r, g, b, a, lifeTicks, throughWalls, thickness));
         }
     }
 
@@ -119,6 +130,8 @@ public final class RaycastLineRenderer {
         // Calculate opacity based on speed
         double speed = fullstop.getCurrentScaledVelocity().length();
         float speedAlphaMultiplier = (float) Math.min(Math.max(speed / SPEED_FOR_MAX_OPACITY, MIN_SPEED_ALPHA), 1.0);
+        // lines as thick as suits the body's size (a 1/16 body's rays are a sixteenth as thick)
+        float thickness = (float) (RAY_THICKNESS * RaycastUtil.sizeFactor(entity));
 
         Vec3 direction = RaycastUtil.getRayDirection(fullstop);
         double rayLength = RaycastUtil.getRayLength(entity, fullstop);
@@ -189,7 +202,7 @@ public final class RaycastLineRenderer {
             String id = "entity_" + entity.getId() + "_ray_" + index;
 
             // Queue line with configured life
-            queueLine(id, start, end, r, g, b, a, LINE_LIFE_TICKS);
+            queueLine(id, start, end, r, g, b, a, LINE_LIFE_TICKS, false, thickness);
             index++;
         }
     }
@@ -208,7 +221,7 @@ public final class RaycastLineRenderer {
                             queued.start, queued.end,
                             queued.start, queued.end,
                             queued.r, queued.g, queued.b, queued.a,
-                            queued.life, queued.throughWalls
+                            queued.life, queued.throughWalls, queued.thickness
                     ));
                 }
                 PENDING_LINES.clear();
@@ -244,7 +257,7 @@ public final class RaycastLineRenderer {
                             l.start, l.end,
                             l.start, l.end,
                             l.r, l.g, l.b, l.a,
-                            nextLife, l.throughWalls
+                            nextLife, l.throughWalls, l.thickness
                     ));
                 }
                 lastLifeUpdateGameTime = gt;
@@ -320,7 +333,7 @@ public final class RaycastLineRenderer {
                 }
             }
             Vec3 perpN = perp.scale(1.0 / Math.max(perpLen, 1.0e-6));
-            Vec3 off = perpN.scale(RAY_THICKNESS);
+            Vec3 off = perpN.scale(line.thickness);
 
             // Quad corners
             Vec3 s1 = s.add(off);

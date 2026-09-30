@@ -160,6 +160,8 @@ Useful setup commands:
 - [ ] **Shield up when a mob slams into you.** *Expect:* decide whether blocking should soak the kinetic hit (it is kinetic damage, not an attack).
 - [ ] **Two players sprinting head-on (11.2 m/s closing).** *Expect:* they bounce apart with no damage (over the 10 m/s `entityCollisionMinSpeed`); raise it if that feels wrong.
 - [ ] **Mob-farm drop chute.** *Expect:* mobs landing on mobs at the bottom crush them ("crushed by", no player kill credit) - check your farms still give XP.
+- [ ] **Supplementaries projectiles, wither skulls or blaze fireballs crossing paths, or fired into arrows.** *Expect:* they meet in the air - fireballs and skulls explode there, thrown things break there, arrows are knocked aside. Bobbers and fireworks still pass through everything (`#fullstop:no_projectile_collision`).
+- [ ] **Two sand blocks meeting in the air** (two dispensers facing each other across a drop, or `/summon falling_block` with Motion). *Expect:* they bounce apart and still land as blocks. An anvil dropped onto a standing pig is vanilla's (it hurts it on landing); dropped onto a flying/hovering one it strikes it mid-air ("was hit by a falling Anvil").
 - [ ] **Shoot an arrow into an arrow, an egg into an egg.** *Expect:* arrows head-on stop and drop, glancing ones deflect; eggs burst where they meet (the pieces drawn there, not where the egg was a tick later).
 - [ ] **Shoot down a thrown ender pearl.** *Expect:* its thrower is teleported to the meeting point and takes vanilla's 5 damage (vanilla does the same when a pearl hits a flying mob).
 - [ ] **Horse or boat on ice ramming a mob.** *Expect:* a hard hit, the mob knocked away; the rider stays mounted.
@@ -188,6 +190,7 @@ Useful setup commands:
 
 - [ ] **Stand at Y=210 (above start level 200).** *Expect:* air bubbles actually START draining now (they were silently regenerating before). Drain speeds up with altitude.
 - [ ] **Air runs out at altitude.** *Expect:* periodic suffocation damage; "suffocated in the thin air" on death.
+- [ ] **Above Y 200 in VS Genesis's space (the Great Unknown), on the Nether roof, in the End.** *Expect:* no air loss at all (`highAltitudeDimensions` is the overworld only); the overworld unchanged.
 - [ ] **Same spot with Respiration helmet.** *Expect:* noticeably slower drain.
 - [ ] **Zombie/skeleton at high altitude** (`altitudePressureAffectsMobs=true`). *Expect:* undead never suffocate.
 - [ ] **Deep dive below Y=0.** *Expect:* faster air loss than normal drowning; below Y=-32, periodic pressure damage; "crushed by the depths" on death.
@@ -220,6 +223,7 @@ Useful setup commands:
 ## 13. Death messages & misc `[REG]`
 
 - [ ] **Die to a wall impact / fall / flop / entity crush.** *Expect:* correct message with velocity appended (deathMessageAppend=true).
+- [ ] **Killed by a ship you renamed (`/vs rename <ship> "Large Wooden Door"`).** *Expect:* "was hit by Large Wooden Door" (or crushed by / didn't survive the crash of, and "Alex's Large Wooden Door" with a pilot); a ship still named like `delivery-doe-leg` says "a ship".
 - [ ] **Vanilla "fell out of the water" message no longer overridden** (hard to trigger; just confirm no weird water death text on unphysable mobs).
 - [ ] **Melee while sprinting toward a target.** *Expect:* small damage bonus; crit "ding" only on meaningful bonuses (not every walking hit) `[FIX]`.
 - [ ] **Melee while backpedaling.** *Expect:* reduced damage (min 30%).
@@ -259,6 +263,7 @@ Useful setup commands:
 - [ ] **Ray view ON in a busy area.** *Expect:* FPS no longer tanks (rays update per tick, not per frame) `[FIX]`.
 - [ ] **Ray view over water at speed.** *Expect:* water-surface hits now show `[FIX]` (note: rays are RAW clips — red rays on floors you walk on are normal and don't mean damage).
 - [ ] **Ship rays:** see §28.
+- [ ] **F3+V at 1/16 (VS Genesis's space), on foot and next to a small ship.** *Expect:* rays the size of the body and the ship, starting at the feet and on the hull - not full-size lines floating around them.
 
 ## 18. Ship weight (formerly WeightRS) `[VS]`
 
@@ -281,6 +286,7 @@ Needs Valkyrien Skies, `enableValkyrienSkiesCompat` and `enableShipWeight` (both
 
 Setup: a ship you can drive (Eureka / VS helm), `/effect give @s resistance` for yourself while testing on foot. `debugShipCollisionLog = true` prints every hit.
 
+- [ ] **Crouch and stand up repeatedly inside a roofed room (walls, floor, ceiling) on a plated ship spinning at 60 RPM and moving 30 m/s, and on one cruising at 100 m/s, first and third person.** *Expect:* no damage at all; walking into the walls at walking speed doesn't hurt either. Then get hit by a rotor arm on foot: that still hurts.
 - [ ] **Ram a zombie standing in the open at ~8 m/s.** *Expect:* it is shoved away along the hull (no damage below the 10.5 m/s horizontal threshold); the ship barely slows.
 - [ ] **Ram a zombie at 20+ m/s.** *Expect:* it flies off, takes damage (≈ (speed − 10.5) × hull-block hardness factor × 1.07; oak-plank hull at 20 m/s ≈ 10), hull-block particles and a thud. Death message "was hit by a ship" (+ "(at X m/s)").
 - [ ] **Same while seated at the helm.** *Expect:* death message "was hit by <you>'s ship"; the kill counts for you; a mob that survives targets you.
@@ -540,6 +546,19 @@ Needs Camafy 0.1.12. A Clockwork phys bearing driven by a creative motor (or you
 - [ ] **The same arm hitting a cow or zombie.** *Expect:* flung straight out, not carried round with the arm.
 - [ ] **Sit in a seat (VS, Create or Clockwork) on a small floating raft.** *Expect:* the raft sinks a little more than without you, as if you stood on it.
 - [ ] **Turn `releaseLeavingRiders` off (Ship Riders).** *Expect:* jumps behave as before (swung round with a rotor while in the air).
+
+## 39. Rotors clashing, slime hulls, the supersonic roar (round 6) `[VS]` `[FIX]`
+
+Optional: `debugShipCollisionLog = true` (the lines "ships A and B crossed: N blocks ... met ... closing at up to V m/s -> K broken" and "ships A and B (crossed, ...): ... both give").
+
+- [ ] **Your two 3x3x16 oak rotors on phys bearings at 256 RPM each, spinning opposite ways, tips overlapping by a few blocks.** *Expect:* on every pass the blocks that visibly cross break, on BOTH rotors (planks against planks: both give), with both hulls' sounds and particles; the rotors keep spinning and plough on; within a second or two their tips no longer reach each other and nothing more breaks. (They used to pass through each other with a sound now and then and a plank or two lost.) The count: each rotor loses the blocks that cross (a few dozen), never blocks the other's sweep can't reach.
+- [ ] **One rotor at 256 RPM sweeping into a still plank arm.** *Expect:* the arm loses what the tips reach (its nearest columns), the rotor its outermost blocks there; nothing further along the arm.
+- [ ] **An obsidian ship rammed into a wooden raft at 20 m/s (as before).** *Expect:* planks break, obsidian never; two plank rafts bumping at walking pace break nothing.
+- [ ] **A ship whose hull is slime hits you (or a cow) at speed.** *Expect:* you are flung away, springier than by a plank hull (0.9 of the closing speed back instead of 0.3), and take NO damage; the slime's sound plays. A slime deck rising under you bounces you up. A plank ship hurts as before.
+- [ ] **Slime on the underside or side of a ship: flip a raft with slime on it and fall onto the slime; run into slime on a ship's side.** *Expect:* you bounce off it as off slime on top of the ship (sound, particles and the bounce). Before, only slime on the ship's top bounced you.
+- [ ] **A long rotor whose tips pass 343 m/s (a 16-block arm on a bearing at 256 RPM; at 128 RPM a 32-block one).** *Expect:* ONE boom as the tips go supersonic (heard when the shock reaches you, from where it came), then a continuous harsh roar from the rotor for as long as the tips stay supersonic - deeper for a single arm (4.3 pulses a second at 256 RPM), higher for two arms, following the rotor as it moves - and no more booms, however long it spins; stop the bearing and the roar fades within a second (a boom again only after a second below 90% of the barrier). Nothing of this in VS Genesis's space. Standing on the rotor's hub you hear the roar too.
+- [ ] **Two such rotors clashing (the first item, with longer arms).** *Expect:* the roar goes on through the clash; a rotor slowed for a moment by what it hit doesn't boom again unless it stays below the barrier for a second.
+- [ ] **Turn `shipClashSweep` off.** *Expect:* fast rotors pass through each other as before (VS's own contacts only); slime hulls and the roar are unaffected.
 
 ## Known cosmetic gaps (not bugs — no need to test)
 

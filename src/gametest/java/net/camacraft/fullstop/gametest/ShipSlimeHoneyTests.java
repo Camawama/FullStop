@@ -85,6 +85,112 @@ public final class ShipSlimeHoneyTests {
         drop(helper, "honey raft onto stone", Blocks.HONEY_BLOCK, Blocks.STONE, -1.0, 0.03, true);
     }
 
+    // ------------------------------------------------------------------
+    // Slime on a ship's other faces (the owner's upside-down slime ship)
+    // ------------------------------------------------------------------
+
+    /**
+     * Slime under a plank raft, the raft turned over so the slime faces up - its blocks' DOWN face
+     * uppermost - and a cow dropped six blocks onto it: it must bounce back up. The bounce read the
+     * struck face in ship space (a raycast hit on a ship block reports it so), saw the cow land on
+     * a DOWN face that opposed nothing, and did nothing: the slime sounded, threw its particles and
+     * bounced no one.
+     */
+    @GameTest(template = FLAT, timeoutTicks = TIMEOUT, batch = BATCH)
+    public static void aCowDroppedOnSlimeUnderAFlippedRaftBouncesBack(GameTestHelper helper) {
+        cowOnSlime(helper, 60, true, "cow dropped 6 blocks onto slime under a raft turned upside down (the slime's DOWN face up)");
+    }
+
+    /** The same raft the right way up (slime on top, its UP face): the bounce that always worked, to compare. */
+    @GameTest(template = FLAT, timeoutTicks = TIMEOUT, batch = BATCH)
+    public static void aCowDroppedOnSlimeOnARaftBouncesBack(GameTestHelper helper) {
+        cowOnSlime(helper, 61, false, "cow dropped 6 blocks onto slime on top of a raft");
+    }
+
+    private static void cowOnSlime(GameTestHelper helper, int lane, boolean flipped, String what) {
+        ServerLevel level = helper.getLevel();
+        BlockPos o = ShipCollisionTests.origin(helper, ShipCollisionTests.AWAY + 3072 + lane * 256);
+        // planks and a slime layer: the slime underneath when the raft is to be flipped, on top otherwise
+        int slimeY = flipped ? 1 : 2, plankY = flipped ? 2 : 1;
+        java.util.Set<BlockPos> blocks = fillSet(level, o.offset(-2, plankY, -2), o.offset(2, plankY, 2), Blocks.OAK_PLANKS.defaultBlockState());
+        blocks.addAll(fillSet(level, o.offset(-2, slimeY, -2), o.offset(2, slimeY, 2), Blocks.SLIME_BLOCK.defaultBlockState()));
+        Rig rig = Rig.build(helper, blocks, Blocks.OAK_PLANKS, false, 25);
+        if (rig == null) return;
+        helper.onEachTick(rig::record);
+        net.minecraft.world.entity.Mob[] cow = new net.minecraft.world.entity.Mob[1];
+        double[] watch = {Double.NaN, 0.0, Double.NaN, 0.0, Double.NaN}; // fastest fall (m/s), fastest rise after it, y at the landing, highest rise (blocks), landing tick
+        long[] dropped = {-1};
+        helper.onEachTick(() -> {
+            if (cow[0] == null) return;
+            double vy = cow[0].getDeltaMovement().y * 20.0;
+            double y = cow[0].getY();
+            if (Double.isNaN(watch[0]) || vy < watch[0]) watch[0] = vy;
+            if (Double.isNaN(watch[2]) && watch[0] < -6.0 && vy > -1.0) {
+                // the fall was stopped: the landing
+                watch[2] = y;
+                watch[4] = rig.level.getGameTime();
+            }
+            if (!Double.isNaN(watch[2])) {
+                watch[1] = Math.max(watch[1], vy);
+                watch[3] = Math.max(watch[3], y - watch[2]);
+            }
+        });
+        helper.startSequence()
+                .thenWaitUntil(rig::demandReady)
+                .thenExecute(() -> {
+                    if (flipped) turn(rig.ship, new org.joml.Quaterniond().rotateX(Math.PI));
+                })
+                .thenExecuteAfter(40, () -> {
+                    net.minecraft.world.phys.AABB box = rig.ref.worldAabb();
+                    helper.assertTrue(box != null, "the raft has no bounds");
+                    Vec3 centre = box.getCenter();
+                    net.minecraft.world.entity.Mob c = net.minecraft.world.entity.EntityType.COW.create(level);
+                    if (c == null) throw new IllegalStateException("no cow");
+                    c.moveTo(centre.x, box.maxY + 6.0, centre.z, 0.0f, 0.0f);
+                    c.goalSelector.removeAllGoals(g -> true);
+                    c.targetSelector.removeAllGoals(g -> true);
+                    c.setPersistenceRequired();
+                    level.addFreshEntity(c);
+                    cow[0] = c;
+                    dropped[0] = level.getGameTime();
+                })
+                .thenWaitUntil(() -> helper.assertTrue(!Double.isNaN(watch[2]) && level.getGameTime() - (long) watch[4] >= 30,
+                        "waiting for the cow to land and bounce (fell " + fmt(-watch[0]) + " m/s so far)"))
+                .thenExecute(() -> {
+                    String out = String.format(Locale.ROOT, "fell at %.1f m/s, rose at %.1f m/s after landing, %.2f blocks up%s", -watch[0],
+                            watch[1], watch[3], flipped ? " (raft flipped: slime's DOWN face up)" : "");
+                    report(what, out);
+                    helper.assertTrue(watch[1] >= 4.0 || watch[3] >= 1.0, "the cow didn't bounce off the slime: " + out);
+                    helper.succeed();
+                });
+    }
+
+    /**
+     * Turns a (static) ship to {@code rotation} where it is, through VS's own ship teleport (by
+     * reflection: its teleport data lives in VS's internal classes, with Kotlin default arguments).
+     */
+    static void turn(org.valkyrienskies.core.api.ships.ServerShip ship, org.joml.Quaterniond rotation) {
+        try {
+            Class<?> dataClass = Class.forName("org.valkyrienskies.core.impl.game.ShipTeleportDataImpl");
+            Class<?> marker = Class.forName("kotlin.jvm.internal.DefaultConstructorMarker");
+            java.lang.reflect.Constructor<?> ctor = dataClass.getConstructor(org.joml.Vector3dc.class, org.joml.Quaterniondc.class,
+                    org.joml.Vector3dc.class, org.joml.Vector3dc.class, String.class, Double.class, org.joml.Vector3dc.class, int.class, marker);
+            Object data = ctor.newInstance(new org.joml.Vector3d(ship.getTransform().getPositionInWorld()), rotation,
+                    new org.joml.Vector3d(), new org.joml.Vector3d(), ship.getChunkClaimDimension(), 1.0, null, 1 << 6, null);
+            Object world = org.valkyrienskies.mod.api.ValkyrienSkies.api().getServerShipWorld(
+                    net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer());
+            for (java.lang.reflect.Method m : world.getClass().getMethods()) {
+                if (m.getName().equals("teleportShip") && m.getParameterCount() == 2) {
+                    m.invoke(world, ship, data);
+                    return;
+                }
+            }
+            throw new IllegalStateException("VS's ship world has no teleportShip");
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalStateException("can't turn the ship: " + e, e);
+        }
+    }
+
     /** The least a slime bounce may give back of the speed it met the slime with: 85% of the restitution. */
     private static double slimeLow(boolean bothSides) {
         double e = FullStopConfig.SERVER.slimeRestitution.get();

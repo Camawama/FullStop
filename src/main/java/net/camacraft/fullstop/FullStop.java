@@ -13,6 +13,7 @@ import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEffects;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.registry.ModPotions;
+import net.camacraft.fullstop.common.registry.ModSounds;
 import net.camacraft.fullstop.server.CancelEvents;
 import net.camacraft.fullstop.server.command.FullStopCommand;
 import net.camacraft.fullstop.server.physics.PhysicsDispatchServer;
@@ -52,6 +53,7 @@ public class FullStop
         ModPotions.register(modEventBus);
         ModAttributes.register(modEventBus);
         ModEnchantments.register(modEventBus);
+        ModSounds.register(modEventBus);
         modEventBus.addListener(this::commonSetup);
 
         MinecraftForge.EVENT_BUS.register(FullStop.class);

@@ -205,6 +205,18 @@ public final class ShipContactPhysics {
         return fromBelow(normal, frame, weightless) ? 0.0 : SERVER.entityRestitution.get();
     }
 
+
+    /**
+     * {@link #restitution(Vec3, GravityFrame, boolean)} for a contact with the hull block {@code hull}: slime
+     * ({@code fullstop:bouncy}) springs the body back at {@code slimeRestitution} instead, from every side - a slime
+     * deck rising under a body bounces it as a slime floor does - and (see {@link ShipEntityImpacts}) never hurts it.
+     */
+    public static double restitution(Vec3 normal, GravityFrame frame, boolean weightless,
+                                     @org.jetbrains.annotations.Nullable net.minecraft.world.level.block.state.BlockState hull) {
+        if (ShipSlimeHoney.bouncy(hull)) return SERVER.slimeRestitution.get();
+        return restitution(normal, frame, weightless);
+    }
+
     /** The mass (kg) a ride stack hits and is hit with: every body in it, what they carry left out. */
     public static double bodyKg(Entity root) {
         return Math.max(EntityStack.sum(root, Weights::bodyMassKg), 1.0e-3);

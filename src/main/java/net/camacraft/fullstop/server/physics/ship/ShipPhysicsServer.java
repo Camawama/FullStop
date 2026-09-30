@@ -32,7 +32,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *   <li>vegetation ({@link ShipVegetationSweep}): the leaves and plants each moving hull passes
  *   through, which VS never reports;</li>
  *   <li>impact sounds and terrain, hull (and opt-in ship) breaking from VS's reported collisions
- *   ({@link ShipTerrainImpacts});</li>
+ *   ({@link ShipTerrainImpacts}), and the hulls that crossed each other between two physics frames,
+ *   which VS never reports ({@link ShipHullClash});</li>
  *   <li>slime bounces and honey from the same collisions ({@link ShipSlimeHoney}), and the honey
  *   glue it makes, checked and re-made every tick ({@link ShipGlue});</li>
  *   <li>sonic booms of hulls faster than sound ({@link ShipSonicBooms}).</li>
@@ -94,13 +95,15 @@ public final class ShipPhysicsServer {
         }
 
         if (collisions) {
-            ShipTerrainImpacts.process(level, tracker, now);
+            ShipTerrainImpacts.process(level, tracker, ships, now);
             ShipSlimeHoney.process(level, tracker, now);
             ShipDeckMomentum.noteCrashes(level, now);
         }
         ShipGlue.tick(level, tracker, now);
         tracker.prune(level, now);
         ShipSonicBooms.prune(level, ships);
+        ShipHullClash.prune(level, ships);
+        ShipHullClash.prune(level, ships);
     }
 
     @Nullable

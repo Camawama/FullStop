@@ -265,6 +265,10 @@ public class FullStopCapability {
     // to restore the old hair-trigger behavior.
     private static final double GFORCE_NOISE_FLOOR = 2.0;
     private double lastMeasuredSpeed = 0.0;
+    /** The pose last tick and the tick it last changed: a carried body's pose change is no motion (see tick). */
+    @Nullable
+    private net.minecraft.world.entity.Pose lastPose = null;
+    private int poseChangedTick = Integer.MIN_VALUE;
     private long lastTick = -1;
 
     private long damageCooldownUntilTick = Long.MIN_VALUE;
@@ -817,6 +821,30 @@ public class FullStopCapability {
             frameMotionMps = frameMotionMps.add(actualVelocity);
             actualVelocity = Vec3.ZERO;
         }
+        // The tick a body a ship carries (or its plating holds) crouches or stands up, the server puts it in two
+        // places - its client's move packet lands it where that client's ship pose had it, then VS's ship-relative
+        // setPos moves it on with the ship - and the jump between the two reads as its own motion at the ship's
+        // speed: a player crouching in a room on a plated ship doing 30 m/s was billed a 30 m/s strike on the
+        // room's wall (7 to 17 damage per crouch, the owner's report of 2026-09-30). No pose change moves a body
+        // that fast. On that tick and the next, a carried body's own motion is nothing (its carry stays the
+        // ship's), and the jump is dropped rather than folded into the carry, which the ship-hit judgement reads.
+        net.minecraft.world.entity.Pose pose = entity.getPose();
+        if (lastPose != null && pose != lastPose) poseChangedTick = entity.tickCount;
+        lastPose = pose;
+        if (poseChangedLately(entity, 1) && ridesShip(entity)) {
+            actualVelocity = Vec3.ZERO;
+        }
+        // The same double placement seen from the motion itself, since the server's pose can trail the packet that
+        // moved the body by a tick: a carried body that was all but still and now reads as moving by the ship's carry
+        // over again (its position went with the ship twice this tick), or by exactly its opposite (not at all),
+        // was put in two places. Measured on a plated ship at 60 RPM: own velocity 20.4 m/s, carry 20.4 m/s, the
+        // same way, for one tick at each crouch. Nothing a body does by itself matches the ship's carry like that.
+        double carry = frameMotionMps.length();
+        if (carry > 2.0 && actualVelocity.lengthSqr() > 25.0 && prevVelocityMps.lengthSqr() < 25.0 && ridesShip(entity)
+                && (actualVelocity.distanceTo(frameMotionMps) < 0.35 * carry
+                || actualVelocity.distanceTo(frameMotionMps.scale(-1.0)) < 0.35 * carry)) {
+            actualVelocity = Vec3.ZERO;
+        }
 
         // Position discontinuity (respawn, /tp, mod teleports that fire no event):
         // no physical process triples an entity's speed past 60 m/s in a single
@@ -1286,6 +1314,20 @@ public class FullStopCapability {
 
     public double getRawRunningAverageDelta() {
         return rawAvgAccel;
+    }
+
+    /** Whether the entity's pose changed within the last {@code ticks} ticks (0: this tick). */
+    public boolean poseChangedLately(Entity entity, int ticks) {
+        return entity.tickCount - poseChangedTick <= ticks;
+    }
+
+    /**
+     * Whether a ship carries this body along: Valkyrien Skies drags it with the ship it stands on (or did
+     * within the last second), or Gravity Unbound's plating or field holds it to the ship.
+     */
+    public static boolean ridesShip(Entity entity) {
+        return ShipCompat.carryingShip(entity) != null || net.camacraft.camafy.compat.vs.ShipEntities.isCarried(entity)
+                || Gravity.isAnchored(entity) || Gravity.ridesShipField(entity);
     }
 
     public boolean getIsDamageImmune() {

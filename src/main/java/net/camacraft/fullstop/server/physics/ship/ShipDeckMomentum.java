@@ -331,7 +331,7 @@ public final class ShipDeckMomentum {
                 entity, speed, vertical, List.of());
         if (damage < 1) return;
         boolean hurt = entity.hurt(net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.seatCrash(entity,
-                net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.velocityDisplay(speed)), (float) damage);
+                net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.velocityDisplay(speed), ship.id()), (float) damage);
         if (log || SERVER.debugShipCollisionLog.get()) {
             LOGGER.info("[FullStop] ship {}'s crash held {} in its seat: the seat lost ({}) m/s beyond the grip, {} damage{}",
                     ship.id(), entity.getName().getString(), fmt(kept), fmt(damage), hurt ? "" : " (not taken)");

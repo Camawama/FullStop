@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.damage;
 
+import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.util.color.Argb;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.common.physics.rules.EquipmentRules;
@@ -15,6 +16,7 @@ import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.Projectile;
 import org.jetbrains.annotations.NotNull;
@@ -82,6 +84,14 @@ public final class FullStopDamageSources {
         }
         Entity controller = mover.getControllingPassenger();
         return controller != null ? controller : mover;
+    }
+
+    /** What a message calls a body: a block in flight by its block ("a falling Anvil"), anything else by its name. */
+    public static Component bodyName(Entity body) {
+        if (body instanceof FallingBlockEntity falling) {
+            return Component.translatable("death.fullstop.falling", falling.getBlockState().getBlock().getName());
+        }
+        return body.getDisplayName();
     }
 
     private static Holder<DamageType> holder(Entity entity, ResourceKey<DamageType> key) {
@@ -231,19 +241,48 @@ public final class FullStopDamageSources {
      */
     public static DamageSource ship(Entity victim, @Nullable Entity pilot, VelocityDisplay velocity, boolean crushed,
                                     boolean hullAbove, boolean hullBelow) {
+        return ship(victim, pilot, velocity, crushed, hullAbove, hullBelow, ShipRef.NO_ID);
+    }
+
+    /**
+     * As above, for the ship {@code shipId}: the death message names the ship when someone renamed it
+     * ("was hit by Large Wooden Door", see {@link #shipName}) and says "a ship" while it has the name
+     * VS made up for it.
+     */
+    public static DamageSource ship(Entity victim, @Nullable Entity pilot, VelocityDisplay velocity, boolean crushed,
+                                    boolean hullAbove, boolean hullBelow, long shipId) {
         return new ShipSource(holder(victim, SHIP), pilot, hullAbove, hullBelow) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
                 String key = crushed ? "death.fullstop.ship.crushed" : "death.fullstop.ship.hit";
                 Component suffix = velocitySuffix(velocity);
+                Component name = shipName(dead, shipId, velocity);
+                if (name != null) key += ".named";
                 if (pilot != null && pilot != dead) {
-                    return Component.translatable(key + ".player", dead.getDisplayName(), pilot.getDisplayName())
+                    return (name != null
+                            ? Component.translatable(key + ".player", dead.getDisplayName(), name, pilot.getDisplayName())
+                            : Component.translatable(key + ".player", dead.getDisplayName(), pilot.getDisplayName()))
                             .append(suffix);
                 }
-                return Component.translatable(key, dead.getDisplayName()).append(suffix);
+                return (name != null ? Component.translatable(key, dead.getDisplayName(), name)
+                        : Component.translatable(key, dead.getDisplayName())).append(suffix);
             }
         };
+    }
+
+    /**
+     * What a death message calls the ship {@code shipId}: the name someone gave it ({@code /vs rename},
+     * Camafy's {@code ShipRef.customName}), in the speed's colour; null while it still has the three
+     * random nouns VS made up for it ({@code delivery-doe-leg}: then it is "a ship"), or is gone.
+     */
+    @Nullable
+    private static Component shipName(Entity dead, long shipId, VelocityDisplay velocity) {
+        if (shipId == ShipRef.NO_ID) return null;
+        ShipRef ship = ShipRef.ofAny(dead.level(), shipId);
+        String name = ship == null ? null : ship.customName();
+        if (name == null) return null;
+        return Component.literal(name).withStyle(s -> s.withColor(velocity.color()));
     }
 
     /**
@@ -251,11 +290,18 @@ public final class FullStopDamageSources {
      * with the ship, and the rider with it.
      */
     public static DamageSource seatCrash(Entity victim, VelocityDisplay velocity) {
+        return seatCrash(victim, velocity, ShipRef.NO_ID);
+    }
+
+    /** As above, naming the ship when someone renamed it ("didn't survive the crash of Large Wooden Door"). */
+    public static DamageSource seatCrash(Entity victim, VelocityDisplay velocity, long shipId) {
         return new KineticSource(holder(victim, KINETIC)) {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
-                return Component.translatable("death.fullstop.ship.seat", dead.getDisplayName()).append(velocitySuffix(velocity));
+                Component name = shipName(dead, shipId, velocity);
+                return (name != null ? Component.translatable("death.fullstop.ship.seat.named", dead.getDisplayName(), name)
+                        : Component.translatable("death.fullstop.ship.seat", dead.getDisplayName())).append(velocitySuffix(velocity));
             }
         };
     }
@@ -371,7 +417,7 @@ public final class FullStopDamageSources {
             @Override
             @NotNull
             public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
-                Component otherName = other.getDisplayName().copy().withStyle(s -> s.withColor(velocity.color()));
+                Component otherName = bodyName(other).copy().withStyle(s -> s.withColor(velocity.color()));
                 String message = "death.fullstop.entity." + key;
                 boolean attack = key.equals("hit_by") || key.equals("crushed_by");
                 if (attack && causing != null && causing != other && causing != dead) {

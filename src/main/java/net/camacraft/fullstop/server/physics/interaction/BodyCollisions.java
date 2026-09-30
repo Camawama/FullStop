@@ -22,6 +22,7 @@ import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageApplier;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageCalculator;
 import net.camacraft.fullstop.server.physics.ship.ShipContactPhysics;
+import net.camacraft.fullstop.server.physics.ship.ShipMaterials;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
@@ -33,6 +34,7 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.vehicle.AbstractMinecart;
 import net.minecraft.world.entity.vehicle.Boat;
@@ -56,7 +58,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
 /**
  * Bodies that run, fly or fall into each other - mobs, players, boats and carts, a mount with its
- * riders as one body - collide as two bodies ({@code enableEntityCollisions}, Entity Collisions).
+ * riders as one body, and blocks in flight (falling sand, a dropped anvil, at their block's mass) -
+ * collide as two bodies ({@code enableEntityCollisions}, Entity Collisions).
  * Minecraft only nudges overlapping entities apart, a few hundredths of a block a tick, so a pig
  * flung at 30 m/s flew straight through a hovering one. Once a tick, after every entity has moved
  * (and before FullStop measures each one's own motion):
@@ -79,6 +82,11 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * The normal treats bodies as upright cylinders: meeting across the top or bottom of the boxes is
  * vertical, anything else runs horizontally along the line between the two centres (two bodies
  * meeting head-on along a diagonal stop each other along it).
+ *
+ * <p>A falling block collides in the air like any body - two sand blocks meeting in the air bounce
+ * apart, an anvil striking a mob in flight hits it with its whole mass - and still lands as a block
+ * afterwards; one landing on a body standing on the ground is left to vanilla's rules (an anvil
+ * hurts what it lands on, sand buries it).
  *
  * <p>A body landing on one that stands on the ground (not in zero gravity) crushes it: the ground
  * holds the lower one up, so it takes the lander's whole momentum into the contact (the speed it
@@ -282,7 +290,9 @@ public final class BodyCollisions {
     @Nullable
     private static Body body(Entity root, Int2ObjectOpenHashMap<Vec3> before) {
         if (root instanceof Projectile) return null; // ProjectileCollisions
-        if (!(root instanceof LivingEntity || root instanceof Boat || root instanceof AbstractMinecart || carriesLiving(root))) {
+        boolean fallingBlock = root instanceof FallingBlockEntity;
+        if (!(root instanceof LivingEntity || root instanceof Boat || root instanceof AbstractMinecart || fallingBlock
+                || carriesLiving(root))) {
             return null;
         }
         // not ticked yet: where it was before its first move isn't known
@@ -292,7 +302,8 @@ public final class BodyCollisions {
         if (root.isMultipartEntity()) return null;
         if (DamageImmunityRules.unphysableIgnoringAi(root) || root.isSpectator()) return null;
         // what vanilla never pushes isn't knocked about here either: armour stands, bats, anything on a ladder
-        if (!root.isPushable() && !root.isVehicle()) return null;
+        // (a falling block is never pushable, and is a body all the same: a block in flight)
+        if (!root.isPushable() && !root.isVehicle() && !fallingBlock) return null;
         FullStopCapability cap = FullStopCapability.grabCapability(root);
         if (root instanceof Mob mob && (cap != null ? cap.isNoAiCached(mob) : mob.isNoAi())) return null;
         if (!takesPart(root)) return null;
@@ -326,8 +337,10 @@ public final class BodyCollisions {
             for (Entity rider : root.getIndirectPassengers()) box = box.minmax(rider.getBoundingBox());
         }
         boolean weightless = cap != null ? cap.isWeightless() : Gravity.isWeightless(root);
-        return new Body(root, box, move, velocity, carried, own, ShipContactPhysics.bodyKg(root), clientMoved, root.onGround(),
-                weightless, frame, cap);
+        // a block in flight weighs what its block weighs (Valkyrien Skies' mass for it, or a tonne)
+        double kg = root instanceof FallingBlockEntity falling ? ShipMaterials.massKg(falling.getBlockState())
+                : ShipContactPhysics.bodyKg(root);
+        return new Body(root, box, move, velocity, carried, own, kg, clientMoved, root.onGround(), weightless, frame, cap);
     }
 
     /** Whether this member of a ride stack lets the stack collide: awake, not a spectator, not another mod's, not in a ship's seat. */
@@ -450,13 +463,14 @@ public final class BodyCollisions {
     private static void resolve(ServerLevel level, Contact c, Int2ObjectOpenHashMap<Vec3> ends) {
         Body a = c.a(), b = c.b();
         Vec3 n = c.normal();
-        // One on top of the other, the lower one standing on the ground: a crush, not an exchange.
+        // One on top of the other, the lower one standing on the ground: a crush, not an exchange. A falling
+        // block landing on a standing body is vanilla's own affair (an anvil hurts what it lands on, sand buries it).
         if (b.frame.vertical(n) > ON_TOP && b.standing()) {
-            crush(level, c, a, b, n);
+            if (!(a.root instanceof FallingBlockEntity)) crush(level, c, a, b, n);
             return;
         }
         if (a.frame.vertical(n.scale(-1.0)) > ON_TOP && a.standing()) {
-            crush(level, c, b, a, n.scale(-1.0));
+            if (!(b.root instanceof FallingBlockEntity)) crush(level, c, b, a, n.scale(-1.0));
             return;
         }
 

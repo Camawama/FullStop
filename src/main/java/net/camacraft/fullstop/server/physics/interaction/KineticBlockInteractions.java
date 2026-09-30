@@ -412,6 +412,10 @@ public class KineticBlockInteractions {
             // two bodies' closing speed carries with their reduced mass (a light
             // raft is shoved, not smashed) - see ShipEntityHits.blockImpact.
             ShipEntityHits.BlockImpact shipImpact = ShipEntityHits.blockImpact(level, entity, hitResult, impactVelocity, totalMass);
+            // A rider that just crouched or stood up isn't striking its own ship: the server's position for it jumps that
+            // tick (its client's move packet against VS's ship-relative setPos), and read as a speed the jump is the
+            // ship's. The capability drops the jump; this is the same rule for a reading that slipped through.
+            if (shipImpact != null && shipImpact.rider() && cap != null && cap.poseChangedLately(entity, 2)) continue;
             Vec3 faceNormal = Vec3.atLowerCornerOf(hitResult.getDirection().getNormal());
             double intoFace = shipImpact != null ? shipImpact.closingBpt() : -impactVelocity.dot(faceNormal);
             if (intoFace < MIN_VELOCITY_REQUIRED) continue;

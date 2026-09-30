@@ -139,7 +139,7 @@ public final class ClientVehiclePhysics {
         if (!cap.canBounce()) return;
 
         Vec3 preV = cap.getPreImpactScaledVelocity();
-        Vec3 normal = BounceMath.mostOpposedNormal(collision.impactedHits, preV);
+        Vec3 normal = BounceMath.mostOpposedNormal(vehicle.level(), collision.impactedHits, preV);
         if (normal == null) return;
         if (!BounceMath.isDirectImpact(preV, normal)) return;
         if (cap.getCurrentScaledVelocity().dot(normal) > 0.5) return;

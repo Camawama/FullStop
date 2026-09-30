@@ -1,0 +1,9 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:fishing_bobber",
+    "minecraft:firework_rocket",
+    {"id": "grappleunbound:grapplehook", "required": false},
+    {"id": "grapplemod:grapplehook", "required": false}
+  ]
+}

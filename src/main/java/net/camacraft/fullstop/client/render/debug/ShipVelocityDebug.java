@@ -44,7 +44,7 @@ import java.util.List;
  * while the ship visibly moves (an older sync), they are taken from its last two client
  * transforms instead. A ship whose pose stops changing (made static, frozen) draws nothing, even
  * though the client keeps its last synced velocity. Positions use the ship's interpolated render pose, so the rays stay on the
- * drawn hull.
+ * drawn hull. A ship a size mod shrank (VS Genesis's space: 1/16) has its ray stubs and line widths shrunk with it.
  */
 public final class ShipVelocityDebug {
 
@@ -130,6 +130,10 @@ public final class ShipVelocityDebug {
         if (motion == null) return;
         Vec3 velocity = motion[0];
         Vec3 spin = motion[1];
+        // a ship a size mod shrank: its fixed lengths (the stubs of slow points, the line width) shrink with it
+        double size = ship.scale();
+        if (!(size > 0.0) || !Double.isFinite(size)) size = 1.0;
+        float thickness = (float) (RaycastLineRenderer.DEFAULT_THICKNESS * size);
 
         // Where the points are drawn (render pose) and where they are now (tick pose, for v + w x r).
         Vec3 comShip = ship.toShip(centre);
@@ -137,7 +141,7 @@ public final class ShipVelocityDebug {
         List<Vec3> points = starts(blocks, comShip);
         double halfDiagonal = 0.5 * Math.sqrt(blocks.getXSpan() * (double) blocks.getXSpan()
                 + blocks.getYSpan() * (double) blocks.getYSpan() + blocks.getZSpan() * (double) blocks.getZSpan());
-        if (velocity.length() + spin.length() * halfDiagonal < MIN_SPEED) return;
+        if (velocity.length() + spin.length() * halfDiagonal * size < MIN_SPEED * size) return;
 
         // the ship's motion over the coming tick, to follow each point along the arc its turn makes of it: round its
         // pivot if it turns about a fixed point, else round its centre of mass going straight on
@@ -157,10 +161,10 @@ public final class ShipVelocityDebug {
             boolean centreRay = i == points.size() - 1;
             float speedAlpha = (float) Math.min(Math.max(speed / SPEED_FOR_MAX_OPACITY, MIN_SPEED_ALPHA), 1.0);
             String id = "ship_" + ship.id() + "_ray_" + i + "_";
-            if (speed * TICK_SECONDS < MIN_RAY_LENGTH) {
+            if (speed * TICK_SECONDS < MIN_RAY_LENGTH * size) {
                 // too slow to show an arc: a short stub along its motion, as before
-                Vec3 end = drawn.add(pointVelocity.scale((MIN_RAY_LENGTH + 0.01) / speed));
-                segment(level, ship, viewer, id + 0, drawn, end, pointVelocity, speedAlpha, centreRay);
+                Vec3 end = drawn.add(pointVelocity.scale((MIN_RAY_LENGTH + 0.01) * size / speed));
+                segment(level, ship, viewer, id + 0, drawn, end, pointVelocity, speedAlpha, centreRay, thickness);
                 continue;
             }
             // one tick of the point's travel, along the arc: its path in the world as the ship moves on and turns
@@ -171,7 +175,7 @@ public final class ShipVelocityDebug {
                 Vec3 to = drawn.add(at.subtract(now));
                 Vec3 along = carried.add(spin.cross(at.subtract(about.add(carried.scale(t)))));
                 // the point meets something there: the arc stops at it
-                if (segment(level, ship, viewer, id + k, from, to, along, speedAlpha, centreRay)) break;
+                if (segment(level, ship, viewer, id + k, from, to, along, speedAlpha, centreRay, thickness)) break;
                 from = to;
             }
         }
@@ -202,7 +206,7 @@ public final class ShipVelocityDebug {
      * speed, yellow where it only touches. Returns whether it ran into something.
      */
     private static boolean segment(ClientLevel level, ShipRef ship, Entity viewer, String id, Vec3 from, Vec3 to, Vec3 velocity,
-                                   float speedAlpha, boolean centreRay) {
+                                   float speedAlpha, boolean centreRay, float thickness) {
         BlockHitResult hit = Ships.clip(level, new ClipContext(from, to, ClipContext.Block.COLLIDER,
                 ClipContext.Fluid.NONE, viewer), ship.id());
         float r = 0.0f, g = 1.0f, b = 0.0f, a = 0.5f;
@@ -215,7 +219,7 @@ public final class ShipVelocityDebug {
             a = colliding ? 1.0f : 0.7f;
             to = hit.getLocation();
         }
-        RaycastLineRenderer.queueLine(id, from, to, r, g, b, a * speedAlpha, LINE_LIFE_TICKS, centreRay);
+        RaycastLineRenderer.queueLine(id, from, to, r, g, b, a * speedAlpha, LINE_LIFE_TICKS, centreRay, thickness);
         return blocked;
     }
 

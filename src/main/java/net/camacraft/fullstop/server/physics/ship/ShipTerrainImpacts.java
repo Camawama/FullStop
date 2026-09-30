@@ -161,22 +161,24 @@ public final class ShipTerrainImpacts {
         return SERVER.breakTerrain.get() || SERVER.hullDamage.get();
     }
 
-    static void process(ServerLevel level, ShipTracker tracker, long now) {
+    /** Once per level tick: VS's reported crashes, then the hulls that crossed each other unreported ({@link ShipHullClash}). */
+    static void process(ServerLevel level, ShipTracker tracker, List<ShipRef> ships, long now) {
         applyRestorations(level, now);
 
-        List<ShipCollision> collisions = ShipCollisions.thisTick(level);
-        if (collisions.isEmpty()) return;
-
-        int[] levelBudget = {SERVER.terrainMaxBlocksPerTick.get()};
         Set<BlockPos> struck = new HashSet<>();
-        for (ShipCollision collision : collisions) {
-            if (collision.isTerrain()) {
-                terrain(level, tracker, collision, now, struck, levelBudget);
-            } else if (collision.ship().id() < collision.other().id()) {
-                // Each pair comes twice (once from each side): handle it once.
-                ships(level, tracker, collision, now, struck, levelBudget);
+        List<ShipCollision> collisions = ShipCollisions.thisTick(level);
+        if (!collisions.isEmpty()) {
+            int[] levelBudget = {SERVER.terrainMaxBlocksPerTick.get()};
+            for (ShipCollision collision : collisions) {
+                if (collision.isTerrain()) {
+                    terrain(level, tracker, collision, now, struck, levelBudget);
+                } else if (collision.ship().id() < collision.other().id()) {
+                    // Each pair comes twice (once from each side): handle it once.
+                    ships(level, tracker, collision, now, struck, levelBudget);
+                }
             }
         }
+        ShipHullClash.process(level, tracker, ships, now, struck);
     }
 
     /**
@@ -346,21 +348,27 @@ public final class ShipTerrainImpacts {
     // Ship against ship (shipVsShipBreaking, FULL by default)
     // ------------------------------------------------------------------
 
-    /** One ship-against-ship contact that qualified this tick, with the block of each ship there. */
-    private record PairStrike(Vec3 point, Vec3 normal, double speed, @Nullable BlockPos posA, @Nullable BlockState blockA,
-                              @Nullable BlockPos posB, @Nullable BlockState blockB) {}
+    /**
+     * One ship-against-ship contact that qualified this tick, with the block of each ship there
+     * ({@code normal} from {@code b}'s block toward {@code a}'s, {@code speed} how fast the two
+     * closed there, m/s).
+     */
+    record PairStrike(Vec3 point, Vec3 normal, double speed, @Nullable BlockPos posA, @Nullable BlockState blockA,
+                      @Nullable BlockPos posB, @Nullable BlockState blockB) {}
 
     /**
      * Two ships colliding, handled once per pair and tick (Camafy reports each pair from both
      * sides, whichever source). Both hulls sound. Then the same rules as a hull against terrain,
-     * for the pair: at each contact only the WEAKER of the two blocks that meet can break (either
-     * ship's: obsidian rammed into planks breaks planks, never obsidian; equal blocks hold), paid
-     * for, fastest contact first, out of the collision's energy - {@code 1/2 mu v^2 *
-     * terrainEnergyFraction}, with {@code mu} the pair's reduced mass (a static ship counts as
-     * immovable) and {@code v} the fastest closing speed. If everything that was struck broke,
-     * the two are handed back their closing speed the tick after, less what breaking cost, by
-     * equal and opposite impulses at the contact (the ram ploughs on, both ships slowed);
-     * otherwise VS's collision stands.
+     * for the pair: at each contact the WEAKER of the two blocks that meet breaks (either
+     * ship's: obsidian rammed into planks breaks planks, never obsidian), or BOTH when they are
+     * within {@code mutualBreakRatio} of each other (planks against planks at speed: neither is
+     * tough enough to survive the other), paid for, fastest contact first, out of the collision's
+     * energy - {@code 1/2 mu v^2 * terrainEnergyFraction}, with {@code mu} the pair's reduced mass
+     * (a static ship counts as immovable) and {@code v} the fastest closing speed. If everything
+     * that was struck broke, the two are handed back their closing speed the tick after, less
+     * what breaking cost, by equal and opposite impulses at the contact (the ram ploughs on, both
+     * ships slowed); otherwise VS's collision stands. Hulls that cross each other between two
+     * physics frames, which VS never reports, are {@link ShipHullClash}'s.
      */
     private static void ships(ServerLevel level, ShipTracker tracker, ShipCollision collision, long now,
                               Set<BlockPos> struck, int[] levelBudget) {
@@ -400,17 +408,49 @@ public final class ShipTerrainImpacts {
         ShipImpactSounds.play(level, a.id(), Double.isFinite(reduced) ? reduced : Math.min(massA, massB),
                 collision.started(), hits, now);
 
-        FullStopConfig.ShipVsShipBreaking mode = SERVER.shipVsShipBreaking.get();
-        if (mode == FullStopConfig.ShipVsShipBreaking.NONE || !Double.isFinite(reduced) || levelBudget[0] <= 0) return;
-        double breakMin = SERVER.breakMinSpeed.get();
+        if (SERVER.shipVsShipBreaking.get() == FullStopConfig.ShipVsShipBreaking.NONE || !Double.isFinite(reduced)
+                || levelBudget[0] <= 0) {
+            return;
+        }
         strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
         double speed = strikes.get(0).speed();
-        if (speed < breakMin) return;
+        if (speed < SERVER.breakMinSpeed.get()) return;
+        PairOutcome outcome = breakPair(level, a, b, reduced, speed, strikes, struck, levelBudget, MAX_BLOCKS_PER_SHIP,
+                honeyPairShare(strikes), "hit", false);
+        if (outcome.broken() > 0 && !outcome.held() && outcome.normalSum().lengthSqr() > 1.0e-8) {
+            // Everything struck gave: the two keep closing, less what breaking cost.
+            double spentJoules = outcome.spent() * EntityStackUtils.JOULES_PER_ENERGY_UNIT;
+            double squared = speed * speed - 2.0 * spentJoules * SERVER.terrainBreakDrag.get() / reduced;
+            double target = Math.sqrt(Math.max(0.0, squared));
+            if (target > 0.0) {
+                PENDING_PAIRS.computeIfAbsent(level, l -> new ArrayList<>()).add(new PairRestore(a.id(), b.id(),
+                        outcome.normalSum().normalize(), outcome.pointSum().scale(1.0 / outcome.broken()), target, now + 1));
+            }
+        }
+    }
 
+    /** What breaking did for a pair of ships this tick: blocks broken, energy spent, whether anything struck held. */
+    record PairOutcome(int broken, boolean held, double spent, Vec3 normalSum, Vec3 pointSum) {}
+
+    /** One block a ship-against-ship contact breaks: whose it is, and which ship (its pilot) answers for breaking it. */
+    private record PairVerdict(BlockPos pos, BlockState state, double cost, ShipRef owner, ShipRef breaker) {}
+
+    /**
+     * Breaks what a pair's strikes (sorted fastest first) break, out of the pair's collision
+     * energy at {@code speed} (m/s, the fastest strike) with reduced mass {@code reduced} (kg):
+     * at most {@code pairCap} blocks for the pair and what {@code levelBudget} has left. The
+     * same block reached twice (or by two pairs) breaks once ({@code struck}). With
+     * {@code noCracks} a block the energy doesn't cover is left alone rather than cracked: a
+     * swept crossing VS's solver has already resolved reads slow here, and a crack it made would
+     * count as the same impact for eight ticks and refuse the real crash VS reports a tick later.
+     */
+    static PairOutcome breakPair(ServerLevel level, ShipRef a, ShipRef b, double reduced, double speed, List<PairStrike> strikes,
+                                 Set<BlockPos> struck, int[] levelBudget, int pairCap, double honeyShare, String how, boolean noCracks) {
+        FullStopConfig.ShipVsShipBreaking mode = SERVER.shipVsShipBreaking.get();
+        double breakMin = SERVER.breakMinSpeed.get();
         double energy = 0.5 * EntityStackUtils.kgToUnits(reduced) * (speed / 20.0) * (speed / 20.0)
-                * SERVER.terrainEnergyFraction.get() * honeyPairShare(strikes);
+                * SERVER.terrainEnergyFraction.get() * honeyShare;
         double startEnergy = energy;
-        double multiplier = SERVER.breakCostMultiplier.get();
         int broken = 0;
         boolean held = false;
         Vec3 normalSum = Vec3.ZERO;
@@ -421,74 +461,76 @@ public final class ShipTerrainImpacts {
                 held = true; // nothing to weigh (an unloaded chunk)
                 continue;
             }
-            if (broken >= MAX_BLOCKS_PER_SHIP || levelBudget[0] <= 0) {
+            if (broken >= pairCap || levelBudget[0] <= 0) {
                 held = true;
                 break;
             }
-            // The weaker of the two gives, by the same toughness rule as hull against terrain.
-            double toughA = ShipMaterials.toughness(level, strike.posA(), strike.blockA());
-            double toughB = ShipMaterials.toughness(level, strike.posB(), strike.blockB());
-            BlockPos pos;
-            BlockState state;
-            double cost;
-            ShipRef breaker;
-            switch (ShipMaterials.whichGives(toughA, toughB)) {
-                case FIRST -> {
-                    pos = strike.posA();
-                    state = strike.blockA();
-                    cost = ShipMaterials.breakCost(toughA, toughB, multiplier);
-                    breaker = b;
+            List<PairVerdict> verdicts = judgePair(level, a, strike.posA(), strike.blockA(), b, strike.posB(), strike.blockB(), mode);
+            if (verdicts.isEmpty()) {
+                held = true;
+                continue;
+            }
+            for (PairVerdict verdict : verdicts) {
+                if (broken >= pairCap || levelBudget[0] <= 0) {
+                    held = true;
+                    break;
                 }
-                case SECOND -> {
-                    pos = strike.posB();
-                    state = strike.blockB();
-                    cost = ShipMaterials.breakCost(toughB, toughA, multiplier);
-                    breaker = a;
-                }
-                default -> {
+                if (noCracks && energy < verdict.cost()) {
                     held = true;
                     continue;
                 }
-            }
-            if ((mode == FullStopConfig.ShipVsShipBreaking.FRAGILE && !state.is(FullStopTags.FRAGILE))
-                    || !breakable(level, pos, state)) {
-                held = true;
-                continue;
-            }
-            // The same block reached through two contacts breaks once.
-            if (!struck.add(pos)) continue;
-            ShipPhysicsServer.Pilot pilot = new ShipPhysicsServer.Pilot(level, breaker);
-            if (!mayBreak(level, pos, pilot)) {
-                held = true;
-                continue;
-            }
-            KineticBlockInteractions.SmashOutcome outcome = KineticBlockInteractions.smashBlock(level, pos, state,
-                    cost, energy, SERVER.terrainBlockDrops.get(), pilot.get());
-            debug("ships {} and {} ({} kg reduced) at {} m/s: {} of ship {} (toughness {} vs {}), cost {} of {} units -> {}",
-                    a.id(), b.id(), Math.round(reduced), fmt(strike.speed()), state, breaker == a ? b.id() : a.id(),
-                    fmt(Math.min(toughA, toughB)), fmt(Math.max(toughA, toughB)), fmt(cost), fmt(energy),
-                    outcome.broken() ? "broken" : outcome.cracked() ? "cracked" : "held");
-            if (outcome.broken()) {
-                energy -= outcome.spent();
-                broken++;
-                levelBudget[0]--;
-                normalSum = normalSum.add(strike.normal());
-                pointSum = pointSum.add(strike.point());
-            } else {
-                held = true;
+                // The same block reached through two contacts breaks once.
+                if (!struck.add(verdict.pos())) continue;
+                ShipPhysicsServer.Pilot pilot = new ShipPhysicsServer.Pilot(level, verdict.breaker());
+                if (!mayBreak(level, verdict.pos(), pilot)) {
+                    held = true;
+                    continue;
+                }
+                KineticBlockInteractions.SmashOutcome outcome = KineticBlockInteractions.smashBlock(level, verdict.pos(),
+                        verdict.state(), verdict.cost(), energy, SERVER.terrainBlockDrops.get(), pilot.get());
+                debug("ships {} and {} ({}, {} kg reduced) at {} m/s: {} of ship {} ({}), cost {} of {} units -> {}",
+                        a.id(), b.id(), how, Math.round(reduced), fmt(strike.speed()), verdict.state(), verdict.owner().id(),
+                        verdicts.size() == 2 ? "both give" : "the weaker gives", fmt(verdict.cost()), fmt(energy),
+                        outcome.broken() ? "broken" : outcome.cracked() ? "cracked" : "held");
+                if (outcome.broken()) {
+                    energy -= outcome.spent();
+                    broken++;
+                    levelBudget[0]--;
+                    normalSum = normalSum.add(strike.normal());
+                    pointSum = pointSum.add(strike.point());
+                } else {
+                    held = true;
+                }
             }
         }
+        return new PairOutcome(broken, held, startEnergy - energy, normalSum, pointSum);
+    }
 
-        if (broken > 0 && !held && normalSum.lengthSqr() > 1.0e-8) {
-            // Everything struck gave: the two keep closing, less what breaking cost.
-            double spentJoules = (startEnergy - energy) * EntityStackUtils.JOULES_PER_ENERGY_UNIT;
-            double squared = speed * speed - 2.0 * spentJoules * SERVER.terrainBreakDrag.get() / reduced;
-            double target = Math.sqrt(Math.max(0.0, squared));
-            if (target > 0.0) {
-                PENDING_PAIRS.computeIfAbsent(level, l -> new ArrayList<>()).add(new PairRestore(a.id(), b.id(),
-                        normalSum.normalize(), pointSum.scale(1.0 / broken), target, now + 1));
+    /**
+     * Which of two ships' touching blocks give, and what each costs: the weaker by the toughness
+     * rule, or both within {@code mutualBreakRatio} of each other ({@link ShipMaterials}); none
+     * that FullStop may not break at all, or that {@code mode} FRAGILE leaves alone.
+     */
+    private static List<PairVerdict> judgePair(ServerLevel level, ShipRef a, BlockPos posA, BlockState blockA, ShipRef b,
+                                               BlockPos posB, BlockState blockB, FullStopConfig.ShipVsShipBreaking mode) {
+        double toughA = ShipMaterials.toughness(level, posA, blockA);
+        double toughB = ShipMaterials.toughness(level, posB, blockB);
+        double multiplier = SERVER.breakCostMultiplier.get();
+        double ratio = SERVER.mutualBreakRatio.get();
+        List<PairVerdict> out = new ArrayList<>(2);
+        switch (ShipMaterials.whichGives(toughA, toughB, ratio)) {
+            case FIRST -> out.add(new PairVerdict(posA, blockA, ShipMaterials.breakCost(toughA, toughB, multiplier), a, b));
+            case SECOND -> out.add(new PairVerdict(posB, blockB, ShipMaterials.breakCost(toughB, toughA, multiplier), b, a));
+            case BOTH -> {
+                out.add(new PairVerdict(posA, blockA, ShipMaterials.mutualCost(toughA, multiplier, ratio), a, b));
+                out.add(new PairVerdict(posB, blockB, ShipMaterials.mutualCost(toughB, multiplier, ratio), b, a));
+            }
+            case NEITHER -> {
             }
         }
+        out.removeIf(v -> (mode == FullStopConfig.ShipVsShipBreaking.FRAGILE && !v.state().is(FullStopTags.FRAGILE))
+                || !breakable(level, v.pos(), v.state()));
+        return out;
     }
 
     /**
@@ -565,7 +607,8 @@ public final class ShipTerrainImpacts {
             case SECOND -> SERVER.hullDamage.get() && breakable(level, hullPos, hull)
                     ? new Verdict(hullPos, hull, ShipMaterials.breakCost(hullTough, terrainTough, multiplier), true)
                     : null;
-            case NEITHER -> null;
+            // (terrain keeps the strict rule: whichGives without a mutual band never says BOTH)
+            case NEITHER, BOTH -> null;
         };
     }
 

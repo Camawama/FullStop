@@ -93,7 +93,8 @@ public final class BounceHandler {
         // mirroring it produced a feeble kick that died instantly (ridden boats
         // "bounced then stopped"; only a lucky early detection bounced fully).
         Vec3 preV = fullstop.getPreImpactScaledVelocity();
-        Vec3 normal = BounceMath.mostOpposedNormal(collision.impactedHits, preV);
+        // (a ship block's face in the world: slime on a ship's side or underside bounces too)
+        Vec3 normal = BounceMath.mostOpposedNormal(entity.level(), collision.impactedHits, preV);
         if (normal == null) return;
 
         // Rubbing along a surface is not an impact: without real, mostly-direct

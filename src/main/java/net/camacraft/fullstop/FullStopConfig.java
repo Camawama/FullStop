@@ -1,7 +1,10 @@
 package net.camacraft.fullstop;
 
+import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
+
+import java.util.List;
 
 public class FullStopConfig {
     public static final float DEFAULT_SQUASH = 6.90F;
@@ -75,6 +78,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue enablePressureSimulation;
         public final ForgeConfigSpec.BooleanValue altitudePressureAffectsMobs;
         public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> highAltitudeDimensions;
         public final ForgeConfigSpec.DoubleValue highAltitudeAirLossRate;
         public final ForgeConfigSpec.IntValue deepWaterStartLevel;
         public final ForgeConfigSpec.DoubleValue deepWaterAirLossMultiplier;
@@ -127,6 +131,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue terrainBreakBlockEntities;
         public final ForgeConfigSpec.BooleanValue unpilotedFollowsMobGriefing;
         public final ForgeConfigSpec.EnumValue<ShipVsShipBreaking> shipVsShipBreaking;
+        public final ForgeConfigSpec.DoubleValue mutualBreakRatio;
+        public final ForgeConfigSpec.BooleanValue shipClashSweep;
+        public final ForgeConfigSpec.IntValue shipClashMaxBlocksPerTick;
         public final ForgeConfigSpec.BooleanValue slimeBounce;
         public final ForgeConfigSpec.DoubleValue slimeRestitution;
         public final ForgeConfigSpec.DoubleValue slimeMinSpeed;
@@ -454,6 +461,15 @@ public class FullStopConfig {
                     .comment("The Y-level where players start losing air due to thin atmosphere. Note that 1.20 jagged peaks can approach Y=250.")
                     .translation(key("highAltitudeStartLevel"))
                     .defineInRange("highAltitudeStartLevel", 200, -64, 320);
+
+            this.highAltitudeDimensions = builder
+                    .comment("The dimensions whose air thins with height (dimension ids). Anywhere else the altitude rule is off,",
+                            "whatever the Y: VS Genesis's space (the Great Unknown), the Nether, the End and modded worlds are not",
+                            "the overworld's sky. Empty = nowhere.")
+                    .translation(key("highAltitudeDimensions"))
+                    .comment("Default: [\"minecraft:overworld\"]")
+                    .defineListAllowEmpty("highAltitudeDimensions", List.of("minecraft:overworld"),
+                            o -> o instanceof String s && ResourceLocation.isValidResourceLocation(s));
 
             this.highAltitudeAirLossRate = builder
                     .comment("Multiplier for air loss rate at high altitudes. Higher is faster.")
@@ -819,6 +835,36 @@ public class FullStopConfig {
                     .comment("Default: FULL")
                     .defineEnum("shipVsShipBreaking", ShipVsShipBreaking.FULL);
 
+            this.mutualBreakRatio = builder
+                    .comment("Ships hitting ships: two blocks whose toughness is within this ratio of each other (the tougher at most",
+                            "this many times the weaker) BOTH break when the collision has the energy for it - neither is tough enough",
+                            "to survive the other, and planks meeting planks at speed splinter both - each costing",
+                            "  toughness x breakCostMultiplier x ratio / (ratio - 1)",
+                            "(what the rule above charges at the edge of this band, so the two rules join up). Blocks further apart",
+                            "than this lose only the weaker, as before. 1.0 restores the old rule: equal blocks never break.")
+                    .translation(key("mutualBreakRatio"))
+                    .comment("Default: 1.25")
+                    .defineInRange("mutualBreakRatio", 1.25, 1.0, 100.0);
+
+            this.shipClashSweep = builder
+                    .comment("Fast hulls meeting hulls. A block moving tens of blocks a tick (the tips of a 256 RPM rotor) passes clean",
+                            "through another ship between two physics frames, and Valkyrien Skies never reports a contact. Each tick",
+                            "every block of the smaller of two ships that could reach the other is followed along the path it really",
+                            "took over the tick (the ships' poses, interpolated) against the other's blocks, and where they crossed,",
+                            "the blocks break by the ship-vs-ship rule (shipVsShipBreaking, mutualBreakRatio), paid for out of the",
+                            "pair's collision energy at the speed the two blocks met. Only for pairs closing faster than breakMinSpeed;",
+                            "the ships' momentum is left to VS (a rotor ploughs on through what it broke).")
+                    .translation(key("shipClashSweep"))
+                    .comment("Default: true")
+                    .define("shipClashSweep", true);
+
+            this.shipClashMaxBlocksPerTick = builder
+                    .comment("Performance cap: most blocks the swept ship-vs-ship test may break per level per tick (and per pair of",
+                            "ships). Separate from terrainMaxBlocksPerTick: two rotors crossing lose a few dozen blocks in a tick.")
+                    .translation(key("shipClashMaxBlocksPerTick"))
+                    .comment("Default: 96")
+                    .defineInRange("shipClashMaxBlocksPerTick", 96, 0, 4096);
+
             this.slimeBounce = builder
                     .comment("Ships bounce off slime, and slime hulls bounce off anything: when a ship meets terrain or another ship",
                             "and either block at the contact is slime (block tag fullstop:bouncy), it springs back at slimeRestitution",
@@ -1085,21 +1131,23 @@ public class FullStopConfig {
                     .defineInRange("entityCollisionDamageMultiplier", 1.0, 0.0, 100.0);
 
             builder.pop();
-            builder.comment("Projectiles that meet in the air. Vanilla lets projectiles fly through each other (only fireballs and",
-                            "shulker bullets can be shot down, and those stay vanilla's).")
+            builder.comment("Projectiles that meet in the air. Vanilla lets projectiles fly through each other (a projectile's own",
+                            "hit test only looks for mobs and the few 'pickable' projectiles: fireballs and shulker bullets).")
                     .push("Projectile Collisions");
 
             this.enableProjectileCollisions = builder
-                    .comment("Arrows (spectral and tipped too, and modded arrows), tridents and thrown eggs, snowballs, splash and",
-                            "lingering potions, ender pearls and bottles o' enchanting collide with each other in flight. Their paths",
-                            "are swept each tick, so two arrows can't pass through each other. Arrows and tridents exchange momentum",
-                            "by mass (Camafy's weights: an arrow 0.05 kg, a trident 2) with projectileRestitution: two arrows meeting",
-                            "head-on stop and tumble down, a glancing hit deflects both, and afterwards each is an ordinary arrow",
-                            "(it sticks where it lands and can be picked up as its pickup rule allows). Thrown items break where",
-                            "they meet as on any hit - an egg bursts, a snowball puffs, a potion splashes there, a bottle spills its",
-                            "experience, an ender pearl lands its thrower there - and slow the other by the momentum they carried.",
-                            "Projectiles a volley fires together never collide with each other, and Forge's projectile impact event",
-                            "is fired for each (a mod can cancel the hit).")
+                    .comment("Every projectile collides with every other in flight: arrows (spectral and tipped too, and modded",
+                            "arrows), tridents, thrown eggs, snowballs, splash and lingering potions, ender pearls, bottles o'",
+                            "enchanting, fireballs and wither skulls, shulker bullets, llama spit, and whatever other mods throw or",
+                            "shoot (Supplementaries' and the like). Their paths are swept each tick, so two arrows can't pass",
+                            "through each other. Arrows and tridents exchange momentum by mass (Camafy's weights: an arrow 0.05 kg,",
+                            "a trident 2) with projectileRestitution: two arrows meeting head-on stop and tumble down, a glancing",
+                            "hit deflects both, and afterwards each is an ordinary arrow (it sticks where it lands and can be picked",
+                            "up as its pickup rule allows). Everything else meets the other as it meets anything it hits - an egg",
+                            "bursts, a snowball puffs, a potion splashes there, a bottle spills its experience, an ender pearl lands",
+                            "its thrower there, a fireball or wither skull explodes there - and slows the other by the momentum it",
+                            "carried. Never: fishing bobbers, firework rockets and grappling hooks (the #fullstop:no_projectile_collision",
+                            "tag), projectiles a volley fires together, and any hit Forge's projectile impact event cancels.")
                     .translation(key("enableProjectileCollisions"))
                     .comment("Default: true")
                     .define("enableProjectileCollisions", true);

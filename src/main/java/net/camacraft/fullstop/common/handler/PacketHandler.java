@@ -5,6 +5,7 @@ import net.camacraft.fullstop.common.network.GForcePacket;
 import net.camacraft.fullstop.common.network.PlayerDeltaPacket;
 import net.camacraft.fullstop.common.network.ShipContactPacket;
 import net.camacraft.fullstop.common.network.ShipReleasePacket;
+import net.camacraft.fullstop.common.network.ShockTrainPacket;
 import net.camacraft.fullstop.common.network.VehicleMotionPacket;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
@@ -22,7 +23,8 @@ public class PacketHandler {
     //    (a hull struck the local player, as its client saw it); VehicleMotionPacket's delta
     //    mode also reaches the local player itself; GForcePacket (a seated rider's g on a ship).
     // 7: ShipReleasePacket (the client let go of a ship's deck until it lands).
-    private static final String PROTOCOL_VERSION = "7";
+    // 8: ShockTrainPacket (the continuous shock train of a supersonic rotor, to its listeners).
+    private static final String PROTOCOL_VERSION = "8";
     private static int messageID = 0;
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
@@ -61,6 +63,12 @@ public class PacketHandler {
                 .encoder(ShipReleasePacket::encode)
                 .decoder(ShipReleasePacket::new)
                 .consumerMainThread(ShipReleasePacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(ShockTrainPacket.class, messageID++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(ShockTrainPacket::encode)
+                .decoder(ShockTrainPacket::new)
+                .consumerMainThread(ShockTrainPacket::handle)
                 .add();
     }
 

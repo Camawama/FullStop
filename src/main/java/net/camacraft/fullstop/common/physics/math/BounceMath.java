@@ -57,10 +57,24 @@ public final class BounceMath {
      */
     @Nullable
     public static Vec3 mostOpposedNormal(List<BlockHitResult> hits, Vec3 velocityMps) {
+        return mostOpposedNormal(null, hits, velocityMps);
+    }
+
+    /**
+     * {@link #mostOpposedNormal(List, Vec3)} with each face read in the WORLD. A raycast hit on a
+     * Valkyrien Skies ship block reports the face in ship space - a flipped ship's top is its
+     * blocks' DOWN face - and taken as a world direction it opposed nothing: slime on a ship's
+     * side or underside played its sound and threw its particles but bounced no one (the owner's
+     * upside-down slime ship). With {@code level} the face is turned by the ship that owns the
+     * block ({@link ShipCompat#worldFaceNormal}); a hit on a world block is its own.
+     */
+    @Nullable
+    public static Vec3 mostOpposedNormal(@Nullable net.minecraft.world.level.Level level, List<BlockHitResult> hits, Vec3 velocityMps) {
         Vec3 best = null;
         double bestOpposition = 0;
         for (BlockHitResult hit : hits) {
-            Vec3 n = Vec3.atLowerCornerOf(hit.getDirection().getNormal());
+            Vec3 n = level != null ? net.camacraft.fullstop.common.compat.ShipCompat.worldFaceNormal(level, hit.getBlockPos(), hit.getDirection())
+                    : Vec3.atLowerCornerOf(hit.getDirection().getNormal());
             double opposition = Impacts.approachSpeed(velocityMps, n);
             if (opposition > bestOpposition) {
                 bestOpposition = opposition;

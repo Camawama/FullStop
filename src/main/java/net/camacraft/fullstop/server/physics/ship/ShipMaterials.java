@@ -31,6 +31,13 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * two approach each other, so near-equal materials take an enormous crash and equal ones never
  * break.
  *
+ * <p>Ship against ship ({@link #whichGives(double, double, double)}): two blocks within
+ * {@code mutualBreakRatio} of each other BOTH give, neither being tough enough to survive the
+ * other (planks meeting planks at speed splinter both), each at
+ * {@link #mutualCost}: {@code T * breakCostMultiplier * R / (R - 1)}, the cost the curve above
+ * has reached at the edge of that band ({@code R = mutualBreakRatio}), so the two rules join up.
+ * At a ratio of 1 the band is empty and equal blocks never break, as against terrain.
+ *
  * <p>The number-only functions here ({@link #toughness(double, double, double)},
  * {@link #whichGives}, {@link #breakCost}) touch nothing of the game and are what the tests pin.
  */
@@ -45,7 +52,7 @@ public final class ShipMaterials {
     }
 
     /** Which of two touching blocks gives way. */
-    public enum Gives { NEITHER, FIRST, SECOND }
+    public enum Gives { NEITHER, FIRST, SECOND, BOTH }
 
     // ------------------------------------------------------------------
     // The numbers
@@ -67,6 +74,34 @@ public final class ShipMaterials {
         if (first < second) return Gives.FIRST;
         if (second < first) return Gives.SECOND;
         return Gives.NEITHER;
+    }
+
+    /**
+     * {@link #whichGives(double, double)}, except that two finite toughnesses within
+     * {@code mutualRatio} of each other (the tougher at most that many times the weaker) BOTH
+     * give: neither block is tough enough to survive the other. A ratio of 1 or less never says
+     * BOTH. Two blocks of no toughness at all are BOTH (each costs nothing).
+     */
+    public static Gives whichGives(double first, double second, double mutualRatio) {
+        if (mutualRatio > 1.0 && Double.isFinite(first) && Double.isFinite(second)) {
+            double lo = Math.min(first, second);
+            double hi = Math.max(first, second);
+            if (hi <= 0.0 || hi <= lo * mutualRatio) return Gives.BOTH;
+        }
+        return whichGives(first, second);
+    }
+
+    /**
+     * What breaking a block of {@code toughness} costs (FullStop energy units) when it and the
+     * block it met both give ({@link Gives#BOTH}): {@code toughness * multiplier * R / (R - 1)},
+     * {@code R = mutualRatio} - what {@link #breakCost} charges at the edge of the mutual band, so
+     * the price doesn't drop as two materials get closer. Infinite for an unbreakable block, or
+     * with a ratio of 1 or less; nothing for a block of no toughness.
+     */
+    public static double mutualCost(double toughness, double multiplier, double mutualRatio) {
+        if (Double.isInfinite(toughness) || !(mutualRatio > 1.0)) return Double.POSITIVE_INFINITY;
+        if (!(toughness > 0.0)) return 0.0;
+        return toughness * multiplier * mutualRatio / (mutualRatio - 1.0);
     }
 
     /**

@@ -32,7 +32,7 @@ public final class CameraBounceHandler {
         // Most-opposed face, not first-listed: corner impacts record several
         // faces in ray order, and aiming off the arbitrary first one rotated the
         // camera in the wrong direction. Must match the server's bounce normal.
-        Vec3 normal = BounceMath.mostOpposedNormal(collision.impactedHits, preV);
+        Vec3 normal = BounceMath.mostOpposedNormal(player.level(), collision.impactedHits, preV);
         if (normal == null) return;
 
         // Same rubbing-vs-impact and refractory gates as the server BounceHandler:

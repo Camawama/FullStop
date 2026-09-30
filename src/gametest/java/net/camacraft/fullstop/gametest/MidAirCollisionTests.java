@@ -19,9 +19,15 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.item.FallingBlockEntity;
 import net.minecraft.world.entity.projectile.AbstractArrow;
 import net.minecraft.world.entity.projectile.Arrow;
+import net.minecraft.world.entity.projectile.LlamaSpit;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.entity.projectile.ThrownEgg;
+import net.minecraft.world.entity.projectile.WitherSkull;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
@@ -446,6 +452,154 @@ public final class MidAirCollisionTests {
     }
 
     // ------------------------------------------------------------------
+    // Every projectile
+    // ------------------------------------------------------------------
+
+    /**
+     * Two llama spits flying at each other. Neither is "pickable", so vanilla's own hit tests (a projectile's
+     * centre line against pickable things) never see the other; before, they flew through each other, as did
+     * everything a mod throws (the collisions were a whitelist of vanilla types). Now they meet, and each breaks
+     * on the other where they met.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void twoLlamaSpitsMeetingInTheAirBreakOnEachOther(GameTestHelper helper) {
+        BlockPos o = lane(helper, 9);
+        Scene scene = new Scene(helper);
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    scene.a = scene.track(spit(helper.getLevel(), air(o, 0.0, 10.0, 0.0), new Vec3(1.0, 0.0, 0.0)));
+                    scene.b = scene.track(spit(helper.getLevel(), air(o, 8.0, 10.0, 0.0), new Vec3(-1.0, 0.0, 0.0)));
+                })
+                .thenWaitUntil(() -> helper.assertTrue(scene.a.e.isRemoved() && scene.b.e.isRemoved(), "the spits haven't met"))
+                .thenExecute(() -> {
+                    ProjectileCollisions.Record ra = ProjectileCollisions.last(scene.a.e), rb = ProjectileCollisions.last(scene.b.e);
+                    report("two llama spits head-on", projectileRecords(ra, rb));
+                    helper.assertTrue(ra != null && rb != null && ra.other() == scene.b.e && rb.other() == scene.a.e,
+                            "FullStop didn't collide the spits: " + projectileRecords(ra, rb));
+                    helper.assertTrue(ra.broke() && rb.broke(), "the spits didn't break on each other: " + projectileRecords(ra, rb));
+                    double mid = o.getX() + 0.5 + 4.0;
+                    helper.assertTrue(Math.abs(scene.a.e.getX() - mid) < 1.5 && Math.abs(scene.b.e.getX() - mid) < 1.5,
+                            "they didn't meet in the middle: " + fmt(scene.a.e.position()) + " / " + fmt(scene.b.e.position()));
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * A llama spit thrown into an arrow's path (neither can see the other by vanilla's tests): the spit breaks on
+     * the arrow, and the arrow is knocked back by the momentum the spit carried.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void aLlamaSpitBreaksOnAnArrowAndSlowsIt(GameTestHelper helper) {
+        BlockPos o = lane(helper, 10);
+        Scene scene = new Scene(helper);
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    scene.a = scene.track(arrow(helper.getLevel(), air(o, 0.0, 10.0, 0.0), new Vec3(1.5, 0.0, 0.0), null));
+                    scene.b = scene.track(spit(helper.getLevel(), air(o, 8.0, 10.0, 0.0), new Vec3(-1.0, 0.0, 0.0)));
+                })
+                .thenWaitUntil(() -> helper.assertTrue(scene.b.e.isRemoved(), "the spit hasn't met the arrow"))
+                .thenExecute(() -> {
+                    ProjectileCollisions.Record ra = ProjectileCollisions.last(scene.a.e), rb = ProjectileCollisions.last(scene.b.e);
+                    report("an arrow and a llama spit head-on", projectileRecords(ra, rb));
+                    helper.assertTrue(ra != null && rb != null && ra.other() == scene.b.e,
+                            "FullStop didn't collide them: " + projectileRecords(ra, rb));
+                    helper.assertTrue(rb.broke() && !ra.broke(), "the spit should break and the arrow fly on: " + projectileRecords(ra, rb));
+                    helper.assertTrue(ra.change().x < -0.01, "the arrow wasn't slowed: " + projectileRecords(ra, rb));
+                    scene.discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Wither skulls (and fireballs, shulker bullets) used to be left out as "pickable" things vanilla lets be shot
+     * down, and flew through everything vanilla's own tests couldn't see. They are colliding projectiles now,
+     * breaking (exploding) on what they meet. Two meeting head-on are seen by vanilla's own test too (whichever
+     * ticks first sees the other's box), so either way they explode where they met.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void witherSkullsAreCollidingProjectilesAndExplodeWhereTheyMeet(GameTestHelper helper) {
+        BlockPos o = lane(helper, 11);
+        Scene scene = new Scene(helper);
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    scene.a = scene.track(skull(helper.getLevel(), air(o, 0.0, 10.0, 0.0), new Vec3(0.9, 0.0, 0.0)));
+                    scene.b = scene.track(skull(helper.getLevel(), air(o, 8.0, 10.0, 0.0), new Vec3(-0.9, 0.0, 0.0)));
+                })
+                .thenExecuteAfter(2, () -> helper.assertTrue(
+                        ProjectileCollisions.kind((Projectile) scene.a.e) == ProjectileCollisions.Kind.BREAKS,
+                        "a wither skull in flight isn't a projectile that collides"))
+                .thenWaitUntil(() -> helper.assertTrue(scene.a.e.isRemoved() && scene.b.e.isRemoved(), "the skulls haven't met"))
+                .thenExecute(() -> {
+                    double mid = o.getX() + 0.5 + 4.0;
+                    report("two wither skulls head-on", "exploded at " + fmt(scene.a.e.position()) + " and " + fmt(scene.b.e.position())
+                            + "; " + projectileRecords(ProjectileCollisions.last(scene.a.e), ProjectileCollisions.last(scene.b.e)));
+                    helper.assertTrue(Math.abs(scene.a.e.getX() - mid) < 1.5 && Math.abs(scene.b.e.getX() - mid) < 1.5,
+                            "they didn't explode where they met: " + fmt(scene.a.e.position()) + " / " + fmt(scene.b.e.position()));
+                })
+                .thenSucceed();
+    }
+
+    // ------------------------------------------------------------------
+    // Blocks in flight
+    // ------------------------------------------------------------------
+
+    /**
+     * Two floating sand blocks flung at each other at 20 m/s each. A falling block was no body before (nothing
+     * pushes one), so they passed through each other; now they collide as two bodies of the block's mass, part at
+     * the restitution with momentum kept, and are still blocks in flight afterwards.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void twoFallingSandBlocksMeetingInTheAirBounceApart(GameTestHelper helper) {
+        BlockPos o = lane(helper, 12);
+        Scene scene = new Scene(helper);
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    scene.a = scene.track(floatingBlock(helper.getLevel(), air(o, 0.0, 10.0, 0.0), Blocks.SAND.defaultBlockState(), 20.0));
+                    scene.b = scene.track(floatingBlock(helper.getLevel(), air(o, 8.0, 10.0, 0.0), Blocks.SAND.defaultBlockState(), -20.0));
+                })
+                .thenWaitUntil(() -> scene.demandCollided(2))
+                .thenExecute(() -> {
+                    Exchange x = scene.exchange();
+                    report("two floating sand blocks, 20 m/s each head-on", x.describe());
+                    x.demandTwoBodyLaw();
+                    x.demandMeasuredMotion();
+                    x.demandNeverPassed();
+                    helper.assertTrue(!scene.a.e.isRemoved() && !scene.b.e.isRemoved(),
+                            "a sand block stopped being a block in flight: " + x.describe());
+                    helper.assertTrue(x.a.velocityAfter().x < 0.0 && x.b.velocityAfter().x > 0.0, "they didn't bounce apart: " + x.describe());
+                    scene.discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * An anvil dropped from 20 blocks onto a hovering pig: it strikes the pig in the air with its whole block mass
+     * (the pig is hurt for the speed it lost and knocked down) and goes on falling, to land as a block. (An anvil
+     * landing on a pig standing on the ground stays vanilla's: it hurts what it lands on.)
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void aFallingAnvilStrikesAHoveringPig(GameTestHelper helper) {
+        BlockPos o = lane(helper, 13);
+        Scene scene = new Scene(helper);
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    scene.b = scene.track(pig(helper.getLevel(), air(o, 0.0, 10.0, 0.0), true));
+                    scene.a = scene.track(droppedBlock(helper.getLevel(), air(o, 0.0, 30.0, 0.0), Blocks.ANVIL.defaultBlockState()));
+                })
+                .thenWaitUntil(() -> scene.demandCollided(1))
+                .thenExecute(() -> {
+                    Exchange x = scene.exchange();
+                    report("an anvil dropped 20 blocks onto a hovering pig", x.describe());
+                    helper.assertTrue(x.a.r.normal().y > 0.9, "the anvil didn't come down on the pig: " + x.describe());
+                    helper.assertTrue(x.a.r.kg() > x.b.r.kg(), "the anvil isn't heavier than the pig: " + x.describe());
+                    helper.assertTrue(x.b.r.speedLost() > 5.0 && x.b.r.damage() > 0.0, "the pig lost no speed to the anvil: " + x.describe());
+                    helper.assertTrue(x.b.hurt() > 0.0, "the pig wasn't hurt: " + x.describe());
+                    scene.discard();
+                })
+                .thenSucceed();
+    }
+
+    // ------------------------------------------------------------------
     // Rigs
     // ------------------------------------------------------------------
 
@@ -497,6 +651,49 @@ public final class MidAirCollisionTests {
         egg.setDeltaMovement(velocityBpt);
         level.addFreshEntity(egg);
         return egg;
+    }
+
+    private static LlamaSpit spit(ServerLevel level, Vec3 at, Vec3 velocityBpt) {
+        LlamaSpit spit = new LlamaSpit(EntityType.LLAMA_SPIT, level);
+        spit.setPos(at.x, at.y, at.z);
+        spit.setDeltaMovement(velocityBpt);
+        level.addFreshEntity(spit);
+        return spit;
+    }
+
+    /** A wither skull with no drive of its own (no owner, no acceleration), coasting at {@code velocityBpt}. */
+    private static WitherSkull skull(ServerLevel level, Vec3 at, Vec3 velocityBpt) {
+        WitherSkull skull = new WitherSkull(EntityType.WITHER_SKULL, level);
+        skull.setPos(at.x, at.y, at.z);
+        skull.setDeltaMovement(velocityBpt);
+        level.addFreshEntity(skull);
+        return skull;
+    }
+
+    /** A block in flight with no gravity, flung along +x at {@code vx} m/s. */
+    private static FallingBlockEntity floatingBlock(ServerLevel level, Vec3 at, BlockState state, double vx) {
+        FallingBlockEntity block = droppedBlock(level, at, state);
+        block.setNoGravity(true);
+        block.setDeltaMovement(vx / 20.0, 0.0, 0.0);
+        block.hasImpulse = true;
+        return block;
+    }
+
+    /** A block in flight at rest, falling from {@code at}. */
+    private static FallingBlockEntity droppedBlock(ServerLevel level, Vec3 at, BlockState state) {
+        FallingBlockEntity block = FallingBlockEntity.fall(level, BlockPos.containing(at), state);
+        block.setPos(at.x, at.y, at.z);
+        return block;
+    }
+
+    private static String projectileRecords(@Nullable ProjectileCollisions.Record a, @Nullable ProjectileCollisions.Record b) {
+        return "a: " + projectileRecord(a) + " | b: " + projectileRecord(b);
+    }
+
+    private static String projectileRecord(@Nullable ProjectileCollisions.Record r) {
+        return r == null ? "no collision" : String.format(Locale.ROOT,
+                "tick %d, closing %.2f m/s along (%s), %.3f kg vs %.3f kg, change (%s)%s", r.tick(), r.closing(), fmt(r.normal()),
+                r.kg(), r.otherKg(), fmt(r.change()), r.broke() ? ", broke" : "");
     }
 
     private static boolean inGround(Entity arrow) {

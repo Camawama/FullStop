@@ -1,5 +1,7 @@
 package net.camacraft.fullstop.common.physics.math;
 
+import net.camacraft.camafy.compat.scale.EntityScale;
+
 import net.camacraft.camafy.compat.gravity.GravityFrame;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
@@ -20,6 +22,18 @@ public class RaycastUtil {
      * alone can be arbitrarily small even though the entity is flush to the block.
      */
     private static final double MIN_RAY_LENGTH = 0.15;
+
+    /**
+     * The layout's fixed lengths - the 0.1 the bottom row is raised above the feet, the 0.15 minimum reach, the
+     * start margin - are for a full-size body. A body a size mod shrank (Pehkui: everything in VS Genesis's space is
+     * 1/16) gets them shrunk with it, or a 1/16 player's "bottom" rays start above its head and its shortest rays
+     * reach two of its lengths (which is how its F3+V view was huge and in the wrong place). Never enlarged for a
+     * big body: 1 at normal size and above.
+     */
+    public static double sizeFactor(Entity entity) {
+        double factor = EntityScale.heightFactor(entity);
+        return factor > 0.0 && Double.isFinite(factor) ? Math.min(1.0, factor) : 1.0;
+    }
 
     public static Vec3 getRayDirection(FullStopCapability fullstop) {
         // Pre-impact velocity: on the damage tick of a fast impact the one-tick-old
@@ -48,7 +62,8 @@ public class RaycastUtil {
                 && !entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_PROJECTILES)) {
             return 0;
         }
-        return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH) + 0.01;
+        double size = sizeFactor(entity);
+        return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH * size) + 0.01 * size;
     }
 
     /**
@@ -98,9 +113,10 @@ public class RaycastUtil {
         if (!frame.isDefault()) {
             return getRotatedRayStarts(entity, mode, frame);
         }
-        AABB box = entity.getBoundingBox().inflate(RAY_START_MARGIN);
+        double size = sizeFactor(entity);
+        AABB box = entity.getBoundingBox().inflate(RAY_START_MARGIN * size);
         double minX = box.minX;
-        double minY = Math.min(effectiveFloorY(entity) + 0.1, box.maxY);
+        double minY = Math.min(effectiveFloorY(entity) + 0.1 * size, box.maxY);
         double minZ = box.minZ;
         double maxX = box.maxX;
         double maxY = box.maxY;
@@ -166,9 +182,10 @@ public class RaycastUtil {
         // The entity's box in its own frame, feet at the origin, inflated by
         // the same margin as the vanilla path; bottom row raised 0.1 like the
         // vanilla minY so the rays never start inside the surface stood on.
-        double half = entity.getBbWidth() / 2.0 + RAY_START_MARGIN;
-        double top = entity.getBbHeight() + RAY_START_MARGIN;
-        double bottom = Math.min(0.1, top);
+        double size = sizeFactor(entity);
+        double half = entity.getBbWidth() / 2.0 + RAY_START_MARGIN * size;
+        double top = entity.getBbHeight() + RAY_START_MARGIN * size;
+        double bottom = Math.min(0.1 * size, top);
         double middle = entity.getBbHeight() / 2.0;
         Vec3 feet = entity.position();
 
