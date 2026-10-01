@@ -80,8 +80,14 @@ public final class SonicBooms {
     public static final double TRAIN_RANGE = HEARING_RANGE;
     /** A listener is told the train's rate and place again every so many ticks. */
     private static final int TRAIN_RESEND_TICKS = 10;
-    /** The train's volume: it only carries further (16 blocks per unit, vanilla's linear falloff) over the hearing range. */
-    private static final float TRAIN_LOUDNESS = (float) (TRAIN_RANGE / 16.0);
+    /**
+     * The train's gain (0..1). Its range is the sound's own: {@code attenuation_distance} 192 in {@code sounds.json},
+     * the same as {@link #TRAIN_RANGE}, with vanilla's linear falloff (full at the source, half 96 blocks off). Not a
+     * volume over 1: the client fades the loop in from silence, and the sound engine takes a sound's range from the
+     * volume it STARTS at (times its attenuation distance), so a loop starting quiet with a 16-block sound was
+     * inaudible past 16 blocks - and one starting at 0 was never played at all.
+     */
+    private static final float TRAIN_LOUDNESS = 1.0f;
 
     private SonicBooms() {
     }

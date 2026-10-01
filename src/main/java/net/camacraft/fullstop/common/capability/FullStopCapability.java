@@ -269,6 +269,9 @@ public class FullStopCapability {
     @Nullable
     private net.minecraft.world.entity.Pose lastPose = null;
     private int poseChangedTick = Integer.MIN_VALUE;
+    /** The vehicle last seen (-1 none) and the game time it changed: getting in or out counts as a pose change. */
+    private int lastVehicleId = Integer.MIN_VALUE;
+    private long rideChangedGameTime = Long.MIN_VALUE;
     private long lastTick = -1;
 
     private long damageCooldownUntilTick = Long.MIN_VALUE;
@@ -831,6 +834,10 @@ public class FullStopCapability {
         net.minecraft.world.entity.Pose pose = entity.getPose();
         if (lastPose != null && pose != lastPose) poseChangedTick = entity.tickCount;
         lastPose = pose;
+        // Getting into or out of a vehicle is the same kind of jump (the seat, then the dismount spot beside it):
+        // a player getting out of a car on the plating of a ship cruising at 300 m/s was read as a 12 m/s jolt of
+        // the deck under them and thrown off with the deck's motion, at 350 m/s (2026-09-30).
+        noteVehicle(entity);
         if (poseChangedLately(entity, 1) && ridesShip(entity)) {
             actualVelocity = Vec3.ZERO;
         }
@@ -1322,6 +1329,28 @@ public class FullStopCapability {
     }
 
     /**
+     * As {@link #poseChangedLately}, and also true from the moment the entity got into or out of a vehicle, before
+     * this capability has ticked to note it: the ship physics may judge the entity in the same server tick, ahead
+     * of its tick.
+     */
+    public boolean rideOrPoseChangedLately(Entity entity, int ticks) {
+        int vehicleId = entity.getVehicle() == null ? -1 : entity.getVehicle().getId();
+        return poseChangedLately(entity, ticks)
+                || entity.level().getGameTime() - rideChangedGameTime <= ticks
+                || (lastVehicleId != Integer.MIN_VALUE && vehicleId != lastVehicleId);
+    }
+
+    /** Notes the vehicle the entity rides; a change is a pose change (see tick). Cheap, called wherever the entity is refreshed. */
+    private void noteVehicle(Entity entity) {
+        int vehicleId = entity.getVehicle() == null ? -1 : entity.getVehicle().getId();
+        if (lastVehicleId != Integer.MIN_VALUE && vehicleId != lastVehicleId) {
+            poseChangedTick = entity.tickCount;
+            rideChangedGameTime = entity.level().getGameTime();
+        }
+        lastVehicleId = vehicleId;
+    }
+
+    /**
      * Whether a ship carries this body along: Valkyrien Skies drags it with the ship it stands on (or did
      * within the last second), or Gravity Unbound's plating or field holds it to the ship.
      */
@@ -1344,6 +1373,7 @@ public class FullStopCapability {
      * @return the claims now in force (also {@link #getClaims})
      */
     public int refreshClaims(Entity entity) {
+        noteVehicle(entity);
         int now = PhysicsClaims.live(entity);
         if (PhysicsAspect.IMPACT.in(physicsClaims) && !PhysicsAspect.IMPACT.in(now)) {
             hasTeleported = true;

@@ -36,7 +36,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *   which VS never reports ({@link ShipHullClash});</li>
  *   <li>slime bounces and honey from the same collisions ({@link ShipSlimeHoney}), and the honey
  *   glue it makes, checked and re-made every tick ({@link ShipGlue});</li>
- *   <li>sonic booms of hulls faster than sound ({@link ShipSonicBooms}).</li>
+ *   <li>sonic booms of hulls faster than sound ({@link ShipSonicBooms});</li>
+ *   <li>buttons and pressure plates the hull touches ({@link ShipRedstoneContacts}).</li>
  * </ol>
  * Everything is off without Valkyrien Skies or with enableValkyrienSkiesCompat off.
  */
@@ -70,6 +71,7 @@ public final class ShipPhysicsServer {
             }
 
             ShipSonicBooms.process(level, ship, state, bounds, now);
+            ShipRedstoneContacts.process(level, ship, state, bounds, now);
 
             Pilot pilot = new Pilot(level, ship);
             if (collisions) {
@@ -103,7 +105,7 @@ public final class ShipPhysicsServer {
         tracker.prune(level, now);
         ShipSonicBooms.prune(level, ships);
         ShipHullClash.prune(level, ships);
-        ShipHullClash.prune(level, ships);
+        ShipRedstoneContacts.prune(level, ships);
     }
 
     @Nullable

@@ -11,6 +11,7 @@ import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -36,6 +37,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * stretch rather than ending it and booming again once it can be measured.</p>
  */
 final class ShipSonicBooms {
+
+    private static final Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     /** How long (ticks) a ship's outermost blocks are kept before being looked up again. */
     private static final int EXTREMES_TICKS = 100;
@@ -76,12 +79,62 @@ final class ShipSonicBooms {
             }
         }
         Predicate<ServerPlayer> aboard = player -> ship.equals(ShipEntities.mountedTo(player)) || ShipCompat.carriedBy(player, ship);
-        if (!SonicBooms.observe(level, key, fastest[0], fastest[1], aboard)) return;
+        boolean followed = SonicBooms.observe(level, key, fastest[0], fastest[1], aboard);
         // the shock train: one shock per supersonic tip per turn (a ship flying straight and fast makes none)
         double spin = state.angularVelocity().length();
-        double rate = tips > 0 ? spin / (2.0 * Math.PI) * tips : 0.0;
+        double rate = followed && tips > 0 ? spin / (2.0 * Math.PI) * tips : 0.0;
         boolean ridersHear = state.velocity().length() < SonicBooms.SOUND_MPS;
-        SonicBooms.train(level, key, state.position(), rate, ridersHear);
+        if (followed) SonicBooms.train(level, key, state.position(), rate, ridersHear);
+        if (SERVER.debugShipCollisionLog.get()) {
+            debug(level, ship, key, now, fastest[1].length(), spin, tips, rate, followed);
+        }
+    }
+
+    /** What the debug log tracks per ship: whether its train was on last tick, and when it last said why there is none. */
+    private static final class Debug {
+        boolean trainOn;
+        long lastQuiet = Long.MIN_VALUE / 2;
+    }
+
+    private static final Map<ServerLevel, Long2ObjectOpenHashMap<Debug>> DEBUG = new WeakHashMap<>();
+
+    /**
+     * {@code debugShipCollisionLog}: the train switching on or off, and, every three seconds while the hull's fastest
+     * point is past 60% of the speed of sound without a train, why there is none (the owner's rotor: "I'm not hearing
+     * it": tips at 214 m/s of 343 make none).
+     */
+    private static void debug(ServerLevel level, ShipRef ship, SonicBooms.Key key, long now, double speed, double spin, int tips,
+                              double rate, boolean followed) {
+        Long2ObjectOpenHashMap<Debug> known = DEBUG.computeIfAbsent(level, l -> new Long2ObjectOpenHashMap<>());
+        Debug d = known.get(ship.id());
+        if (d == null) known.put(ship.id(), d = new Debug());
+        boolean live = followed && SonicBooms.isLive(level, key);
+        boolean on = live && rate > 0.0;
+        double c = SonicBooms.SOUND_MPS;
+        if (on != d.trainOn) {
+            d.trainOn = on;
+            if (on) {
+                LOGGER.info("[FullStop] ship {}: shock train ON: {} pulses/s ({} rad/s x {} supersonic tip(s)); fastest point {} m/s of {}",
+                        ship.id(), fmt(rate), fmt(spin), tips, fmt(speed), fmt(c));
+            } else {
+                LOGGER.info("[FullStop] ship {}: shock train OFF (fastest point {} m/s of {}, {} tip(s) past the barrier, supersonic stretch live: {})",
+                        ship.id(), fmt(speed), fmt(c), tips, live);
+            }
+        }
+        if (!on && speed >= 0.6 * c && now - d.lastQuiet >= 60) {
+            d.lastQuiet = now;
+            String why = speed < c
+                    ? "a tip must pass " + fmt(c) + " m/s: its spin (rad/s) times its distance from the axis (a 3x3x16 arm about its middle at "
+                            + "256 RPM: 26.8 x 8 = 214)"
+                    : tips == 0 ? "the ship flies fast but hardly spins: one boom as it passes, no train"
+                    : !live ? "over the barrier, but its stretch hasn't begun (a spike of a tick booms nothing) or no air here" : "?";
+            LOGGER.info("[FullStop] ship {}: no shock train: fastest point {} m/s of {} ({}%), spin {} rad/s, {} tip(s) past the barrier, stretch "
+                    + "live: {}; {}", ship.id(), fmt(speed), fmt(c), Math.round(100.0 * speed / c), fmt(spin), tips, live, why);
+        }
+    }
+
+    private static String fmt(double value) {
+        return String.format(java.util.Locale.ROOT, "%.1f", value);
     }
 
     /** The corner of the ship's blocks' bounds moving fastest and its velocity ({@code {point, velocity}}, world, m/s). */
@@ -208,9 +261,11 @@ final class ShipSonicBooms {
     /** Forgets the outermost blocks of ships no longer loaded. */
     static void prune(ServerLevel level, List<ShipRef> loaded) {
         Long2ObjectOpenHashMap<Extremes> known = EXTREMES.get(level);
-        if (known == null || known.isEmpty()) return;
+        Long2ObjectOpenHashMap<Debug> debug = DEBUG.get(level);
+        if ((known == null || known.isEmpty()) && (debug == null || debug.isEmpty())) return;
         it.unimi.dsi.fastutil.longs.LongOpenHashSet ids = new it.unimi.dsi.fastutil.longs.LongOpenHashSet(loaded.size());
         for (ShipRef ship : loaded) ids.add(ship.id());
-        known.long2ObjectEntrySet().removeIf(entry -> !ids.contains(entry.getLongKey()));
+        if (known != null) known.long2ObjectEntrySet().removeIf(entry -> !ids.contains(entry.getLongKey()));
+        if (debug != null) debug.long2ObjectEntrySet().removeIf(entry -> !ids.contains(entry.getLongKey()));
     }
 }

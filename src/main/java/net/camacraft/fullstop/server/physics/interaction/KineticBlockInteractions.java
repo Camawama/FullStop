@@ -6,6 +6,7 @@ import net.camacraft.camafy.physics.FastRaycast;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
+import net.camacraft.fullstop.common.mixin.ButtonBlockAccessor;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.ship.ShipEntityHits;
@@ -115,6 +116,25 @@ public class KineticBlockInteractions {
      * entity's overlay).
      */
     private static final Map<Integer, CrackEntry> LAST_CRACK = new HashMap<>();
+
+    /**
+     * What a crater pass did (see {@link #craterPass}): how many blocks and layers it broke, the
+     * footprint it worked from (blocks), the impact energy it left and the graze damage it earned.
+     * Kept per entity id for the impact accounting's dedup and for the game tests.
+     */
+    public record Crater(long tick, int blocks, int layers, int footprint, double energyLeft, double smashDamage) {}
+
+    private static final Map<Integer, Crater> CRATERS = new HashMap<>();
+    /** One physical impact is detected on several consecutive ticks; a crater is dug once per impact. */
+    private static final int CRATER_DEDUP_TICKS = 8;
+    /**
+     * A body narrower than this (its own width, blocks) digs no crater: its collision rays' hits
+     * already cover its whole footprint. Players, pigs and cows are narrower; a giant, a ravager, a
+     * horse or a resized body is wider.
+     */
+    private static final double CRATER_MIN_WIDTH = 1.0;
+    /** A hit more than this far off head-on (cos 60 degrees) digs no crater: a graze along a wall is no landing. */
+    private static final double CRATER_MIN_APPROACH = 0.5;
 
     /**
      * Game time until which a note block may not re-trigger. A single impact is
@@ -258,6 +278,7 @@ public class KineticBlockInteractions {
 
     /** Called from the dispatcher's EntityLeaveLevelEvent hook. */
     public static void onEntityLeave(Entity entity, ServerLevel level) {
+        CRATERS.remove(entity.getId());
         CrackEntry previous = LAST_CRACK.remove(entity.getId());
         if (previous != null) {
             ServerLevel crackLevel = level.getServer().getLevel(previous.dimension());
@@ -330,6 +351,32 @@ public class KineticBlockInteractions {
         BlockPos crackPosThisPass = null;
         final List<BlockPos> processedToggles = new ArrayList<>();
 
+        // A body wider than a block breaks what it lands on under its WHOLE footprint. The rays below reach a
+        // handful of blocks (a giant's five), so a giant dropped from a height broke five scattered blocks and
+        // stood on the rest. The crater comes first, with the whole impact energy: the rays then find their
+        // blocks gone and spend what is left on whatever lies deeper.
+        if (FullStopConfig.SERVER.impactCraters.get() && velocityMag >= MIN_VELOCITY_REQUIRED
+                && !(entity instanceof FallingBlockEntity)
+                && !(entity instanceof net.minecraft.world.entity.projectile.Projectile)) {
+            mayGrief = BlockAlterRules.mayGrief(level, entity);
+            if (mayGrief) {
+                Crater crater = craterPass(level, entity, impactVelocity, velocityMag, kineticEnergy, impactedHits);
+                if (crater != null && crater.blocks() > 0) {
+                    kineticEnergy = crater.energyLeft();
+                    smashDamage += crater.smashDamage();
+                    blockBroken = true;
+                    remainingVelocityMag = Math.sqrt(2 * kineticEnergy / totalMass);
+                    // On into the hole with what is left, as punching through a block does.
+                    Gravity.setWorldVelocity(entity, impactVelocity.normalize().scale(remainingVelocityMag), frame);
+                    entity.hasImpulse = true;
+                    entity.setOnGround(false);
+                    entity.verticalCollision = false;
+                    entity.horizontalCollision = false;
+                    entity.hurtMarked = true;
+                }
+            }
+        }
+
         for (int i = 0; i < impactedBlocks.size(); i++) {
             BlockPos pos = impactedBlocks.get(i);
             BlockState state = level.getBlockState(pos);
@@ -376,7 +423,7 @@ public class KineticBlockInteractions {
                 }
                 continue;
             } else if (block instanceof ButtonBlock button) {
-                if (FullStopConfig.SERVER.kineticButtonPressing.get() && !state.getValue(BlockStateProperties.POWERED)) {
+                if (mayPressButton(entity, button) && !state.getValue(BlockStateProperties.POWERED)) {
                     button.press(state, level, pos);
                 }
                 continue;
@@ -415,7 +462,7 @@ public class KineticBlockInteractions {
             // A rider that just crouched or stood up isn't striking its own ship: the server's position for it jumps that
             // tick (its client's move packet against VS's ship-relative setPos), and read as a speed the jump is the
             // ship's. The capability drops the jump; this is the same rule for a reading that slipped through.
-            if (shipImpact != null && shipImpact.rider() && cap != null && cap.poseChangedLately(entity, 2)) continue;
+            if (shipImpact != null && shipImpact.rider() && cap != null && cap.rideOrPoseChangedLately(entity, 2)) continue;
             Vec3 faceNormal = Vec3.atLowerCornerOf(hitResult.getDirection().getNormal());
             double intoFace = shipImpact != null ? shipImpact.closingBpt() : -impactVelocity.dot(faceNormal);
             if (intoFace < MIN_VELOCITY_REQUIRED) continue;
@@ -763,6 +810,7 @@ public class KineticBlockInteractions {
             BlockState state = level.getBlockState(pos);
             if (!(state.getBlock() instanceof ButtonBlock button)) continue;
             if (state.getValue(BlockStateProperties.POWERED)) continue;
+            if (!mayPressButton(entity, button)) continue;
 
             Direction outward = switch (state.getValue(BlockStateProperties.ATTACH_FACE)) {
                 case FLOOR -> Direction.UP;
@@ -778,6 +826,185 @@ public class KineticBlockInteractions {
 
             button.press(state, level, pos.immutable());
         }
+    }
+
+    /** The last crater {@code entity} dug, or null (game tests). */
+    @Nullable
+    public static Crater lastCrater(Entity entity) {
+        return CRATERS.get(entity.getId());
+    }
+
+    /**
+     * Whether {@code entity} may press {@code button} by running into it. Vanilla lets an arrow press
+     * a wooden button and never a stone one; a projectile FullStop flings at a button (an arrow, a
+     * snowball, a fireball) keeps to that rule, so stone buttons answer only to bodies.
+     */
+    private static boolean mayPressButton(Entity entity, ButtonBlock button) {
+        if (!FullStopConfig.SERVER.kineticButtonPressing.get()) return false;
+        return !(entity instanceof net.minecraft.world.entity.projectile.Projectile)
+                || ((ButtonBlockAccessor) button).fullstop$arrowsCanPress();
+    }
+
+    /**
+     * The crater pass of {@link #handleBlockImpacts}: a wide body's landing breaks the blocks under its
+     * whole footprint, and with energy to spare a shallow bowl below (the footprint shrunk a block a
+     * side each layer down, to its centre column at the narrowest), {@code impactCraterMaxDepth}
+     * layers at most and never further than {@code impactCraterMaxRadius} from the centre column.
+     * <p>
+     * The face is the hit the body struck most head-on; the surface layer is that face's block nearest
+     * the body (the highest block under a falling giant). Blocks go from the centre outward, each
+     * costing what an impact costs it ({@link #smashBlock}: the same rules as the rays, cracks and
+     * the break event included), so the energy runs out in a centred hole and the block it stopped
+     * at is cracked. The impact's damping applies once a layer, not once a block, or a wide footprint
+     * would dissipate everything in its first row. Graze damage is earned once a layer too.
+     * <p>
+     * Dug once per impact ({@link #CRATER_DEDUP_TICKS}: the same landing is detected on consecutive
+     * ticks); nothing for a ship's hull (ShipEntityHits' business), slime, honey, beds and the
+     * interaction blocks, blocks without a collision shape, unbreakable blocks, or where a claim or
+     * a minigame host forbids it.
+     *
+     * @return what it did, null when no crater was considered (dedup, a graze, a narrow body, a hull)
+     */
+    @Nullable
+    private static Crater craterPass(ServerLevel level, Entity entity, Vec3 impactVelocity, double velocityMag,
+                                     double energy, List<BlockHitResult> hits) {
+        long now = level.getGameTime();
+        Crater last = CRATERS.get(entity.getId());
+        if (last != null && now - last.tick() < CRATER_DEDUP_TICKS) return null;
+        if (hits.isEmpty() || impactVelocity.lengthSqr() < 1.0e-12) return null;
+
+        // The face the body struck most head-on.
+        Vec3 travel = impactVelocity.normalize();
+        Direction face = null;
+        double best = CRATER_MIN_APPROACH;
+        BlockPos reference = null;
+        for (BlockHitResult hit : hits) {
+            Direction d = hit.getDirection();
+            double opposed = -travel.dot(Vec3.atLowerCornerOf(d.getNormal()));
+            if (opposed > best) {
+                best = opposed;
+                face = d;
+                reference = hit.getBlockPos();
+            }
+        }
+        if (face == null) return null;
+        if (ShipCompat.isShipBlock(level, reference)) return null;
+
+        // The surface: of that face's hits, the block nearest the body along the face (a face pointing
+        // +axis toward the body: the largest coordinate).
+        Direction.Axis axis = face.getAxis();
+        boolean positive = face.getAxisDirection() == Direction.AxisDirection.POSITIVE;
+        int surface = reference.get(axis);
+        for (BlockHitResult hit : hits) {
+            if (hit.getDirection() != face) continue;
+            int c = hit.getBlockPos().get(axis);
+            if (positive ? c > surface : c < surface) surface = c;
+        }
+
+        // The footprint: the body's box across the face, in blocks.
+        Direction.Axis u = axis == Direction.Axis.X ? Direction.Axis.Y : Direction.Axis.X;
+        Direction.Axis v = axis == Direction.Axis.Z ? Direction.Axis.Y : Direction.Axis.Z;
+        // "Wide" is the body's own width, whichever face it struck: a player is tall enough to cover two
+        // rows of a wall but stays a narrow body whose rays do the work.
+        if (entity.getBbWidth() < CRATER_MIN_WIDTH) return null;
+        AABB box = entity.getBoundingBox();
+        int uMin = Mth.floor(box.min(u) + 1.0e-4), uMax = Mth.floor(box.max(u) - 1.0e-4);
+        int vMin = Mth.floor(box.min(v) + 1.0e-4), vMax = Mth.floor(box.max(v) - 1.0e-4);
+        if ((uMax - uMin + 1) * (vMax - vMin + 1) <= 1) return null;
+        double cu = box.getCenter().get(u), cv = box.getCenter().get(v);
+        int uCentre = Mth.floor(cu), vCentre = Mth.floor(cv);
+        int radius = FullStopConfig.SERVER.impactCraterMaxRadius.get();
+        uMin = Math.max(uMin, uCentre - radius);
+        uMax = Math.min(uMax, uCentre + radius);
+        vMin = Math.max(vMin, vCentre - radius);
+        vMax = Math.min(vMax, vCentre + radius);
+        int footprint = (uMax - uMin + 1) * (vMax - vMin + 1);
+
+        int into = positive ? -1 : 1; // away from the body, into the ground
+        int maxDepth = FullStopConfig.SERVER.impactCraterMaxDepth.get();
+        double grazePerLayer = Math.max(velocityMag * 20 - GRAZE_MIN_SPEED_MPS, 0) * GRAZE_DAMAGE_FACTOR;
+        int blocks = 0;
+        int layers = 0;
+        double smash = 0;
+        boolean spent = false;
+        for (int depth = 0; depth < maxDepth && !spent; depth++) {
+            int lu0 = uMin + depth, lu1 = uMax - depth, lv0 = vMin + depth, lv1 = vMax - depth;
+            if (lu0 > lu1 || lv0 > lv1) {
+                if (depth == 0) break;
+                lu0 = lu1 = Mth.clamp(uCentre, uMin, uMax); // the bowl narrows to the centre column
+                lv0 = lv1 = Mth.clamp(vCentre, vMin, vMax);
+            }
+            int along = surface + into * depth;
+            List<BlockPos> layer = new ArrayList<>((lu1 - lu0 + 1) * (lv1 - lv0 + 1));
+            for (int a = lu0; a <= lu1; a++) {
+                for (int b = lv0; b <= lv1; b++) {
+                    layer.add(craterPos(axis, along, a, b));
+                }
+            }
+            layer.sort(java.util.Comparator.comparingDouble(pos ->
+                    Mth.square(pos.get(u) + 0.5 - cu) + Mth.square(pos.get(v) + 0.5 - cv)));
+            int brokeHere = 0;
+            for (BlockPos pos : layer) {
+                BlockState state = level.getBlockState(pos);
+                double cost = craterCost(level, pos, state, entity);
+                if (cost < 0) continue;
+                SmashOutcome outcome = smashBlock(level, pos, state, cost, energy, true, entity);
+                if (outcome.broken()) {
+                    energy -= outcome.spent();
+                    brokeHere++;
+                } else {
+                    // Not enough for this block: the hole ends here (the block is cracked if the hit was worth it).
+                    spent = true;
+                    break;
+                }
+            }
+            if (brokeHere == 0) break;
+            blocks += brokeHere;
+            layers++;
+            energy *= ENERGY_DAMPING_FACTOR;
+            smash += grazePerLayer;
+        }
+        if (energy < 0) energy = 0;
+        Crater crater = new Crater(now, blocks, layers, footprint, energy, smash);
+        CRATERS.put(entity.getId(), crater);
+        if (blocks > 0 && FullStopConfig.SERVER.debugImpactLog.get()) {
+            LOGGER.info("[FullStop] {} crashes at {} into the {} face: crater of {} blocks in {} layer(s) under a {}-block footprint, energy left {}",
+                    entity.getName().getString(), String.format(java.util.Locale.ROOT, "%.1f m/s", velocityMag * 20), face,
+                    blocks, layers, footprint, String.format(java.util.Locale.ROOT, "%.2f", energy));
+        }
+        return crater;
+    }
+
+    /**
+     * A position {@code along} the face's axis with the footprint coordinates {@code a} (X, or Y for
+     * an X face) and {@code b} (Z, or Y for a Z face).
+     */
+    private static BlockPos craterPos(Direction.Axis axis, int along, int a, int b) {
+        return switch (axis) {
+            case X -> new BlockPos(along, a, b);
+            case Y -> new BlockPos(a, along, b);
+            case Z -> new BlockPos(a, b, along);
+        };
+    }
+
+    /**
+     * What breaking {@code state} in a crater costs (FullStop energy units), or -1 for a block a crater
+     * leaves alone: air and anything without a collision shape (nothing landed on there), the blocks
+     * with their own reactions (slime, honey, beds, doors, gates, trapdoors, note blocks, buttons,
+     * bells), a ship's hull, unbreakable blocks, and wherever a claim or a minigame host forbids it.
+     */
+    private static double craterCost(ServerLevel level, BlockPos pos, BlockState state, Entity entity) {
+        if (state.isAir()) return -1;
+        Block block = state.getBlock();
+        if (block instanceof SlimeBlock || block instanceof HoneyBlock || block instanceof BedBlock
+                || block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock
+                || block instanceof NoteBlock || block instanceof ButtonBlock || block instanceof BellBlock) return -1;
+        if (state.getCollisionShape(level, pos).isEmpty()) return -1;
+        if (ShipCompat.isShipBlock(level, pos)) return -1;
+        float hardness = state.getDestroySpeed(level, pos);
+        if (hardness < 0) return -1;
+        if (!BlockAlterRules.mayAlter(level, pos, entity)) return -1;
+        return (state.is(FullStopTags.FRAGILE) ? 0.01 : hardness) * HARDNESS_BREAK_THRESHOLD_MULTIPLIER;
     }
 
     /** Clears this entity's crack overlay if it stopped hitting the cracked block. */

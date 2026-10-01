@@ -104,6 +104,9 @@ public final class ShipDeckMomentum {
 
     /** The last throw of each entity, for the debug log and the game tests. */
     private static final Map<Entity, Throw> LAST_THROW = Collections.synchronizedMap(new WeakHashMap<>());
+    /** The game time each nearby entity was last seen seated in a vehicle: just out, it isn't judged for a moment. */
+    private static final Map<Entity, Long> LAST_SEATED = Collections.synchronizedMap(new WeakHashMap<>());
+    private static final int JUST_OUT_TICKS = 5;
 
     /**
      * One throw: when, by which ship, the deck's lost velocity and what the rider kept (m/s,
@@ -196,6 +199,8 @@ public final class ShipDeckMomentum {
         for (Entity entity : nearby) {
             if (!entity.getBoundingBox().intersects(deckBox) || entity.isRemoved()) continue;
             if (entity.isPassenger()) {
+                // noted here, whatever else ticks the entity: getting out is judged like a crouch (below)
+                LAST_SEATED.put(entity, now);
                 // a rider's vehicle is handled as the body (a boat on the deck carries its crew);
                 // only a seat that is part of THIS ship throws its occupant, and only if asked -
                 // otherwise the seat holds it, and it takes the jolt where it sits
@@ -211,6 +216,12 @@ public final class ShipDeckMomentum {
             // to throw it by.
             FullStopCapability riderCap = FullStopCapability.grabCapability(entity);
             if (riderCap != null && riderCap.isShipHitOnCooldown(ship.id(), now)) continue;
+            // a body that just crouched, stood up, or got into or out of a vehicle was put in two places this
+            // tick (FullStopCapability.tick): the deck didn't jolt, its feet moved. Getting out is also noted
+            // here (LAST_SEATED), since a player's capability is fed by its client and may not have ticked yet.
+            if (riderCap != null && riderCap.rideOrPoseChangedLately(entity, 2)) continue;
+            Long lastSeatedAt = LAST_SEATED.get(entity);
+            if (lastSeatedAt != null && now - lastSeatedAt <= JUST_OUT_TICKS) continue;
 
             GravityFrame frame = FullStopCapability.currentFrame(entity);
             Vec3 feet = entity.position();

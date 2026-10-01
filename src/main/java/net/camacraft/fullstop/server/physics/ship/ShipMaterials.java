@@ -146,4 +146,25 @@ public final class ShipMaterials {
         return SERVER.sweepPlacedLeaves.get() || !state.hasProperty(LeavesBlock.PERSISTENT)
                 || !state.getValue(LeavesBlock.PERSISTENT);
     }
+
+    /**
+     * What the vegetation sweep may consider at all: in {@code fullstop:ship_sweepable}, not waterlogged, and no
+     * block entity (the placed-leaves rule is {@link #sweepableAt}'s).
+     */
+    public static boolean sweepCandidate(BlockState state) {
+        return state.is(FullStopTags.SHIP_SWEEPABLE) && state.getFluidState().isEmpty() && !state.hasBlockEntity();
+    }
+
+    /**
+     * Whether a hull moving at {@code hullSpeed} (m/s) where it meets the block sweeps it: natural vegetation at any
+     * sweeping speed; leaves a player placed (a hedge, a leaf roof) only with {@code sweepPlacedLeaves} on, or when the
+     * hull hits them at {@code sweepPlacedLeavesMinSpeed} or faster (the owner's spinning arm passed through the leaves
+     * it was placed among without breaking one: placed leaves are still leaves to a hull at speed; a raft drifting
+     * into a hedge at the sweep speed leaves it).
+     */
+    public static boolean sweepableAt(BlockState state, double hullSpeed) {
+        if (!sweepCandidate(state)) return false;
+        if (!state.hasProperty(LeavesBlock.PERSISTENT) || !state.getValue(LeavesBlock.PERSISTENT)) return true;
+        return SERVER.sweepPlacedLeaves.get() || hullSpeed >= SERVER.sweepPlacedLeavesMinSpeed.get();
+    }
 }

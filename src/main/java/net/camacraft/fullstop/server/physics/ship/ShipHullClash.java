@@ -74,7 +74,7 @@ final class ShipHullClash {
     private static final double TICK = 0.05;
 
     /** A ship's blocks (packed positions, ship space), when they were listed and its mass then. Null cells: too many. */
-    private record Hull(long found, double mass, long @Nullable [] cells) {}
+    record Hull(long found, double mass, long @Nullable [] cells) {}
 
     private static final Map<ServerLevel, Long2ObjectOpenHashMap<Hull>> HULLS = new WeakHashMap<>();
 
@@ -82,7 +82,7 @@ final class ShipHullClash {
     }
 
     /** The two poses a ship had this tick (last tick's and this one's), and any pose in between. */
-    private static final class Poses {
+    static final class Poses {
         final Vec3 anchor;      // a point of the ship (its centre of mass), ship space
         final Vec3 prev;        // where it was last tick, world
         final Vec3 now;         // where it is now, world
@@ -347,8 +347,8 @@ final class ShipHullClash {
         return point.distanceTo(a.add(ab.scale(f)));
     }
 
-    /** The ship's blocks, listed now or recently. */
-    private static Hull hull(ServerLevel level, ShipRef ship, long now) {
+    /** The ship's blocks, listed now or recently (also the vegetation sweep's, which follows the same blocks along the same arcs). */
+    static Hull hull(ServerLevel level, ShipRef ship, long now) {
         Long2ObjectOpenHashMap<Hull> known = HULLS.computeIfAbsent(level, l -> new Long2ObjectOpenHashMap<>());
         Hull hull = known.get(ship.id());
         double mass = ship.mass();

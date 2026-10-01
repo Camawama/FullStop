@@ -17,7 +17,7 @@ import java.util.function.Supplier;
  * @param sourceId        the source: a ship's id when {@code ship}, else an entity's
  * @param active          on (start or update) or off
  * @param pulsesPerSecond how many shocks a second sweep the listener (turns a second times supersonic tips)
- * @param loudness        the sound's volume; over 1 it only carries further (16 blocks per unit)
+ * @param loudness        the sound's gain, 0..1 (its range is the sound's own, 192 blocks: {@code SonicBooms.TRAIN_RANGE})
  */
 public record ShockTrainPacket(long sourceId, boolean ship, boolean active, float pulsesPerSecond, double x, double y, double z,
                                float loudness) {

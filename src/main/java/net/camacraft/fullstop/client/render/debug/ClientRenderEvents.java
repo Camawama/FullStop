@@ -25,6 +25,14 @@ public final class ClientRenderEvents {
             if (net.camacraft.fullstop.client.hotkey.DebugHotkeyHandler.isVelocityDebugEnabled() && mc.level != null) {
                 // Render for all other entities
                 for (Entity entity : mc.level.entitiesForRendering()) {
+                    if (entity instanceof net.minecraft.world.entity.projectile.Projectile projectile) {
+                        // A projectile's own view: its swept path and heading (it has no collision rays
+                        // unless a pack tags it fullstop:physics_projectiles, in which case it has both).
+                        ProjectileDebug.update(projectile, event.getPartialTick());
+                        if (!entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_PROJECTILES)) {
+                            continue;
+                        }
+                    }
                     RaycastLineRenderer.updateDebugRays(entity, event.getPartialTick());
                 }
 

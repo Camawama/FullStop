@@ -16,6 +16,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
@@ -24,6 +25,8 @@ import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 
 import java.util.Locale;
+import java.util.List;
+import java.util.ArrayList;
 import java.util.Set;
 
 import static net.camacraft.fullstop.gametest.ShipCollisionTests.Rig;
@@ -643,6 +646,73 @@ public final class ShipSpinTests {
                 lastAngle = angle;
             }
         }
+    }
+
+    /**
+     * A plus-shaped plank rotor (13 blocks, one tall, four blocks up) spun to 120 RPM (12.6 rad/s,
+     * its tips at 44 m/s), then twenty oak leaves placed around it at its height, inside the circle
+     * its tips sweep (1 to 3 blocks from the axis, off the arms' lines), as a player places them
+     * (persistent). Valkyrien Skies lets the arms pass through leaves, and the sweep used to test
+     * only the cells under the arms at tick time - and refused placed leaves at any speed - so the
+     * owner's spinning arm cleared nothing. Every leaf must go within three turns (30 ticks), the
+     * rotor keeping its planks and its speed.
+     */
+    @GameTest(template = FLAT, timeoutTicks = TIMEOUT, batch = BATCH)
+    public static void aRotorAt120RpmClearsTheLeavesPlacedInItsSweep(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos o = lane(helper, 12);
+        Rig rig = Rig.build(helper, plus(level, o, 4, 1), Blocks.OAK_PLANKS, true);
+        if (rig == null) return;
+        Rotor rotor = new Rotor(rig, 120.0 * RPM, PLUS_INERTIA_PER_KG);
+        helper.onEachTick(rig::record);
+        helper.onEachTick(rotor::record);
+        List<BlockPos> leaves = new ArrayList<>();
+        long[] placedAt = {-1};
+        helper.startSequence()
+                .thenWaitUntil(rig::demandReady)
+                .thenExecute(rig::release)
+                .thenWaitUntil(rig::demandSimulated)
+                .thenExecute(rotor::start)
+                .thenWaitUntil(() -> rotor.demandAtSpeed(0.97))
+                .thenExecute(() -> {
+                    BlockState leaf = Blocks.OAK_LEAVES.defaultBlockState().setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, true);
+                    int[][] spots = {{1, 2}, {2, 1}, {2, 2}, {1, 3}, {3, 1}};
+                    for (int[] spot : spots) {
+                        for (int sx = -1; sx <= 1; sx += 2) {
+                            for (int sz = -1; sz <= 1; sz += 2) {
+                                BlockPos pos = o.offset(sx * spot[0], 4, sz * spot[1]);
+                                level.setBlock(pos, leaf, Block.UPDATE_CLIENTS | Block.UPDATE_KNOWN_SHAPE);
+                                leaves.add(pos);
+                            }
+                        }
+                    }
+                    placedAt[0] = level.getGameTime();
+                })
+                .thenWaitUntil(() -> helper.assertTrue(gone(level, leaves) == leaves.size() || level.getGameTime() - placedAt[0] > 60,
+                        "waiting for the rotor to clear the leaves (" + gone(level, leaves) + " of " + leaves.size() + " gone)"))
+                .thenExecute(() -> {
+                    int cleared = gone(level, leaves);
+                    long took = level.getGameTime() - placedAt[0];
+                    double spin = rotor.spinNow();
+                    int planks = rig.count(Blocks.OAK_PLANKS);
+                    rig.pin();
+                    String out = String.format(Locale.ROOT, "%d of %d placed leaves gone after %d ticks, rotor at %.2f of %.2f rad/s with %d of 13 planks, "
+                            + "axis tipped at most %.1f deg", cleared, leaves.size(), took, spin, rotor.omega, planks, rotor.tilt);
+                    report("rotor at 120 RPM through placed leaves", out + " | " + rig.summary());
+                    helper.assertTrue(cleared == leaves.size(), "the rotor left leaves standing in its sweep: " + out);
+                    helper.assertTrue(planks == 13, "the rotor lost planks to leaves: " + out);
+                    helper.assertTrue(spin >= 0.85 * rotor.omega, "the leaves slowed the rotor to " + fmt(spin) + " rad/s: " + out);
+                    helper.succeed();
+                });
+    }
+
+    /** How many of {@code positions} hold no leaves any more. */
+    private static int gone(ServerLevel level, List<BlockPos> positions) {
+        int n = 0;
+        for (BlockPos pos : positions) {
+            if (!level.getBlockState(pos).is(Blocks.OAK_LEAVES)) n++;
+        }
+        return n;
     }
 
     // ------------------------------------------------------------------

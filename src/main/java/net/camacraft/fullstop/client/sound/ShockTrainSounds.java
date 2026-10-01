@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.client.sound;
 
+import com.mojang.logging.LogUtils;
 import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.fullstop.common.network.ShockTrainPacket;
 import net.camacraft.fullstop.common.registry.ModSounds;
@@ -9,6 +10,7 @@ import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
+import org.slf4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,14 +22,24 @@ import java.util.Map;
  * two-tip rotor at 256 RPM pulses 8.5 times a second and plays at a pitch of 1.07; a single 16-block
  * arm at 4.3 a second at 0.53, deeper), fading in and out over half a second. A train the server
  * stops telling us about ({@link #LOST_TICKS}: the ship unloaded, the server gone) fades out too.
+ *
+ * <p>The loop starts silent and fades in, so it must say so ({@link Train#canStartSilent}): the
+ * sound engine drops any sound whose volume is zero when it starts unless it does, and it takes a
+ * sound's audible range from that starting volume times the sound's attenuation distance. The
+ * train's range is therefore the sound's own (192 blocks in {@code sounds.json}, the server's
+ * {@code SonicBooms.TRAIN_RANGE}), not the volume's: the packet's loudness is a gain of 0..1. A
+ * loop the engine refused after all (the master volume at zero, the listener out of range as it
+ * started) is forgotten so the server's next word starts it again.</p>
  */
 public final class ShockTrainSounds {
+
+    private static final Logger LOGGER = LogUtils.getLogger();
 
     /** The loop's own pulse rate (pulses per second), as {@code tools/gen_sounds.py} made it. */
     public static final double BASE_RATE = 8.0;
     /** Without word from the server for this long (ticks) a train fades out. */
     private static final int LOST_TICKS = 60;
-    /** The volume's share of its target gained or lost per tick: half a second in or out. */
+    /** The gain gained or lost per tick: half a second in or out. */
     private static final float FADE = 0.1f;
 
     private static final Map<Long, Train> TRAINS = new HashMap<>();
@@ -45,18 +57,31 @@ public final class ShockTrainSounds {
             if (train != null) train.stopping = true;
             return;
         }
+        if (train != null && !train.isStopped() && !mc.getSoundManager().isActive(train)) {
+            // the engine finished or never took it: start over
+            train.end();
+            TRAINS.remove(packet.sourceId());
+            train = null;
+        }
         if (train == null || train.isStopped()) {
             train = new Train(packet, now);
             TRAINS.put(packet.sourceId(), train);
             mc.getSoundManager().play(train);
+            if (!mc.getSoundManager().isActive(train)) {
+                // refused (master volume off, too far as it started): the server says again in half a second
+                LOGGER.debug("[FullStop] the sound engine didn't take the shock train of {} {} at {},{},{}", packet.ship() ? "ship" : "entity",
+                        packet.sourceId(), packet.x(), packet.y(), packet.z());
+                TRAINS.remove(packet.sourceId());
+            }
         } else {
             train.update(packet, now);
         }
     }
 
-    /** How many trains are playing (for the harness and tests). */
+    /** How many trains the sound engine is playing right now (for the harness and tests). */
     public static int playing() {
-        TRAINS.values().removeIf(AbstractTickableSoundInstance::isStopped);
+        Minecraft mc = Minecraft.getInstance();
+        TRAINS.values().removeIf(train -> train.isStopped() || !mc.getSoundManager().isActive(train));
         return TRAINS.size();
     }
 
@@ -85,10 +110,20 @@ public final class ShockTrainSounds {
             this.z = at.z;
         }
 
+        void end() {
+            stop();
+        }
+
+        /** It fades in from nothing: the engine must not drop it for starting silent. */
+        @Override
+        public boolean canStartSilent() {
+            return true;
+        }
+
         void update(ShockTrainPacket packet, long now) {
             lastPacket = now;
             at = new Vec3(packet.x(), packet.y(), packet.z());
-            targetVolume = Math.max(0.0f, packet.loudness());
+            targetVolume = Mth.clamp(packet.loudness(), 0.0f, 1.0f);
             targetPitch = (float) Mth.clamp(packet.pulsesPerSecond() / BASE_RATE, 0.5, 2.0);
             stopping = false;
         }
@@ -102,16 +137,15 @@ public final class ShockTrainSounds {
                 return;
             }
             long now = mc.level.getGameTime();
-            float step = FADE * Math.max(targetVolume, 1.0f);
             if (stopping || now - lastPacket > LOST_TICKS) {
-                volume = Math.max(0.0f, volume - step);
+                volume = Math.max(0.0f, volume - FADE);
                 if (volume <= 0.0f) {
                     stop();
                     TRAINS.remove(id);
                     return;
                 }
             } else {
-                volume = Math.min(targetVolume, volume + step);
+                volume = Math.min(targetVolume, volume + FADE);
             }
             pitch += (targetPitch - pitch) * 0.2f;
             if (ship) {

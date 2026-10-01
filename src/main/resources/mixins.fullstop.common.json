@@ -17,7 +17,13 @@
     "EntityShipSweepMixin",
     "RandomStrollGoalMixin",
     "ProjectileHitInvoker",
-    "AbstractArrowAccessor"
+    "AbstractArrowAccessor",
+    "ButtonBlockAccessor",
+    "ShipButtonAccessor",
+    "ShipButtonHoldMixin",
+    "ShipPlateInvoker",
+    "ShipPressurePlateMixin",
+    "ShipWeightedPlateMixin"
   ],
   "injectors": {
     "defaultRequire": 1

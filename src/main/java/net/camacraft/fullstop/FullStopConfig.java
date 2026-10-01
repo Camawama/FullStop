@@ -67,6 +67,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue hardnessAffectsDamage;
         public final ForgeConfigSpec.DoubleValue minimumSolidImpactDamage;
         public final ForgeConfigSpec.IntValue crackHealSeconds;
+        public final ForgeConfigSpec.BooleanValue impactCraters;
+        public final ForgeConfigSpec.IntValue impactCraterMaxRadius;
+        public final ForgeConfigSpec.IntValue impactCraterMaxDepth;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue debugImpactLog;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
@@ -145,6 +148,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue sweepPlacedLeaves;
         public final ForgeConfigSpec.DoubleValue sweepDrag;
         public final ForgeConfigSpec.IntValue sweepMaxBlocksPerTick;
+        public final ForgeConfigSpec.DoubleValue sweepPlacedLeavesMinSpeed;
+        public final ForgeConfigSpec.BooleanValue shipRedstone;
+        public final ForgeConfigSpec.DoubleValue shipWeightedPlateKgPerSignal;
         public final ForgeConfigSpec.BooleanValue impactSounds;
         public final ForgeConfigSpec.DoubleValue impactSoundMinSpeed;
         public final ForgeConfigSpec.DoubleValue impactSoundVolume;
@@ -388,6 +394,27 @@ public class FullStopConfig {
                     .translation(key("crackHealSeconds"))
                     .comment("Default: 0")
                     .defineInRange("crackHealSeconds", 0, 0, 86400);
+
+            this.impactCraters = builder
+                    .comment("When enabled (with kineticBlockBreaking), a body wider than a block that crashes into the ground or a wall breaks the",
+                            "blocks under its whole footprint, not only the few its collision rays happen to hit: a giant dropped from a height",
+                            "leaves a hole the width of its feet, and with energy to spare digs a shallow bowl below it, narrower each layer down.",
+                            "Each block costs its hardness in impact energy as usual, so a wide body landing softly breaks nothing.")
+                    .translation(key("impactCraters"))
+                    .comment("Default: true")
+                    .define("impactCraters", true);
+
+            this.impactCraterMaxRadius = builder
+                    .comment("How far from the body's centre column (blocks) a crater may reach; a wider footprint is clipped to it.")
+                    .translation(key("impactCraterMaxRadius"))
+                    .comment("Default: 6")
+                    .defineInRange("impactCraterMaxRadius", 6, 1, 32);
+
+            this.impactCraterMaxDepth = builder
+                    .comment("How many block layers deep a crater may go in one impact (the surface layer counts as one).")
+                    .translation(key("impactCraterMaxDepth"))
+                    .comment("Default: 3")
+                    .defineInRange("impactCraterMaxDepth", 3, 1, 8);
 
             this.kineticDoorOpening = builder
                     .comment("When enabled, sprinting into doors, trapdoors and fence gates flings them open.")
@@ -958,6 +985,30 @@ public class FullStopConfig {
                     .translation(key("sweepMaxBlocksPerTick"))
                     .comment("Default: 64")
                     .defineInRange("sweepMaxBlocksPerTick", 64, 0, 4096);
+
+            this.sweepPlacedLeavesMinSpeed = builder
+                    .comment("With sweepPlacedLeaves off, leaves players placed (hedges, leaf roofs) still give to a hull hitting them at",
+                            "this speed (m/s) or faster: the tips of a spinning arm, a ship at speed. A raft drifting into a hedge at",
+                            "the sweep speed leaves it. 0 = placed leaves go like natural ones.")
+                    .translation(key("sweepPlacedLeavesMinSpeed"))
+                    .comment("Default: 8.0")
+                    .defineInRange("sweepPlacedLeavesMinSpeed", 8.0, 0.0, 1000.0);
+
+            this.shipRedstone = builder
+                    .comment("Ships work redstone: a hull touching a button presses it and holds it down while it stays; a hull",
+                            "resting on a pressure plate holds it down (any plate, stone ones included: a ship is heavy), weighted",
+                            "plates by the ship's mass (shipWeightedPlateKgPerSignal).")
+                    .translation(key("shipRedstone"))
+                    .comment("Default: true")
+                    .define("shipRedstone", true);
+
+            this.shipWeightedPlateKgPerSignal = builder
+                    .comment("Kilograms of ship per signal level on a light weighted pressure plate (gold): Valkyrien Skies' oak plank",
+                            "weighs 500 kg, so a four-plank raft gives 2 and a 15 t ship the full 15. A heavy plate (iron) takes ten",
+                            "times as much per level, as vanilla's 15 and 150 entities do. Capped at 15.")
+                    .translation(key("shipWeightedPlateKgPerSignal"))
+                    .comment("Default: 1000.0")
+                    .defineInRange("shipWeightedPlateKgPerSignal", 1000.0, 1.0, 1.0e9);
 
             this.impactSounds = builder
                     .comment("Ships hitting terrain or each other sound like it: BOTH blocks' own sounds at the contact (a stone",

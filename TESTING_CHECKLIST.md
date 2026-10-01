@@ -560,6 +560,27 @@ Optional: `debugShipCollisionLog = true` (the lines "ships A and B crossed: N bl
 - [ ] **Two such rotors clashing (the first item, with longer arms).** *Expect:* the roar goes on through the clash; a rotor slowed for a moment by what it hit doesn't boom again unless it stays below the barrier for a second.
 - [ ] **Turn `shipClashSweep` off.** *Expect:* fast rotors pass through each other as before (VS's own contacts only); slime hulls and the roar are unaffected.
 
+## 40. Craters, projectiles in the debug view, buttons (round 7) `[FIX]`
+
+Optional: `debugImpactLog = true` (the line "<name> crashes at V m/s into the UP face: crater of N blocks in L layer(s) under an F-block footprint").
+
+- [ ] **A giant dropped from 30 blocks (`/summon giant ~ ~30 ~`) onto dirt or grass.** *Expect:* on landing the whole area under its feet opens (a 4x4 or 5x5 hole one deep, a smaller bowl below it), not five scattered blocks; the block the energy ran out at shows a crack. Drop it from 5 blocks: nothing, or the centre block or two.
+- [ ] **A pig or a cow dropped from the same height.** *Expect:* only the blocks its rays hit, as before (it is narrower than a block).
+- [ ] **A giant into a wall at speed (a Physgun throw, or a ship carrying it into a cliff).** *Expect:* the wall opens across the giant's height and width, a bowl behind.
+- [ ] **`impactCraters = false`.** *Expect:* the giant breaks its five ray blocks only, as before.
+- [ ] **F3+V while shooting arrows, throwing snowballs and eggs, and near a blaze or a ghast.** *Expect:* every projectile in flight carries a line as thick as its body along the path it moved this tick and a thinner line ahead of it - cyan on arrows and tridents, orange on snowballs, eggs, potions and fireballs - and a grey one on an arrow stuck in a block or a fishing bobber. Nothing on projectiles with `enableProjectileCollisions = false` except grey.
+- [ ] **Shoot arrows and throw snowballs at a stone button and at an oak button; run into a stone button; fling a mob into one.** *Expect:* the stone button never answers a projectile; the oak one does; you and the mob press the stone one.
+
+## 40. The roar you can hear, leaves in a rotor's sweep, ships on buttons and plates (round 7) `[VS]` `[FIX]`
+
+Optional: `debugShipCollisionLog = true` (the lines "shock train ON/OFF", "no shock train: fastest point ... m/s of 343", "swept N block(s) along its blocks' arcs", "pressed the button at", "rests on the pressure plate at").
+
+- [ ] **A rotor whose tips really pass 343 m/s.** A tip's speed is the spin in rad/s (RPM x 0.105) times its distance from the axis: at 256 RPM (26.8 rad/s) a tip must be 13 blocks out or more - a 3x3x16 arm on a bearing at one END, or a 27-block arm about its middle. *Expect:* ONE boom as the tips go supersonic, then a harsh buzzing roar that follows the RPM, loud on the ship and audible up to 192 blocks off (half as loud at 96), fading over half a second once the rotor stays under 90% of the barrier for a second. A 3x3x16 arm about its MIDDLE at 256 RPM (tips at 214 m/s) makes neither, and the debug log says why every three seconds.
+- [ ] **Your spinning arm, with leaves placed in its sweep** (and natural leaves, a tree in its way). *Expect:* every leaf the arm passes through is gone within a turn or two, with drops; leaves outside the circle stay; the rotor keeps its speed. A raft drifting into a hedge under 8 m/s leaves the hedge; at 8 m/s or more it clears it.
+- [ ] **A ship pushed against a wall with a stone button on it** (a wooden one too). *Expect:* pressed (the click) as the hull reaches it, still pressed while the hull leans on it (well past the 20 ticks a button holds for), let go a tick after the hull leaves.
+- [ ] **A ship set down on a stone or wooden pressure plate.** *Expect:* pressed while it rests there, released once lifted. **A gold plate:** a four-plank raft (2 t) gives 2 (one level per tonne), an obsidian cube 15; **iron:** ten times the mass per level.
+- [ ] **`shipRedstone` off.** *Expect:* ships press nothing; what they held is let go.
+
 ## Known cosmetic gaps (not bugs — no need to test)
 
 - Clarity/Vertigo effect icons are still missing textures (art needed at
