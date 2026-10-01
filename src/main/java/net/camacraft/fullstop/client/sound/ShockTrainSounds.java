@@ -1,48 +1,58 @@
 package net.camacraft.fullstop.client.sound;
 
-import com.mojang.logging.LogUtils;
 import net.camacraft.camafy.compat.vs.ShipRef;
+import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.common.network.ShockTrainPacket;
 import net.camacraft.fullstop.common.registry.ModSounds;
+import net.minecraft.Util;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.sounds.AbstractTickableSoundInstance;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.client.resources.sounds.SoundInstance;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.phys.Vec3;
-import org.slf4j.Logger;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
 
+import java.util.ArrayDeque;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 /**
- * The continuous shock train of a supersonic rotor, on this client: one looping positional sound
- * per source the server says is supersonic ({@link ShockTrainPacket}), following the ship as this
- * client draws it, its pitch the rotor's pulse rate over the loop's own ({@link #BASE_RATE}: a
- * two-tip rotor at 256 RPM pulses 8.5 times a second and plays at a pitch of 1.07; a single 16-block
- * arm at 4.3 a second at 0.53, deeper), fading in and out over half a second. A train the server
- * stops telling us about ({@link #LOST_TICKS}: the ship unloaded, the server gone) fades out too.
+ * The shock train of a supersonic rotor, on this client: one {@code ship.shock_crack} per shock, played at
+ * the rotor's own cadence - the server says how many shocks a second sweep this listener ({@link ShockTrainPacket}:
+ * turns a second times supersonic tips) and how fast the tips go (Mach), and this plays the one-shot that often,
+ * from where the ship is drawn right now. No loop: speeding up or slowing down is heard as the cracks closing up
+ * or spreading out, exactly in step with the spin (a two-tip rotor at 256 RPM: a crack every 118 ms).
  *
- * <p>The loop starts silent and fades in, so it must say so ({@link Train#canStartSilent}): the
- * sound engine drops any sound whose volume is zero when it starts unless it does, and it takes a
- * sound's audible range from that starting volume times the sound's attenuation distance. The
- * train's range is therefore the sound's own (192 blocks in {@code sounds.json}, the server's
- * {@code SonicBooms.TRAIN_RANGE}), not the volume's: the packet's loudness is a gain of 0..1. A
- * loop the engine refused after all (the master volume at zero, the listener out of range as it
- * started) is forgotten so the server's next word starts it again.</p>
+ * <p>The cadence is kept by a fractional accumulator stepped every render frame by real time, so it is exact over
+ * any number of frames and ticks, whatever the frame rate. Past {@link #BLUR_RATE} shocks a second (where separate
+ * cracks blur into a tone) no cracks are skipped: one plays every tick ({@link #MAX_RATE}) at a pitch that keeps
+ * rising with the true rate instead. Pitch and loudness also follow the tips' Mach number: just over the barrier
+ * the crack is a deep thud, well past it a sharper, louder snap ({@link #pitch}, {@link #volume}).</p>
+ *
+ * <p>A train the server stops telling us about ({@link #LOST_TICKS}: the ship unloaded, the server gone) ends by
+ * itself. Nothing here needs the sound engine to keep a channel: each crack is its own short sound, so a crack the
+ * engine refuses (master volume off, too far) costs nothing and the next is tried at its own time.</p>
  */
+@Mod.EventBusSubscriber(modid = FullStop.MODID, value = Dist.CLIENT)
 public final class ShockTrainSounds {
 
-    private static final Logger LOGGER = LogUtils.getLogger();
-
-    /** The loop's own pulse rate (pulses per second), as {@code tools/gen_sounds.py} made it. */
-    public static final double BASE_RATE = 8.0;
-    /** Without word from the server for this long (ticks) a train fades out. */
+    /** Shocks a second beyond which the cracks blur into a tone: one crack a tick from here on, pitched up by the true rate. */
+    public static final double BLUR_RATE = 15.0;
+    /** The most cracks a second ever played (one a tick). */
+    public static final double MAX_RATE = 20.0;
+    /** Without word from the server for this long (ticks) a train ends. */
     private static final int LOST_TICKS = 60;
-    /** The gain gained or lost per tick: half a second in or out. */
-    private static final float FADE = 0.1f;
+    /** How many of the latest crack intervals the harness's measure averages. */
+    private static final int MEASURED = 16;
 
     private static final Map<Long, Train> TRAINS = new HashMap<>();
+    private static long lastFrameMillis = -1L;
+    private static int cracksPlayed;
 
     private ShockTrainSounds() {
     }
@@ -54,109 +64,151 @@ public final class ShockTrainSounds {
         long now = mc.level.getGameTime();
         Train train = TRAINS.get(packet.sourceId());
         if (!packet.active()) {
-            if (train != null) train.stopping = true;
+            if (train != null) TRAINS.remove(packet.sourceId());
             return;
         }
-        if (train != null && !train.isStopped() && !mc.getSoundManager().isActive(train)) {
-            // the engine finished or never took it: start over
-            train.end();
-            TRAINS.remove(packet.sourceId());
-            train = null;
-        }
-        if (train == null || train.isStopped()) {
-            train = new Train(packet, now);
+        if (train == null) {
+            train = new Train(packet.sourceId(), packet.ship());
             TRAINS.put(packet.sourceId(), train);
-            mc.getSoundManager().play(train);
-            if (!mc.getSoundManager().isActive(train)) {
-                // refused (master volume off, too far as it started): the server says again in half a second
-                LOGGER.debug("[FullStop] the sound engine didn't take the shock train of {} {} at {},{},{}", packet.ship() ? "ship" : "entity",
-                        packet.sourceId(), packet.x(), packet.y(), packet.z());
-                TRAINS.remove(packet.sourceId());
-            }
-        } else {
-            train.update(packet, now);
         }
+        train.update(packet, now);
     }
 
-    /** How many trains the sound engine is playing right now (for the harness and tests). */
+    /** How many trains are cracking right now (for the harness and tests). */
     public static int playing() {
         Minecraft mc = Minecraft.getInstance();
-        TRAINS.values().removeIf(train -> train.isStopped() || !mc.getSoundManager().isActive(train));
+        if (mc.level == null) {
+            TRAINS.clear();
+            return 0;
+        }
+        long now = mc.level.getGameTime();
+        TRAINS.values().removeIf(train -> train.lost(now));
         return TRAINS.size();
     }
 
-    private static final class Train extends AbstractTickableSoundInstance {
+    /** Cracks played since the client started (for the harness). */
+    public static int cracksPlayed() {
+        return cracksPlayed;
+    }
+
+    /** The mean of the latest crack intervals (ms) of any train, or 0 with fewer than two cracks (for the harness). */
+    public static double measuredIntervalMillis() {
+        double sum = 0.0;
+        int n = 0;
+        for (Train train : TRAINS.values()) {
+            for (long gap : train.gaps) {
+                sum += gap;
+                n++;
+            }
+        }
+        return n == 0 ? 0.0 : sum / n;
+    }
+
+    /** The interval (ms) the server's rate asks for, of the fastest train, or 0 with none (for the harness). */
+    public static double expectedIntervalMillis() {
+        double best = 0.0;
+        for (Train train : TRAINS.values()) {
+            double rate = Math.min(train.rate, MAX_RATE);
+            if (rate > best) best = rate;
+        }
+        return best <= 0.0 ? 0.0 : 1000.0 / best;
+    }
+
+    /** Every render frame: step each train's accumulator by real time and play the cracks that fall due. */
+    @SubscribeEvent
+    public static void onRenderTick(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) return;
+        long millis = Util.getMillis();
+        long dt = lastFrameMillis < 0 ? 0 : Math.min(250L, millis - lastFrameMillis);
+        lastFrameMillis = millis;
+        if (TRAINS.isEmpty()) return;
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            TRAINS.clear();
+            return;
+        }
+        if (mc.isPaused()) return;
+        long now = mc.level.getGameTime();
+        Iterator<Train> it = TRAINS.values().iterator();
+        while (it.hasNext()) {
+            Train train = it.next();
+            if (train.lost(now)) {
+                it.remove();
+                continue;
+            }
+            train.step(mc, dt, millis);
+        }
+    }
+
+    /**
+     * The crack's pitch for the tips' Mach number and the train's true rate: a deep thud just over the barrier
+     * (0.8), rising to a snap at Mach 2 (1.2); past {@link #BLUR_RATE} shocks a second it keeps rising with the rate
+     * the one-a-tick cracks can no longer keep (the tone of the roar).
+     */
+    static float pitch(double mach, double rate) {
+        double pitch = 0.8 + 0.4 * Mth.clamp(mach - 1.0, 0.0, 1.5);
+        if (rate > BLUR_RATE) pitch *= rate / BLUR_RATE;
+        return (float) Mth.clamp(pitch, 0.5, 2.0);
+    }
+
+    /** The crack's gain: the server's loudness, a little less right at the barrier, full from Mach 1.5 on. */
+    static float volume(double loudness, double mach) {
+        return (float) Mth.clamp(loudness * (0.75 + 0.5 * Mth.clamp(mach - 1.0, 0.0, 0.5)), 0.0, 1.0);
+    }
+
+    private static final class Train {
         private final long id;
         private final boolean ship;
         private long lastPacket;
-        private float targetVolume;
-        private float targetPitch;
-        private Vec3 at;
-        private boolean stopping;
+        private double rate;
+        private double mach = 1.0;
+        private float loudness;
+        private Vec3 at = Vec3.ZERO;
+        /** Shocks due so far: a crack plays each time it passes one. Starts at one so the first crack is immediate. */
+        private double due = 1.0;
+        private long lastCrackMillis = -1L;
+        /** The latest intervals between cracks (ms), for the harness. */
+        private final ArrayDeque<Long> gaps = new ArrayDeque<>(MEASURED);
 
-        Train(ShockTrainPacket packet, long now) {
-            super(ModSounds.SHIP_SHOCK_TRAIN.get(), SoundSource.BLOCKS, SoundInstance.createUnseededRandom());
-            this.id = packet.sourceId();
-            this.ship = packet.ship();
-            this.looping = true;
-            this.delay = 0;
-            this.attenuation = Attenuation.LINEAR;
-            this.relative = false;
-            this.volume = 0.0f;
-            update(packet, now);
-            this.pitch = targetPitch;
-            this.x = at.x;
-            this.y = at.y;
-            this.z = at.z;
-        }
-
-        void end() {
-            stop();
-        }
-
-        /** It fades in from nothing: the engine must not drop it for starting silent. */
-        @Override
-        public boolean canStartSilent() {
-            return true;
+        Train(long id, boolean ship) {
+            this.id = id;
+            this.ship = ship;
         }
 
         void update(ShockTrainPacket packet, long now) {
             lastPacket = now;
+            rate = Math.max(0.0, packet.pulsesPerSecond());
+            mach = Math.max(0.0, packet.mach());
+            loudness = Mth.clamp(packet.loudness(), 0.0f, 1.0f);
             at = new Vec3(packet.x(), packet.y(), packet.z());
-            targetVolume = Mth.clamp(packet.loudness(), 0.0f, 1.0f);
-            targetPitch = (float) Mth.clamp(packet.pulsesPerSecond() / BASE_RATE, 0.5, 2.0);
-            stopping = false;
         }
 
-        @Override
-        public void tick() {
-            Minecraft mc = Minecraft.getInstance();
-            if (mc.level == null) {
-                stop();
-                TRAINS.remove(id);
-                return;
-            }
-            long now = mc.level.getGameTime();
-            if (stopping || now - lastPacket > LOST_TICKS) {
-                volume = Math.max(0.0f, volume - FADE);
-                if (volume <= 0.0f) {
-                    stop();
-                    TRAINS.remove(id);
-                    return;
-                }
-            } else {
-                volume = Math.min(targetVolume, volume + FADE);
-            }
-            pitch += (targetPitch - pitch) * 0.2f;
+        boolean lost(long now) {
+            return now - lastPacket > LOST_TICKS || rate <= 0.0;
+        }
+
+        void step(Minecraft mc, long dtMillis, long millis) {
             if (ship) {
-                // where this client has the ship: the sound rides it between the server's words
+                // where this client has the ship: the cracks come from it between the server's words
                 ShipRef ref = ShipRef.of(mc.level, id);
                 Vec3 centre = ref == null ? null : ref.position();
                 if (centre != null) at = centre;
             }
-            x = at.x;
-            y = at.y;
-            z = at.z;
+            // the cadence played: the rotor's own, or one a tick past the blur (the pitch carries the rest)
+            double played = rate > BLUR_RATE ? MAX_RATE : rate;
+            due += played * dtMillis / 1000.0;
+            if (due < 1.0) return;
+            // one crack a frame at most: a frame late on a slow client is caught up, never doubled into a click
+            due = Math.min(due - 1.0, 1.0);
+            SoundInstance crack = new SimpleSoundInstance(ModSounds.SHIP_SHOCK_CRACK.get(), SoundSource.BLOCKS,
+                    volume(loudness, mach), pitch(mach, rate), SoundInstance.createUnseededRandom(), at.x, at.y, at.z);
+            mc.getSoundManager().play(crack);
+            cracksPlayed++;
+            if (lastCrackMillis >= 0) {
+                if (gaps.size() >= MEASURED) gaps.pollFirst();
+                gaps.addLast(millis - lastCrackMillis);
+            }
+            lastCrackMillis = millis;
         }
     }
 }

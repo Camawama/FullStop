@@ -179,7 +179,7 @@ public final class ShipEntityHits {
         // its own ship: it stood on this deck just now, or VS is still carrying it with the ship
         boolean rider = !fromBelow && (cap.stoodOnBefore(ship.id(), now, RIDER_TICKS) || ShipCompat.carriedBy(entity, ship));
         double entityKg = fromBelow ? deckKg(entity) : ShipContactPhysics.bodyKg(entity);
-        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
         ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(ship, shipKg, contact.point(), normal,
                 contact.approach(), entityKg, frame, weightless);
@@ -213,7 +213,7 @@ public final class ShipEntityHits {
             cap.markShipImpulse(entity.tickCount, 5, total);
         }
         if (impulse > 0.0) {
-            pushed = ShipImpulses.applyCapped(level, ship, normal.scale(-impulse), contact.point());
+            pushed = ShipImpulses.applyCapped(level, ship, normal.scale(-impulse), contact.point(), contact.approach());
         }
         cap.markShipHit(ship.id(), now, COOLDOWN_TICKS);
         LAST_HIT.put(entity, new Hit(now, ship.id(), fromBelow, exchange, pushed.length(),
@@ -402,7 +402,7 @@ public final class ShipEntityHits {
         Vec3 world = cap != null ? cap.getPreImpactWorldVelocity() : impactVelocityBpt.scale(20.0);
         double closingMps = -world.subtract(hull).dot(normal);
         double entityKg = entityUnits * EntityStackUtils.KG_PER_UNIT;
-        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
         double effective = ShipInertia.effectiveMassKg(ship, shipKg, point, normal);
         double reducedUnits = Double.isInfinite(effective) ? entityUnits
@@ -427,7 +427,8 @@ public final class ShipEntityHits {
         if (cap != null) cap.markShipHit(impact.ship().id(), now, COOLDOWN_TICKS);
         if (!SERVER.reactionImpulses.get() || (cap != null && cap.isShipFeedbackBlocked(impact.ship().id(), now))) return;
         double impulse = Math.min(impact.entityKg() * speedLostMps, impact.reducedKg() * Math.max(0.0, impact.closingBpt()) * 20.0);
-        ShipImpulses.applyCapped(level, impact.ship(), direction.normalize().scale(impulse), impact.point());
+        ShipImpulses.applyCapped(level, impact.ship(), direction.normalize().scale(impulse), impact.point(),
+                Math.max(speedLostMps, Math.abs(impact.closingBpt()) * 20.0));
     }
 
     private static String fmt(double value) {

@@ -653,7 +653,9 @@ public final class ShipTracker {
         if (position == null || velocity == null || omega == null || rotation == null) return null;
         Vec3 reportedVelocity = velocity;
         Vec3 reportedOmega = omega;
-        double mass = ship.mass();
+        // the mass VS's physics moves (a scaled ship's is its blocks' times the cube of its scale): what every
+        // push and two-body exchange FullStop sizes from this state answers to
+        double mass = ship.physicalMass();
         long nanos = System.nanoTime();
 
         State state = states.get(ship.id());

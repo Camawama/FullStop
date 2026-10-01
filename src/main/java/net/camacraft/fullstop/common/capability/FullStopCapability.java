@@ -268,10 +268,12 @@ public class FullStopCapability {
     /** The pose last tick and the tick it last changed: a carried body's pose change is no motion (see tick). */
     @Nullable
     private net.minecraft.world.entity.Pose lastPose = null;
-    private int poseChangedTick = Integer.MIN_VALUE;
+    // "long ago", and far enough from the edge that tickCount - poseChangedTick can't wrap round to a negative
+    // (Integer.MIN_VALUE did: every body that never changed pose counted as having just changed it)
+    private int poseChangedTick = Integer.MIN_VALUE / 2;
     /** The vehicle last seen (-1 none) and the game time it changed: getting in or out counts as a pose change. */
     private int lastVehicleId = Integer.MIN_VALUE;
-    private long rideChangedGameTime = Long.MIN_VALUE;
+    private long rideChangedGameTime = Long.MIN_VALUE / 2;
     private long lastTick = -1;
 
     private long damageCooldownUntilTick = Long.MIN_VALUE;

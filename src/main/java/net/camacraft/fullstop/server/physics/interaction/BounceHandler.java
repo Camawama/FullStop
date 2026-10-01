@@ -118,6 +118,12 @@ public final class BounceHandler {
         Gravity.setWorldVelocity(entity, newV.scale(0.05), fullstop.getFrame());
         entity.hurtMarked = true;
         fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
+        // "Bouncy": a player off slime at 20 m/s or more
+        if (entity instanceof net.minecraft.server.level.ServerPlayer player
+                && (bounceType == Collision.CollisionType.SLIME || collision.bouncy())
+                && preV.length() >= net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY_MPS) {
+            net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY.trigger(player);
+        }
 
         if (collision.bouncy() || carrierType == Collision.CollisionType.SLIME) {
             fullstop.setJustBounced(true);

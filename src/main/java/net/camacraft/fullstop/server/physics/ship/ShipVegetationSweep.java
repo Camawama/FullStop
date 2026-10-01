@@ -325,7 +325,7 @@ public final class ShipVegetationSweep {
             if (spent > 0.0 && drag > 0.0 && speed > 1.0e-3) {
                 double squared = speed * speed - 2.0 * spent * EntityStackUtils.JOULES_PER_ENERGY_UNIT * drag / massKg;
                 double after = Math.sqrt(Math.max(0.0, squared));
-                ShipImpulses.applyCapped(level, ship, velocity.scale(-massKg * (speed - after) / speed), at);
+                ShipImpulses.applyCapped(level, ship, velocity.scale(-massKg * (speed - after) / speed), at, speed);
             }
             if (SERVER.debugShipCollisionLog.get()) {
                 LOGGER.info("[FullStop] ship {} ({} kg at {} m/s, its hull's far corners at {} m/s) swept {} block(s) {} for {} units ({} read, {} sweepable)",

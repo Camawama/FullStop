@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:oak_boat"
+    },
+    "title": {
+      "translate": "advancements.fullstop.hit_by_a_ship.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.hit_by_a_ship.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "hit_by_a_ship": {
+      "trigger": "fullstop:hit_by_a_ship"
+    }
+  },
+  "parent": "fullstop:ouch"
+}

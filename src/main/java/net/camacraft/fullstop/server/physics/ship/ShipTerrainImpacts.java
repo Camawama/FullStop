@@ -182,13 +182,17 @@ public final class ShipTerrainImpacts {
     }
 
     /**
-     * The speed (m/s) a contact met at. One that just began: the larger of VS's approach speed and
-     * {@code before}, what the hull was doing into it the tick before (VS may measure after its
-     * solver). One that carries on: VS's approach alone - last tick's speed there belongs to the
-     * hit that started it, and counting it again would grind a resting hull away.
+     * The speed (m/s) a contact met at. One that just began: the largest of VS's approach speed,
+     * the speed Camafy saw the two close at when that physics step began (VS measures after its
+     * solver: a hard crash reads as two hulls already parting), and {@code before}, what the hull
+     * was doing into it in the frames the game saw (all a contact has without Camafy's record).
+     * The step's own speed matters on a busy server: its frames can show a striker at rest and then
+     * already bounced off, an obsidian ram at 20 m/s judged at 0 and breaking nothing. One that
+     * carries on: VS's approach alone - last tick's speed there belongs to the hit that started it,
+     * and counting it again would grind a resting hull away.
      */
     private static double speedInto(boolean started, ShipCollision.Contact contact, double before) {
-        return started ? Math.max(contact.approachMps(), before) : contact.approachMps();
+        return started ? Math.max(contact.metMps(), before) : contact.approachMps();
     }
 
     // ------------------------------------------------------------------
@@ -376,12 +380,18 @@ public final class ShipTerrainImpacts {
         ShipRef b = collision.other();
         ShipTracker.State stateA = tracker.get(a.id(), now);
         ShipTracker.State stateB = tracker.get(b.id(), now);
-        if (stateA == null || stateB == null || stateA.inGrace(now) || stateB.inGrace(now)) return;
+        if (stateA == null || stateB == null || stateA.inGrace(now) || stateB.inGrace(now)) {
+            debug("ships {} and {}: crash not judged ({})", a.id(), b.id(), stateA == null || stateB == null ? "no frames yet"
+                    : "in grace: " + (stateA.inGrace(now) ? "ship " + a.id() + " " + stateA.graceLeft(now) + " ticks" : "")
+                    + (stateB.inGrace(now) ? " ship " + b.id() + " " + stateB.graceLeft(now) + " ticks" : ""));
+            return;
+        }
         double massA = a.isStatic() ? Double.POSITIVE_INFINITY : stateA.mass();
         double massB = b.isStatic() ? Double.POSITIVE_INFINITY : stateB.mass();
         double reduced = reducedMass(massA, massB);
 
         double floor = slowestUseful();
+        double slowest = Double.POSITIVE_INFINITY, fastestSeen = 0.0, beforeSeen = 0.0;
         List<ShipImpactSounds.Hit> hits = new ArrayList<>();
         List<PairStrike> strikes = new ArrayList<>();
         for (ShipCollision.Contact contact : collision.contacts()) {
@@ -396,6 +406,9 @@ public final class ShipTerrainImpacts {
                 before = Math.max(before, stateA.recentClosing(stateB, point, normal, now, PAIR_LATE_TICKS));
             }
             double speed = speedInto(collision.started(), contact, before);
+            slowest = Math.min(slowest, speed);
+            fastestSeen = Math.max(fastestSeen, speed);
+            beforeSeen = Math.max(beforeSeen, before);
             if (speed < floor) continue;
             BlockPos posA = shipBlock(level, a, point, normal, 1.0);
             BlockPos posB = shipBlock(level, b, point, normal, -1.0);
@@ -404,7 +417,11 @@ public final class ShipTerrainImpacts {
             hits.add(new ShipImpactSounds.Hit(point, speed, blockA, blockB));
             strikes.add(new PairStrike(point, normal, speed, posA, blockA, posB, blockB));
         }
-        if (strikes.isEmpty()) return;
+        if (strikes.isEmpty()) {
+            debug("ships {} and {}: crash too slow to break anything ({} contact(s), fastest {} m/s, frames before it {} m/s, "
+                    + "floor {} m/s)", a.id(), b.id(), collision.contacts().size(), fmt(fastestSeen), fmt(beforeSeen), fmt(floor));
+            return;
+        }
         ShipImpactSounds.play(level, a.id(), Double.isFinite(reduced) ? reduced : Math.min(massA, massB),
                 collision.started(), hits, now);
 
@@ -414,7 +431,11 @@ public final class ShipTerrainImpacts {
         }
         strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
         double speed = strikes.get(0).speed();
-        if (speed < SERVER.breakMinSpeed.get()) return;
+        if (speed < SERVER.breakMinSpeed.get()) {
+            debug("ships {} and {}: met at {} m/s (frames before it {} m/s), under breakMinSpeed {}: nothing breaks", a.id(), b.id(),
+                    fmt(speed), fmt(beforeSeen), fmt(SERVER.breakMinSpeed.get()));
+            return;
+        }
         PairOutcome outcome = breakPair(level, a, b, reduced, speed, strikes, struck, levelBudget, MAX_BLOCKS_PER_SHIP,
                 honeyPairShare(strikes), "hit", false);
         if (outcome.broken() > 0 && !outcome.held() && outcome.normalSum().lengthSqr() > 1.0e-8) {
@@ -659,13 +680,17 @@ public final class ShipTerrainImpacts {
             ShipRef ship = Ships.byId(level, shipId);
             if (ship == null) continue;
             Vec3 hullV = ship.velocityAt(restore.point());
-            double mass = ship.mass();
+            double mass = ship.physicalMass();
             if (hullV == null || !(mass > 0) || !Double.isFinite(mass)) continue;
-            // Speed into the terrain now vs what it should keep after ploughing through.
+            // Speed into the terrain now vs what it should keep after ploughing through. The push is sized by
+            // the ship's effective mass at the point (a point off the centre mostly turns the ship, and its
+            // speed there answers to much less than the whole mass), never by more than the speed it restores.
             double into = -hullV.dot(restore.normal());
             double missing = restore.targetSpeed() - into;
             if (missing <= 0) continue;
-            ShipImpulses.applyCapped(level, ship, restore.normal().scale(-mass * missing), restore.point());
+            Vec3 push = restore.normal().scale(-1.0);
+            double effective = ShipInertia.effectiveMassKg(ship, mass, restore.point(), push);
+            ShipImpulses.applyCapped(level, ship, push.scale(effective * missing), restore.point(), restore.targetSpeed());
         }
     }
 
@@ -688,8 +713,8 @@ public final class ShipTerrainImpacts {
             if (a == null || b == null) continue;
             Vec3 va = a.velocityAt(restore.point());
             Vec3 vb = b.velocityAt(restore.point());
-            double massA = a.isStatic() ? Double.POSITIVE_INFINITY : a.mass();
-            double massB = b.isStatic() ? Double.POSITIVE_INFINITY : b.mass();
+            double massA = a.isStatic() ? Double.POSITIVE_INFINITY : a.physicalMass();
+            double massB = b.isStatic() ? Double.POSITIVE_INFINITY : b.physicalMass();
             if (va == null || vb == null || !(massA > 0) || !(massB > 0)) continue;
             double reduced = reducedMass(massA, massB);
             if (!Double.isFinite(reduced)) continue;
@@ -697,8 +722,8 @@ public final class ShipTerrainImpacts {
             double missing = restore.targetClosing() - closing;
             if (missing <= 0) continue;
             Vec3 impulse = restore.normal().scale(reduced * missing);
-            if (Double.isFinite(massA)) ShipImpulses.applyCapped(level, a, impulse.scale(-1.0), restore.point());
-            if (Double.isFinite(massB)) ShipImpulses.applyCapped(level, b, impulse, restore.point());
+            if (Double.isFinite(massA)) ShipImpulses.applyCapped(level, a, impulse.scale(-1.0), restore.point(), restore.targetClosing());
+            if (Double.isFinite(massB)) ShipImpulses.applyCapped(level, b, impulse, restore.point(), restore.targetClosing());
         }
     }
 

@@ -87,8 +87,8 @@ public final class ShipInertia {
 
     /**
      * The ship's effective mass (kg) for a push along the world direction {@code normal} at the
-     * world point {@code at}: at most {@code massKg}, less the farther the push line passes from
-     * the centre of mass. {@code massKg} when the ship can't be resolved; +infinity stays
+     * world point {@code at}: at most {@code massKg} (the PHYSICAL mass, {@code ShipRef.physicalMass()}),
+     * less the farther the push line passes from the centre of mass. {@code massKg} when the ship can't be resolved; +infinity stays
      * +infinity (an unresolved or weightless ship is an immovable wall).
      */
     public static double effectiveMassKg(ShipRef ship, double massKg, Vec3 at, Vec3 normal) {
@@ -109,17 +109,33 @@ public final class ShipInertia {
         return 1.0 / (1.0 / massKg + turn);
     }
 
-    /** The ship's inertia tensor in ship axes: VS's own (hook), else a uniform box over its blocks. */
+    /**
+     * The ship's PHYSICAL inertia tensor in ship axes and world lengths: what VS's physics body answers to. The
+     * cached tensor is read on the physics side, where VS 2.4.11 already reports a scaled ship's scaled body (mass
+     * times the cube of the scale, moments times the fifth power: measured, a one-block oak ship at 0.25 reads
+     * 0.157 kg m² there, the value its physics engine holds), so it is used as read. (Scaling it again, as an
+     * earlier change did, made a quarter-scale ship 1024 times too easy to turn in these sums.) The fallback box
+     * is built from {@code massKg}, which callers pass as the physical mass ({@code ShipRef.physicalMass()}), over
+     * the blocks' spans in world lengths (times the scale). The quarter-scale launch the owner saw was VS's own air
+     * drag on scaled ships; Camafy 0.1.18 replaces it (see Camafy's ScaledShipPhysics).
+     */
     @Nullable
     private static Matrix3d tensor(ShipRef ship, double massKg) {
+        double s = scale(ship);
         double[] t = TENSORS.get(ship.id());
         if (t != null) {
             return new Matrix3d(t[0], t[3], t[5], t[3], t[1], t[4], t[5], t[4], t[2]);
         }
         BoundingBox blocks = ship.shipyardBlocks();
         if (blocks == null) return null;
-        double a = blocks.getXSpan(), b = blocks.getYSpan(), c = blocks.getZSpan();
+        double a = blocks.getXSpan() * s, b = blocks.getYSpan() * s, c = blocks.getZSpan() * s;
         double k = massKg / 12.0;
         return new Matrix3d(k * (b * b + c * c), 0, 0, 0, k * (a * a + c * c), 0, 0, 0, k * (a * a + b * b));
+    }
+
+    /** The ship's scale (1 at normal size), or 1 when it can't be read. */
+    static double scale(ShipRef ship) {
+        double s = ship.scale();
+        return s > 0.0 && Double.isFinite(s) ? s : 1.0;
     }
 }

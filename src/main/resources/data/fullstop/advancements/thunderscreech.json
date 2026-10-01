@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:note_block"
+    },
+    "title": {
+      "translate": "advancements.fullstop.thunderscreech.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.thunderscreech.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "thunderscreech": {
+      "trigger": "fullstop:thunderscreech"
+    }
+  },
+  "parent": "fullstop:boom"
+}

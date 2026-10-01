@@ -40,6 +40,14 @@ public final class ShipImpulses {
     /** Same window as the damage top-up: one landing is detected on up to two ticks. */
     private static final int IMPULSE_TOP_UP_TICKS = 5;
 
+    /**
+     * How much faster than the closing speed one push may make the hull move at the point it pushes
+     * (a perfectly elastic two-body bounce reverses the closing speed: a change of twice it).
+     */
+    static final double SPEED_CHANGE_PER_CLOSING = 2.0;
+    /** The least change a push is always allowed (m/s): a slow contact still gets its small push. */
+    static final double MIN_SPEED_CHANGE = 0.5;
+
     private ShipImpulses() {
     }
 
@@ -95,26 +103,55 @@ public final class ShipImpulses {
         double approach = -fullstop.getPreImpactWorldVelocity().subtract(deck).dot(normal);
         if (approach < Math.max(minSpeed, 0.5)) return;
 
-        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0) || Double.isInfinite(shipKg)) return;
         ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(ship, shipKg, at, normal, approach, kg, frame, weightless);
         double total = exchange.impulse() * SERVER.fallImpactMultiplier.get();
         double topUp = total - fullstop.getRecentShipImpulse(entity.tickCount);
         if (!(topUp > 0.0)) return;
-        applyCapped(level, ship, normal.scale(-topUp), at);
+        applyCapped(level, ship, normal.scale(-topUp), at, approach);
         fullstop.markShipImpulse(entity.tickCount, IMPULSE_TOP_UP_TICKS, total);
     }
 
     /**
      * Queues an impulse (newton-seconds, world axes) at a world point, capped so that, delivered
-     * over one physics step, it never exceeds {@code maxForceNewtons}.
+     * over one physics step, it never exceeds {@code maxForceNewtons}, and so that it never changes
+     * the hull's speed at that point by more than the speed of sound (a push whose closing speed
+     * isn't known: see the other overload for one that is).
      *
      * @return the impulse actually queued (zero when nothing was)
      */
     public static Vec3 applyCapped(ServerLevel level, ShipRef ship, Vec3 impulse, Vec3 worldPoint) {
+        return applyCapped(level, ship, impulse, worldPoint, Double.NaN);
+    }
+
+    /**
+     * As above, for a push that answers a collision at {@code closingSpeed} (m/s): the push may change the
+     * hull's speed at the point by at most {@link #SPEED_CHANGE_PER_CLOSING} times that (never less than
+     * {@link #MIN_SPEED_CHANGE}), and never by more than the speed of sound unless the collision itself was
+     * that fast. The change is judged by the ship's EFFECTIVE mass at the point along the push
+     * ({@link ShipInertia}: a push at the edge of a small ship mostly spins it), so a tiny ship - whose levers
+     * and moments are scaled with it - can't be handed a push sized for a big one. This is what stopped a ship
+     * at 0.25 from spinning itself up on every contact until it left the world.
+     */
+    public static Vec3 applyCapped(ServerLevel level, ShipRef ship, Vec3 impulse, Vec3 worldPoint, double closingSpeed) {
         double magnitude = impulse.length();
         if (!(magnitude > 0.0) || !Double.isFinite(magnitude)) return Vec3.ZERO;
-        double cap = SERVER.maxForceNewtons.get() * PHYS_STEP_SECONDS;
+        double mass = ship.physicalMass();
+        if (!(mass > 0.0) || !Double.isFinite(mass)) return Vec3.ZERO;
+        double sound = net.camacraft.fullstop.server.physics.SonicBooms.SOUND_MPS;
+        double change;
+        if (Double.isFinite(closingSpeed)) {
+            double closing = Math.abs(closingSpeed);
+            change = Math.max(MIN_SPEED_CHANGE, SPEED_CHANGE_PER_CLOSING * closing);
+            if (closing < sound) change = Math.min(change, sound);
+        } else {
+            change = sound;
+        }
+        Vec3 direction = impulse.scale(1.0 / magnitude);
+        double effective = worldPoint == null ? mass : ShipInertia.effectiveMassKg(ship, mass, worldPoint, direction);
+        if (!(effective > 0.0) || !Double.isFinite(effective)) effective = mass;
+        double cap = Math.min(SERVER.maxForceNewtons.get() * PHYS_STEP_SECONDS, effective * change);
         Vec3 capped = magnitude > cap ? impulse.scale(cap / magnitude) : impulse;
         return ShipForces.applyImpulse(level, ship.id(), capped, worldPoint) ? capped : Vec3.ZERO;
     }

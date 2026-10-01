@@ -525,11 +525,67 @@ public final class ShipSpinTests {
         return villager;
     }
 
-    /** A floating ship spun up about y to {@code omega} and held there, its centre held still. */
+    /** The fastest the test motor spins a rotor up or down (rad/s^2). */
+    private static final double MAX_ALPHA = 60.0;
+    /** How fast the motor's bearing turns a tipped axis back to the vertical: rad/s per radian of tilt. */
+    private static final double RIGHTING_RATE = 4.0;
+    /** The share of the gap between a rotor's turn across its axis and that righting turn the bearing closes each physics step. */
+    private static final double RIGHTING_SHARE = 0.5;
+    /** The rotors the motor drives, by ship id (read on VS's physics thread). */
+    private static final java.util.Map<Long, Rotor> DRIVEN = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final net.minecraft.resources.ResourceLocation MOTOR = new net.minecraft.resources.ResourceLocation(FullStop.MODID, "gametest_motor");
+    private static boolean motorRegistered;
+
+    private static synchronized void ensureMotor() {
+        if (motorRegistered) return;
+        ShipForces.registerHook(MOTOR, ShipSpinTests::motor);
+        motorRegistered = true;
+    }
+
+    /**
+     * VS's physics thread, every step, every ship: the test motor and bearing of a driven rotor (see {@link Rotor}).
+     * The spin about the rotor's own axis is driven toward its target; whatever turn it has across that axis is
+     * replaced, half the gap a step, by the turn that brings the axis back to the vertical. (The first righting only
+     * pushed against the world's x and z spin: that damps how fast the axis moves, not where it points, so a 256 RPM
+     * rotor nudged off the vertical kept its tilt, coned round it, and after a few seconds of nudges tipped 70 degrees.)
+     */
+    private static void motor(net.camacraft.camafy.compat.vs.PhysBody body, double dt) {
+        Rotor rotor = DRIVEN.get(body.id());
+        if (rotor == null || !rotor.spinning || body.isStatic() || !(dt > 0.0)) return;
+        org.joml.Vector3d w = body.angularVelocity(new org.joml.Vector3d());
+        org.joml.Vector3d axis = body.dirToWorld(new org.joml.Vector3d(0.0, 1.0, 0.0));
+        if (!(axis.lengthSquared() > 1.0e-12)) return;
+        axis.normalize();
+        double spin = w.dot(axis);
+        double inertia = body.inertiaAbout(axis);
+        if (!(inertia > 0.0) || !Double.isFinite(inertia)) return;
+        double alpha = Math.max(-MAX_ALPHA, Math.min(MAX_ALPHA, (rotor.omega - spin) / dt));
+        org.joml.Vector3d torque = new org.joml.Vector3d(axis).mul(alpha * inertia);
+        // across the axis: the turn wanted brings it up (axis x up is sin(tilt) long), the turn it has goes
+        org.joml.Vector3d gap = new org.joml.Vector3d(axis).cross(0.0, 1.0, 0.0).mul(RIGHTING_RATE)
+                .sub(new org.joml.Vector3d(w).sub(new org.joml.Vector3d(axis).mul(spin)));
+        double gapLength = gap.length();
+        if (gapLength > 1.0e-9) {
+            double across = body.inertiaAbout(new org.joml.Vector3d(gap).div(gapLength));
+            if (across > 0.0 && Double.isFinite(across)) torque.add(gap.mul(RIGHTING_SHARE * across / dt));
+        }
+        if (Double.isFinite(torque.x) && Double.isFinite(torque.y) && Double.isFinite(torque.z)) body.applyTorque(torque);
+    }
+
+    /**
+     * A floating ship spun up about y to {@code omega} and held there, its centre held still.
+     *
+     * <p>The motor runs on Valkyrien Skies' physics thread, every physics step ({@link #motor}, a Camafy physics
+     * hook), with VS's own inertia: a torque that drives the spin about the rotor's axis toward {@code omega} (at most
+     * {@link #MAX_ALPHA}) and holds the axis upright like a bearing. It used to be an impulse from the server tick, once per new physics
+     * frame: whenever the server ticked slower than VS's 60 Hz physics (a busy test batch), the motor and the
+     * righting got fewer pushes than there were frames, VS's drag held a 256 RPM rotor near 16 rad/s, and an
+     * unrighted rotor tipped 70 degrees out of the plane its tests watch.</p>
+     */
     private static final class Rotor {
         final Rig rig;
         final double omega;
-        /** Moment of inertia about y per kg of mass (m^2). */
+        /** Moment of inertia about y per kg of mass (m^2): kept for the tests that read it; the motor uses VS's own. */
         final double inertiaPerKg;
         boolean spinning;
         long watchFrom = Long.MAX_VALUE;
@@ -538,7 +594,7 @@ public final class ShipSpinTests {
             this(rig, omega, inertiaPerKg, HORIZONTAL_INERTIA_PER_KG);
         }
 
-        /** Moment of inertia about a horizontal axis per kg (m^2): what the righting torque works against. */
+        /** Moment of inertia about a horizontal axis per kg (m^2). */
         final double horizontalInertiaPerKg;
 
         Rotor(Rig rig, double omega, double inertiaPerKg, double horizontalInertiaPerKg) {
@@ -548,32 +604,27 @@ public final class ShipSpinTests {
             this.horizontalInertiaPerKg = horizontalInertiaPerKg;
         }
 
+        /** The height the rotor's hub is held at. */
+        double hubY = Double.NaN;
+
         void start() {
             rig.hover();
+            hubY = rig.y();
             spinning = true;
+            ensureMotor();
+            DRIVEN.put(rig.ship.getId(), this);
         }
 
-        /**
-         * One tick of the test's motor: the centre held still, and once per physics frame an
-         * angular impulse that drives the spin about the vertical toward {@code omega} (at most
-         * 60 rad/s^2) and rights the axis (the reaction of a hit, or VS's integration at speed,
-         * can tip a free rotor; a real one sits on a bearing).
-         */
+        /** One server tick: the centre held still (the motor is on the physics thread), and how far the axis tipped. */
         void record() {
             if (!spinning) return;
-            rig.cruise(Vec3.ZERO, 20.0);
-            long now = rig.level.getGameTime();
-            ShipTracker.State state = ShipTracker.of(rig.level).get(rig.ship.getId(), now);
-            Vec3 w = rig.ref.angularVelocity();
+            // the hub held where it started: what the rotor's hits push up or down is brought back (a velocity
+            // hold alone left a clashing rotor two blocks above the arm it was meant to cross)
+            double y = rig.y();
+            double climb = Double.isFinite(hubY) && Double.isFinite(y) ? Math.max(-2.0, Math.min(2.0, (hubY - y) * 2.0)) : 0.0;
+            rig.cruise(new Vec3(0.0, climb, 0.0), 20.0);
             Vec3 up = rig.ref.dirToWorld(new Vec3(0.0, 1.0, 0.0));
-            double mass = rig.ref.mass();
-            if (w == null || up == null || state == null || !state.newFrame() || !Double.isFinite(mass)) return;
-            // Spin about the vertical toward omega; any spin about a horizontal axis (the axis
-            // tipping) is damped out.
-            double spinStep = Math.max(-1.0, Math.min(1.0, omega - w.y));
-            double across = 0.2 * mass * horizontalInertiaPerKg;
-            ShipForces.applyAngularImpulse(rig.level, rig.ship.getId(), new Vec3(-w.x * across, spinStep * mass * inertiaPerKg,
-                    -w.z * across));
+            if (up == null) return;
             double tipped = Math.toDegrees(Math.acos(Math.max(-1.0, Math.min(1.0, up.y))));
             tilt = Math.max(tilt, tipped);
             if (watching) watchTilt = Math.max(watchTilt, tipped);
@@ -749,11 +800,18 @@ public final class ShipSpinTests {
         int[] counts = new int[2];
         boolean[] driving = {false};
         helper.onEachTick(() -> {
-            if (driving[0] && striker.firstShipContact < 0) striker.cruise(new Vec3(speed, 0.0, 0.0), 150.0);
-            if (driving[0] && striker.firstShipContact >= 0) {
+            if (!driving[0]) return;
+            // driven up to speed, then coasting the last two blocks: the engine (on the physics thread, every step)
+            // would otherwise keep shoving through the impact and carry the raft along instead of striking it
+            net.minecraft.world.phys.AABB bow = striker.ref.worldAabb();
+            net.minecraft.world.phys.AABB target = raft.ref.worldAabb();
+            boolean close = bow != null && target != null && target.minX - bow.maxX < 2.0;
+            if (striker.firstShipContact >= 0 || close) {
                 striker.stopThrust();
                 driving[0] = false;
+                return;
             }
+            striker.cruise(new Vec3(speed, 0.0, 0.0), 150.0);
         });
         helper.startSequence()
                 .thenWaitUntil(striker::demandReady)
@@ -828,8 +886,10 @@ public final class ShipSpinTests {
         double stopAt = o.getX() + 0.5 + 13.0; // the drifter's middle: its tip then reaches three blocks into the sweep
         // two 3x3x17 arms crossed: about the axis (17^2 + 3^2) / 12 per kg, about a horizontal axis about half that
         Rotor rotor = new Rotor(spinner, omega, (17.0 * 17.0 + 3.0 * 3.0) / 12.0, 0.5 * (17.0 * 17.0 + 3.0 * 3.0) / 12.0);
+        boolean[] holding = {false};
         boolean[] drifting = {false};
         long[] watchFrom = {-1};
+        double[] driftY = {Double.NaN};
         int[] before = new int[2];
         double[] topSpin = {0.0};
         double[] nearest = {Double.POSITIVE_INFINITY};
@@ -841,10 +901,17 @@ public final class ShipSpinTests {
                 Vec3 w = spinner.ref.angularVelocity();
                 if (w != null) topSpin[0] = Math.max(topSpin[0], Math.abs(w.y));
             }
-            if (drifting[0]) {
+            if (holding[0]) {
                 double x = drifter.x();
-                nearest[0] = Math.min(nearest[0], x);
-                drifter.cruise(x > stopAt ? new Vec3(-1.0, 0.0, 0.0) : Vec3.ZERO, 5.0);
+                if (drifting[0]) nearest[0] = Math.min(nearest[0], x);
+                // held at the hub's height from the moment it hovers: it was let go with the rotor and kept the speed it
+                // fell at (a hover only cancels its weight), sinking onto the floor under the sweep while the rotor spun
+                // up, and the rotor's touches push it down too
+                double y = drifter.y();
+                if (Double.isNaN(driftY[0])) driftY[0] = Double.isFinite(rotor.hubY) ? rotor.hubY : y;
+                double climb = Double.isFinite(y) ? Math.max(-2.0, Math.min(2.0, (driftY[0] - y) * 2.0)) : 0.0;
+                // a firm engine (a bearing, as the owner's rotors sit on): the rotor's touches can't hold it off
+                drifter.cruise(new Vec3(drifting[0] && x > stopAt ? -1.0 : 0.0, climb, 0.0), 40.0);
                 // kept level: every spin the rotor's touches give it is damped out, once per physics frame
                 ShipTracker.State state = ShipTracker.of(level).get(drifter.ship.getId(), level.getGameTime());
                 Vec3 w = drifter.ref.angularVelocity();
@@ -868,6 +935,7 @@ public final class ShipSpinTests {
                 .thenExecute(() -> {
                     rotor.start();
                     drifter.hover();
+                    holding[0] = true;
                 })
                 .thenWaitUntil(() -> rotor.demandAtSpeed(0.85))
                 .thenExecute(() -> {

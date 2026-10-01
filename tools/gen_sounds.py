@@ -3,15 +3,16 @@
 Run from the mod's folder:  python tools/gen_sounds.py
 Writes src/main/resources/assets/fullstop/sounds/...
 
-ship/shock_train.ogg - the continuous shock train of a supersonic rotor (see ShipSonicBooms and
+ship/shock_crack.ogg - ONE shock of a supersonic rotor's train (see ShipSonicBooms and
 ShockTrainSounds). A rotor whose tips are past the speed of sound doesn't boom over and over: each
 tip drags its shock round with it, so a listener is swept by one shock per tip per turn - a train of
-booms at the blade-passing rate, which at a few a second is the harsh buzzing roar of a supersonic
-propeller (the XF-84H "Thunderscreech"). One second, eight pulses, seamless: the client pitches the
-loop to the rotor's own pulse rate (pulses per second over BASE_RATE). Each pulse is the N-wave of a
-boom (pressure leaps up, falls straight through zero, leaps up again), with the crack the air makes
-of it and a low thump under it, over a low roar between the shocks, all through a hard edge for the
-harmonics that make it tear rather than thud.
+cracks at the blade-passing rate, which at a few a second is the harsh buzzing roar of a supersonic
+propeller (the XF-84H "Thunderscreech"). The client plays this one-shot once per shock, exactly at
+the rotor's own cadence (turns a second times supersonic tips), so there is no loop and nothing to
+pitch a loop by: the cadence IS the rotor's, and speeding up or slowing down is heard as the cracks
+closing up or spreading out. One crack: the N-wave of a boom (pressure leaps up, falls straight
+through zero, leaps up again), the crack the air makes of it, a low thump under it and a short
+tail, through a hard edge for the harmonics that make it tear rather than thud. About 150 ms.
 """
 import os
 
@@ -19,7 +20,6 @@ import numpy as np
 import soundfile as sf
 
 SR = 44100
-BASE_RATE = 8.0  # pulses per second in the loop; ShockTrainSounds.BASE_RATE must match
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, "..", "src", "main", "resources", "assets", "fullstop", "sounds")
 
@@ -69,36 +69,34 @@ def add_wrapped(x, start, y):
     np.add.at(x, idx, y)
 
 
-def shock_train(rate=BASE_RATE, seconds=1.0, seed=7):
+def shock_crack(seconds=0.15, seed=7):
+    """One shock: N-wave, crack, thump and a short tail; the whole clip fades to nothing."""
     n = int(SR * seconds)
     rng = np.random.RandomState(seed)
     x = np.zeros(n)
-    pulses = int(round(rate * seconds))
-    period = n / pulses
     # the N-wave: 5 ms, as a boom's
     L = int(0.005 * SR)
-    nwave = np.linspace(1.0, -1.0, L)
+    x[:L] += np.linspace(1.0, -1.0, L)
     # the crack that comes with it: a burst of noise dying in 8 ms
     C = int(0.04 * SR)
     tc = np.arange(C) / SR
-    # the thump under it: 48 Hz, dying over 70 ms
-    T = int(0.25 * SR)
+    crack = rng.randn(C) * np.exp(-tc / 0.008)
+    x[:C] += fft_band(crack, lo=300, hi=6000) * 0.6
+    # the thump under it: 48 Hz, dying over 50 ms
+    T = min(n, int(0.12 * SR))
     tt = np.arange(T) / SR
-    for k in range(pulses):
-        s = int(round(k * period))
-        add_wrapped(x, s, nwave)
-        crack = rng.randn(C) * np.exp(-tc / 0.008)
-        add_wrapped(x, s, fft_band(crack, lo=300, hi=6000) * 0.6)
-        thump = np.sin(2 * np.pi * 48.0 * tt) * np.exp(-tt / 0.07)
-        add_wrapped(x, s, thump * 0.9)
-    # the roar between the shocks: a low band of brown noise, seamless
-    bed = seamless(fft_band(brown(int(n * 1.25), seed + 1), lo=35, hi=700))[:n]
-    bed /= float(np.max(np.abs(bed))) or 1.0
-    x += 0.15 * bed
+    x[:T] += np.sin(2 * np.pi * 48.0 * tt) * np.exp(-tt / 0.05) * 0.9
+    # the tail: the roar of the air behind the shock, dying over 40 ms
+    tail = fft_band(rng.randn(n), lo=35, hi=700)
+    tail /= float(np.max(np.abs(tail))) or 1.0
+    x += 0.15 * tail * np.exp(-np.arange(n) / SR / 0.04)
     # a hard edge on everything: the harmonics that make it tearing rather than thudding
     x = np.tanh(1.8 * x)
+    # to nothing at the end, so a crack that overlaps the next never clicks
+    f = int(0.02 * SR)
+    x[-f:] *= np.linspace(1.0, 0.0, f)
     return x
 
 
 if __name__ == "__main__":
-    save(os.path.join("ship", "shock_train"), shock_train())
+    save(os.path.join("ship", "shock_crack"), shock_crack())

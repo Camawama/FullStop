@@ -117,6 +117,10 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue maxHitLaunchSpeed;
         public final ForgeConfigSpec.DoubleValue gentlePushSpeed;
         public final ForgeConfigSpec.BooleanValue shipSonicBooms;
+        public final ForgeConfigSpec.BooleanValue pistonsPushShips;
+        public final ForgeConfigSpec.DoubleValue pistonPushMassKg;
+        public final ForgeConfigSpec.BooleanValue pistonStickyPulls;
+        public final ForgeConfigSpec.BooleanValue pistonShipReaction;
         public final ForgeConfigSpec.DoubleValue entityDamageMultiplier;
         public final ForgeConfigSpec.DoubleValue entityRestitution;
         public final ForgeConfigSpec.DoubleValue pinnedDamageMultiplier;
@@ -1067,6 +1071,44 @@ public class FullStopConfig {
                     .translation(key("debugShipContactLog"))
                     .comment("Default: false")
                     .define("debugShipContactLog", false);
+
+            builder.pop();
+            builder.comment("Pistons and Valkyrien Skies ships. A piston extending into a ship's hull pushes the ship a block, in",
+                            "step with its head; a sticky piston pulls it back a block when it retracts; a piston on a ship that",
+                            "pushes against the terrain (or another ship) shoves its own ship off it. Needs Valkyrien Skies and",
+                            "enableValkyrienSkiesCompat.")
+                    .push("Pistons");
+
+            this.pistonsPushShips = builder
+                    .comment("Pistons move ships: a world piston extending into a hull pushes the ship one block the way its head",
+                            "goes, over the two ticks the head takes, and a piston on a ship pushing into the terrain shoves the",
+                            "ship back the same way. Off: pistons pass through ships as Valkyrien Skies leaves them.")
+                    .translation(key("pistonsPushShips"))
+                    .comment("Default: true")
+                    .define("pistonsPushShips", true);
+
+            this.pistonPushMassKg = builder
+                    .comment("How heavy a ship (kg) one piston can move: by default the twelve oak planks a vanilla piston pushes",
+                            "(Valkyrien Skies' plank is 500 kg, its stone 2 t). Pistons pushing the same ship the same way add up,",
+                            "so a heavier ship needs more of them; a piston that can't move its ship doesn't extend, as against any",
+                            "immovable block. A ship scaled down is as heavy as its physics body (its blocks' mass times the cube",
+                            "of its scale).")
+                    .translation(key("pistonPushMassKg"))
+                    .comment("Default: 6000.0")
+                    .defineInRange("pistonPushMassKg", 6000.0, 0.0, 1.0e7);
+
+            this.pistonStickyPulls = builder
+                    .comment("A sticky piston whose head touches a ship pulls the ship back a block when it retracts.")
+                    .translation(key("pistonStickyPulls"))
+                    .comment("Default: true")
+                    .define("pistonStickyPulls", true);
+
+            this.pistonShipReaction = builder
+                    .comment("A piston on a ship that extends into the terrain (or another ship) shoves its own ship a block the",
+                            "other way, and a sticky one retracting from the terrain pulls its ship a block toward it.")
+                    .translation(key("pistonShipReaction"))
+                    .comment("Default: true")
+                    .define("pistonShipReaction", true);
 
             builder.pop();
             builder.comment("What happens to whatever rides a Valkyrien Skies ship when the ship changes speed or direction",

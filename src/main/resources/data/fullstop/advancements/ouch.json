@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:bone"
+    },
+    "title": {
+      "translate": "advancements.fullstop.ouch.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.ouch.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "ouch": {
+      "trigger": "fullstop:ouch"
+    }
+  },
+  "parent": "fullstop:root"
+}

@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:anvil"
+    },
+    "title": {
+      "translate": "advancements.fullstop.flattened.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.flattened.description"
+    },
+    "frame": "challenge",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": true
+  },
+  "criteria": {
+    "flattened": {
+      "trigger": "fullstop:flattened"
+    }
+  },
+  "parent": "fullstop:hit_by_a_ship"
+}

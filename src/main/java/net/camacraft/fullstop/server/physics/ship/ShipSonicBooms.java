@@ -84,7 +84,7 @@ final class ShipSonicBooms {
         double spin = state.angularVelocity().length();
         double rate = followed && tips > 0 ? spin / (2.0 * Math.PI) * tips : 0.0;
         boolean ridersHear = state.velocity().length() < SonicBooms.SOUND_MPS;
-        if (followed) SonicBooms.train(level, key, state.position(), rate, ridersHear);
+        if (followed) SonicBooms.train(level, key, state.position(), rate, fastest[1].length(), ridersHear);
         if (SERVER.debugShipCollisionLog.get()) {
             debug(level, ship, key, now, fastest[1].length(), spin, tips, rate, followed);
         }

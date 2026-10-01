@@ -1360,6 +1360,43 @@ public final class ShipCollisionTests {
     // Rigging
     // ------------------------------------------------------------------
 
+    /** The rigs whose engine is on, by ship id (read on VS's physics thread). */
+    private static final Map<Long, Rig> CRUISING = new ConcurrentHashMap<>();
+    private static final ResourceLocation CRUISE = new ResourceLocation(FullStop.MODID, "gametest_cruise");
+    private static boolean cruiseHooked;
+
+    private static synchronized void ensureCruise() {
+        if (cruiseHooked) return;
+        ShipForces.registerHook(CRUISE, ShipCollisionTests::cruiseStep);
+        cruiseHooked = true;
+    }
+
+    /**
+     * VS's physics thread, every step, every ship: the test engine of a cruising rig ({@link Rig#cruise}): a force
+     * of the ship's physical mass times the acceleration toward its target velocity (gain 20/s, the same as the old
+     * server-tick engine's), at most the rig's acceleration across and along the vertical.
+     */
+    private static void cruiseStep(net.camacraft.camafy.compat.vs.PhysBody body, double dt) {
+        Rig rig = CRUISING.get(body.id());
+        if (rig == null || body.isStatic()) return;
+        Vec3 target = rig.cruiseTarget;
+        double max = rig.cruiseAccel;
+        if (target == null) return;
+        org.joml.Vector3d v = body.velocity(new org.joml.Vector3d());
+        double scale = body.scale();
+        double mass = body.mass() * (scale > 0.0 && Double.isFinite(scale) ? scale * scale * scale : 1.0);
+        if (!(mass > 0.0) || !Double.isFinite(mass)) return;
+        double ex = (target.x - v.x) * 20.0, ey = (target.y - v.y) * 20.0, ez = (target.z - v.z) * 20.0;
+        double across = Math.sqrt(ex * ex + ez * ez);
+        if (across > max) {
+            ex *= max / across;
+            ez *= max / across;
+        }
+        ey = Math.max(-max, Math.min(max, ey));
+        org.joml.Vector3d force = new org.joml.Vector3d(ex * mass, ey * mass, ez * mass);
+        if (Double.isFinite(force.x) && Double.isFinite(force.y) && Double.isFinite(force.z)) body.applyForce(force);
+    }
+
     /** One test's ship, and everything VS reported about it. */
     static final class Rig {
         final GameTestHelper helper;
@@ -1606,7 +1643,7 @@ public final class ShipCollisionTests {
         void pin() {
             ship.setStatic(true);
             ShipForces.clearContinuous(level, ship.getId(), FLOAT);
-            ShipForces.clearContinuous(level, ship.getId(), THRUST);
+            stopThrust();
             playerList(level).remove(watcher);
         }
 
@@ -1619,26 +1656,29 @@ public final class ShipCollisionTests {
             start = ref.position();
         }
 
+        /** The cruise this rig's engine holds (null: off), read on VS's physics thread by {@link #cruiseStep}. */
+        volatile Vec3 cruiseTarget;
+        volatile double cruiseAccel;
+
         /**
-         * One tick of the test's engine: a continuous force driving the ship's velocity toward
-         * {@code target} (m/s), at most {@code maxAccel} m/s^2 across and, separately, along the
-         * vertical - against VS's air drag, or to speed up and slow down gently while holding
-         * height (on Jolt a floating raft otherwise sinks while it speeds up).
+         * The test's engine: drives the ship's velocity toward {@code target} (m/s), at most {@code maxAccel} m/s^2
+         * across and, separately, along the vertical - against VS's air drag, or to speed up and slow down gently
+         * while holding height (on Jolt a floating raft otherwise sinks while it speeds up). Tests call it every tick
+         * (the target can change); the force itself is worked out on VS's physics thread every physics step
+         * ({@link #cruiseStep}), from the velocity that step has. It used to be a continuous force set from the
+         * server tick: whenever physics frames came slower than server ticks (a busy test batch) it kept pushing on
+         * a stale velocity, and a striker meant to bump a raft at 6 m/s hit it at 24 and tipped over.
          */
         void cruise(Vec3 target, double maxAccel) {
-            Vec3 v = ref.velocity();
-            double mass = ref.mass();
-            if (v == null || !Double.isFinite(mass)) return;
-            Vec3 error = target.subtract(v).scale(20.0);
-            Vec3 across = new Vec3(error.x, 0.0, error.z);
-            double a = across.length();
-            if (a > maxAccel) across = across.scale(maxAccel / a);
-            double up = Math.max(-maxAccel, Math.min(maxAccel, error.y));
-            ShipForces.setContinuous(level, ship.getId(), THRUST, across.add(0.0, up, 0.0).scale(mass), null,
-                    ShipForces.UNTIL_CLEARED);
+            cruiseTarget = target;
+            cruiseAccel = maxAccel;
+            ensureCruise();
+            CRUISING.put(ship.getId(), this);
         }
 
         void stopThrust() {
+            cruiseTarget = null;
+            CRUISING.remove(ship.getId());
             ShipForces.clearContinuous(level, ship.getId(), THRUST);
         }
 

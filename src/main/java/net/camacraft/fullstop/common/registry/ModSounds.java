@@ -14,12 +14,12 @@ public final class ModSounds {
     public static final DeferredRegister<SoundEvent> SOUNDS = DeferredRegister.create(ForgeRegistries.SOUND_EVENTS, FullStop.MODID);
 
     /**
-     * The continuous shock train of a supersonic rotor: a one-second loop of eight pulses that the client
-     * pitches to the rotor's own pulse rate ({@code client.sound.ShockTrainSounds}). Its range grows with the
-     * volume it is played at (a variable-range event).
+     * One shock of a supersonic rotor's train: a 150 ms crack the client plays once per shock, at the rotor's
+     * own cadence ({@code client.sound.ShockTrainSounds}). Its range grows with the volume it is played at (a
+     * variable-range event; 192 blocks in {@code sounds.json}).
      */
-    public static final RegistryObject<SoundEvent> SHIP_SHOCK_TRAIN = SOUNDS.register("ship.shock_train",
-            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(FullStop.MODID, "ship.shock_train")));
+    public static final RegistryObject<SoundEvent> SHIP_SHOCK_CRACK = SOUNDS.register("ship.shock_crack",
+            () -> SoundEvent.createVariableRangeEvent(new ResourceLocation(FullStop.MODID, "ship.shock_crack")));
 
     private ModSounds() {
     }

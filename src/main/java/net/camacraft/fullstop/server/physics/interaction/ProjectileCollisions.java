@@ -294,6 +294,10 @@ public final class ProjectileCollisions {
         apply(level, a, b.p, changeA, point);
         apply(level, b, a.p, changeB, point);
         if (!breaks) clack(level, a, b, point, c.closing());
+        // "Mid-air collision": two of one player's own projectiles met
+        if (a.p.getOwner() instanceof net.minecraft.server.level.ServerPlayer shooter && b.p.getOwner() == shooter) {
+            net.camacraft.fullstop.advancement.FullStopTriggers.MID_AIR_COLLISION.trigger(shooter);
+        }
 
         long tick = level.getGameTime();
         LAST.put(a.p, new Record(tick, b.p, n, c.closing(), e, a.kg, b.kg, carriedA, changeA, a.kind == Kind.BREAKS));

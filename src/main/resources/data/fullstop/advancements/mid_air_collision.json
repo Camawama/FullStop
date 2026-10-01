@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:arrow"
+    },
+    "title": {
+      "translate": "advancements.fullstop.mid_air_collision.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.mid_air_collision.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "mid_air_collision": {
+      "trigger": "fullstop:mid_air_collision"
+    }
+  },
+  "parent": "fullstop:root"
+}

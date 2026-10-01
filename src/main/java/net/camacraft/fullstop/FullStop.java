@@ -75,12 +75,14 @@ public class FullStop
         // Knockback carries a Pehkui-resized entity as far as a normal-size one (scaledKnockback).
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.ScaledKnockback.class);
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.SonicBooms.class);
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.advancement.AdvancementEvents.class);
         MinecraftForge.EVENT_BUS.register(GravityBlockHandler.class);
         MinecraftForge.EVENT_BUS.register(PressureHandler.class);
         MinecraftForge.EVENT_BUS.register(BlockPhasing.class);
         MinecraftForge.EVENT_BUS.register(FullStopCapability.class);
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
         MinecraftForge.EVENT_BUS.register(ShipWeightHandler.class);
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.ship.ShipPistons.class);
         MinecraftForge.EVENT_BUS.addListener((RegisterCommandsEvent e) -> FullStopCommand.register(e.getDispatcher()));
 
         // WeightRS's weight model into Camafy's config, before any config loads.
@@ -94,6 +96,7 @@ public class FullStop
     private void commonSetup(final FMLCommonSetupEvent event) {
         event.enqueueWork(() -> {
             PacketHandler.register();
+            net.camacraft.fullstop.advancement.FullStopTriggers.register();
             ModPotions.registerBrewingRecipes();
             // Each ship's inertia, read on VS's physics thread (a no-op without VS).
             ShipInertia.register();

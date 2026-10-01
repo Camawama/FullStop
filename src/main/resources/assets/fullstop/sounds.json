@@ -1,9 +1,9 @@
 {
-  "ship.shock_train": {
-    "subtitle": "subtitles.fullstop.ship.shock_train",
+  "ship.shock_crack": {
+    "subtitle": "subtitles.fullstop.ship.shock_crack",
     "sounds": [
       {
-        "name": "fullstop:ship/shock_train",
+        "name": "fullstop:ship/shock_crack",
         "stream": false,
         "attenuation_distance": 192
       }

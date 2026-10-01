@@ -24,7 +24,8 @@ public class PacketHandler {
     //    mode also reaches the local player itself; GForcePacket (a seated rider's g on a ship).
     // 7: ShipReleasePacket (the client let go of a ship's deck until it lands).
     // 8: ShockTrainPacket (the continuous shock train of a supersonic rotor, to its listeners).
-    private static final String PROTOCOL_VERSION = "8";
+    // 9: ShockTrainPacket carries the tips' Mach number too (the cracks' pitch and loudness).
+    private static final String PROTOCOL_VERSION = "9";
     private static int messageID = 0;
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(

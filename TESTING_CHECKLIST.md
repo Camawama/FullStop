@@ -581,6 +581,26 @@ Optional: `debugShipCollisionLog = true` (the lines "shock train ON/OFF", "no sh
 - [ ] **A ship set down on a stone or wooden pressure plate.** *Expect:* pressed while it rests there, released once lifted. **A gold plate:** a four-plank raft (2 t) gives 2 (one level per tonne), an obsidian cube 15; **iron:** ten times the mass per level.
 - [ ] **`shipRedstone` off.** *Expect:* ships press nothing; what they held is let go.
 
+## 41. Advancements and the button click (round 8) `[FIX]`
+
+- [ ] **The click:** shoot an arrow into a wooden button, or crash a mob into a stone one. The button's press click plays at once (before, only the release clicked twenty ticks later); a sculk sensor nearby notices the press.
+- [ ] **Advancements tab** (the elytra icon): take a hard landing (*Ouch, that hurts!*); land from 50+ m/s and live (*Terminal velocity*); belly flop into water from high (*Belly flop*); drop onto slime from 20+ blocks (*Bouncy*); land hard enough to dig a crater (*Crater maker*); get hit by a ship and live (*Hit by a ship*); get killed by one (*Flattened*, hidden until then); hear a sonic boom (*Boom*); stand ten seconds within 32 blocks of a supersonic rotor's roar (*Thunderscreech*); shoot two arrows into each other (*Mid-air collision*).
+- [ ] Each toasts once and shows in the advancements screen under FullStop; none fires for a creative player who can't be hurt (the damage ones need damage to land).
+
+## 42. Cracks instead of a roar, tiny ships, pistons (round 8) `[VS]` `[FIX]`
+
+Optional: `debugShipCollisionLog = true` ("shock train ON/OFF", "piston: ship N ... one block along ...", "piston: ship N is too heavy for K piston(s)").
+
+- [ ] **A rotor whose tips pass 343 m/s** (at 256 RPM a tip 13+ blocks out: a 16-block arm on a bearing at its end). *Expect:* one boom as the tips go supersonic, then a train of separate cracks at exactly the blade-passing rate (two tips at 256 RPM: 8.5 a second), closing up as the rotor speeds up and spreading out as it slows, with no loop and no jump in pitch; past 15 cracks a second one every tick, rising in pitch. Slow the bearing down: the cracks spread out and stop once the tips stay under 90% of 343 for a second. On the ship it is loud; 96 blocks away half as loud.
+- [ ] **`/vs scale <ship> 0.25` on a one-block ship, then drop it on grass, roll it, push it against walls and onto slime.** *Expect:* Full Stop no longer launches it (its pushes were 64 times too strong at 0.25): it lands and its slime bounce is about 0.9 of its landing speed. Valkyrien Skies' own physics may still throw a ship scaled this far down (seen in the tests with Full Stop's responses off: a rolling quarter-scale block sped up by itself and sank through the floor); if it does, try the same with `/fullstop` ship collisions off to tell whose it is. (Needs Camafy 0.1.18.)
+- [ ] **A piston in the world with its head against a raft's side, powered.** *Expect:* the raft moves one block the way the head goes, with the head, and stops with it (not slowly oozing out of the head afterwards). Blocks in front of the piston pushing on the raft: the same.
+- [ ] **A sticky piston, powered then unpowered.** *Expect:* the raft comes back one block as the head clears (a moment after it starts retracting). Against a ship too heavy to pull, the piston still retracts and leaves the ship.
+- [ ] **A piston on a ship, facing a wall, powered.** *Expect:* the ship is shoved a block away from the wall as the head extends (a sticky one pulls it back a block as the head retracts). Facing another ship: the other ship is pushed a block.
+- [ ] **A heavy ship (more than `pistonPushMassKg` per piston, 6 t: a 5x5 plank deck is 12.5 t; a 3x3 plank raft, 4.5 t, moves with one).** *Expect:* one or two pistons don't extend at all against the deck (the debug line says how many it needs); three move it. A pinned (`/vs set-static`) ship: no piston extends into it.
+- [ ] **A mob standing on a raft that stops dead against a wall.** *Expect:* the mob is thrown forward off the deck (it stayed put before: a counter that never said "long ago").
+- [ ] **An obsidian (or any heavy) ship rammed into a floating plank raft at about 20 m/s, once on a quiet world and once while the server is busy** (another big contraption running, or spark showing ticks over 50 ms). *Expect:* planks break at the contact both times (on a busy server the crash used to be judged at the speed of the frames the game happened to see, under 5 m/s, and nothing broke). Needs Camafy 0.1.18.
+- [ ] **`pistonsPushShips` off.** *Expect:* pistons extend into hulls and ships ooze out of them, as VS does by itself.
+
 ## Known cosmetic gaps (not bugs — no need to test)
 
 - Clarity/Vertigo effect icons are still missing textures (art needed at

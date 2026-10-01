@@ -362,6 +362,9 @@ public class KineticBlockInteractions {
             if (mayGrief) {
                 Crater crater = craterPass(level, entity, impactVelocity, velocityMag, kineticEnergy, impactedHits);
                 if (crater != null && crater.blocks() > 0) {
+                    if (entity instanceof net.minecraft.server.level.ServerPlayer player) {
+                        net.camacraft.fullstop.advancement.FullStopTriggers.CRATER_MAKER.trigger(player);
+                    }
                     kineticEnergy = crater.energyLeft();
                     smashDamage += crater.smashDamage();
                     blockBroken = true;
@@ -424,7 +427,7 @@ public class KineticBlockInteractions {
                 continue;
             } else if (block instanceof ButtonBlock button) {
                 if (mayPressButton(entity, button) && !state.getValue(BlockStateProperties.POWERED)) {
-                    button.press(state, level, pos);
+                    pressButton(level, pos, state, button, entity);
                 }
                 continue;
             } else if (block instanceof BellBlock bell) {
@@ -824,8 +827,18 @@ public class KineticBlockInteractions {
             AABB buttonBox = shape.bounds().move(pos);
             if (!swept.intersects(buttonBox)) continue;
 
-            button.press(state, level, pos.immutable());
+            pressButton(level, pos.immutable(), state, button, entity);
         }
+    }
+
+    /**
+     * Presses a button the way a player's use or an arrow's hit does: the press, its click (vanilla's
+     * {@code press} is silent; only the release later clicked) and the game event for sculk sensors.
+     */
+    private static void pressButton(Level level, BlockPos pos, BlockState state, ButtonBlock button, Entity by) {
+        button.press(state, level, pos);
+        ((ButtonBlockAccessor) button).fullstop$playSound(null, level, pos, true);
+        level.gameEvent(by, net.minecraft.world.level.gameevent.GameEvent.BLOCK_ACTIVATE, pos);
     }
 
     /** The last crater {@code entity} dug, or null (game tests). */

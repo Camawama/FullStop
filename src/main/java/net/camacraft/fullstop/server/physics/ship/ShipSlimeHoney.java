@@ -303,6 +303,9 @@ public final class ShipSlimeHoney {
                 vec(pending.point), vec(pending.normal), fmt(pending.target));
     }
 
+    /** The least closing speed a bounce is sized by (m/s): a crash met slower than this still bounces that much. */
+    private static final double MIN_BOUNCE_CLOSING = 1.0;
+
     private static boolean coolingDown(ServerLevel level, long key, long now) {
         Map<Long, Long> map = COOLDOWN.get(level);
         if (map == null) return false;
@@ -386,11 +389,13 @@ public final class ShipSlimeHoney {
         double impulse = wanted / inverse;
         Vec3 j = direction.scale(impulse);
         double given = 0.0;
+        // a bounce answers the crash it met; honey only takes out motion there is, so its bound is that motion
+        double met = Math.max(Math.max(Math.abs(p.met), MIN_BOUNCE_CLOSING), p.target > 0.0 ? 0.0 : wanted);
         if (Double.isFinite(massA)) {
-            given = ShipImpulses.applyCapped(level, a, j, p.throughCentre ? stateA.position() : p.point).length();
+            given = ShipImpulses.applyCapped(level, a, j, p.throughCentre ? stateA.position() : p.point, met).length();
         }
         if (b != null && Double.isFinite(massB)) {
-            given = Math.max(given, ShipImpulses.applyCapped(level, b, j.scale(-1.0), p.throughCentre ? stateB.position() : p.point).length());
+            given = Math.max(given, ShipImpulses.applyCapped(level, b, j.scale(-1.0), p.throughCentre ? stateB.position() : p.point, met).length());
         }
         if (p.throughCentre && !p.applied) {
             // slime grips as it springs back: part of the spin goes with the bounce

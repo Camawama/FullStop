@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:tnt"
+    },
+    "title": {
+      "translate": "advancements.fullstop.boom.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.boom.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "boom": {
+      "trigger": "fullstop:boom"
+    }
+  },
+  "parent": "fullstop:root"
+}

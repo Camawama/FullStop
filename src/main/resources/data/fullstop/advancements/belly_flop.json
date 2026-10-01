@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:water_bucket"
+    },
+    "title": {
+      "translate": "advancements.fullstop.belly_flop.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.belly_flop.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "belly_flop": {
+      "trigger": "fullstop:belly_flop"
+    }
+  },
+  "parent": "fullstop:ouch"
+}

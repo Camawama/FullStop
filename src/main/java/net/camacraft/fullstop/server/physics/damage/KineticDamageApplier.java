@@ -79,6 +79,12 @@ public class KineticDamageApplier {
         if (anyHurt) {
             fullstop.markDamageApplied(entity.tickCount, DAMAGE_COOLDOWN_TICKS, totalThisImpact);
         }
+        // "Terminal velocity": a landing from a fall at 50 m/s or more, lived through.
+        if (entity instanceof net.minecraft.server.level.ServerPlayer player && player.isAlive()
+                && collision.collisionType != Collision.CollisionType.ENTITY && fullstop.isFall()
+                && previousSpeed >= net.camacraft.fullstop.advancement.FullStopTriggers.TERMINAL_VELOCITY_MPS) {
+            net.camacraft.fullstop.advancement.FullStopTriggers.TERMINAL_VELOCITY.trigger(player);
+        }
         return anyHurt;
     }
 
@@ -124,6 +130,9 @@ public class KineticDamageApplier {
             }
             if (selfDamage > 0) {
                 anyHurt |= entity.hurt(customSource, selfDamage);
+                if (waterFlop && anyHurt && entity instanceof net.minecraft.server.level.ServerPlayer player && player.isAlive()) {
+                    net.camacraft.fullstop.advancement.FullStopTriggers.BELLY_FLOP.trigger(player);
+                }
             }
 
             float passengerDamage = (float) damage * 0.5f;

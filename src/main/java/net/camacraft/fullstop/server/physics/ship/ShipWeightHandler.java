@@ -147,7 +147,7 @@ public final class ShipWeightHandler {
                 if (cap == null || !cap.isShipFeedbackBlocked(ship.id(), now)) {
                     double impactSpeed = Units.bptToMps(-previousVy);
                     double impulse = deckImpulse(ship, pos, down.scale(-1.0), impactSpeed, kg);
-                    ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.fallImpactMultiplier.get()), pos);
+                    ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.fallImpactMultiplier.get()), pos, impactSpeed);
                 }
                 landed(entity);
             }
@@ -278,7 +278,7 @@ public final class ShipWeightHandler {
         double jumpSpeed = Units.bptToMps(jumpBpt);
         Vec3 down = frame.up().scale(-1);
         double impulse = deckImpulse(ship, entity.position(), frame.up(), jumpSpeed, kg);
-        ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.jumpImpulseMultiplier.get()), entity.position());
+        ShipImpulses.applyCapped(level, ship, down.scale(impulse * SERVER.jumpImpulseMultiplier.get()), entity.position(), jumpSpeed);
     }
 
     /**
@@ -288,7 +288,7 @@ public final class ShipWeightHandler {
      * gives way, and is pushed no faster at that point than the rider was moving.
      */
     private static double deckImpulse(ShipRef ship, Vec3 at, Vec3 up, double speed, double kg) {
-        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
         double effective = ShipInertia.effectiveMassKg(ship, shipKg, at, up);
         return ShipContactPhysics.resolve(speed, kg, effective, 0.0).impulse();

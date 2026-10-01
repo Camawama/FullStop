@@ -61,6 +61,25 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
 - 📦 **Data-Driven Tags:** Block behaviors (fragile, crackable, cushioning, phaseable, engulfing, gravity-affected, slowing, and more) are plain block tags under `data/fullstop/tags/`, so datapacks and other mods can customize everything without code. Entity tags too: blacklist modded entities from FullStop physics entirely (`fullstop:physics_blacklist`), or opt modded projectiles like grappling hooks into the full physics — bounces, block breaking, collision damage (`fullstop:physics_projectiles`).
 - 🛠️ **Debug Mode:** Press `F3 + V` to visualize collision raycasts in real time. Red rays are collision-grade hits, yellow means touching, green is clear. Moving Valkyrien Skies ships show the same rays, from their corners, face centres and centre of mass along each point's velocity (so a turning ship's rays fan out). Projectiles show the path they swept this tick, as thick as their body, and a thinner line where they go next: cyan for arrows and tridents, orange for everything else, grey for one FullStop leaves alone.
 
+### Advancements
+
+A tab of its own (the elytra), each earned by something FullStop itself judged:
+
+| Advancement | Earned by |
+| --- | --- |
+| Ouch, that hurts! | Your first kinetic damage |
+| Terminal velocity | Landing from a fall at 50 m/s or faster, and living |
+| Belly flop | Hitting the water flat, hard enough to hurt |
+| Bouncy | Bouncing off slime at 20 m/s or faster |
+| Crater maker | Your own impact opening a crater |
+| Hit by a ship | A Valkyrien Skies ship's hit, survived |
+| Flattened | Killed by a ship (hidden until it happens) |
+| Boom | A sonic boom reaching you |
+| Thunderscreech | Ten seconds within 32 blocks of a supersonic rotor's roar |
+| Mid-air collision | Two of your own projectiles meeting in the air |
+
+The triggers are plain criteria (`fullstop:<name>`), so a data pack can reuse them in its own advancements.
+
 ## Configuration
 Nearly everything is tunable in the server config (per world: `<world>/serverconfig/fullstop-server.toml`): damage thresholds, block breaking (and the craters a wide body leaves: `impactCraters`, `impactCraterMaxRadius`, `impactCraterMaxDepth`), each kinetic interaction (doors, buttons, note blocks, bells, sand blasting), pressure simulation, phasing speed, and Valkyrien Skies / Gravity Unbound compat. Entity weights come from Camafy's shared weight model (`config/camafy-weight.toml`). The G-force thresholds (effect start, blackout, spin nausea: `spinNauseaThreshold`, 15 degrees a tick, and `spinNauseaTurns`, 2 turns of sustained spinning past it) are server settings — they are gameplay, shifted per player by the Clarity and Vertigo potions. Client config covers only the bounce camera (including an elytra-only mode).
 
@@ -78,7 +97,8 @@ With Valkyrien Skies installed (and `enableValkyrienSkiesCompat` on) two more se
 
   Redstone (`shipRedstone`, on): a hull touching a button presses it and holds it down while it stays; a hull resting on a pressure plate holds it down, stone plates included, a weighted plate by the ship's mass (`shipWeightedPlateKgPerSignal`: a tonne per level on gold, ten times that on iron, at most 15). Each ship looks for buttons and plates within a block of its bounds every ten ticks and tests its hull against them every tick.
 
-  Sonic booms and the roar (`shipSonicBooms`, on): any part of a hull faster than sound (343 m/s) booms once for each listener, heard when the shock reaches them and from where it came, up to 192 blocks off; a rotor whose tips stay supersonic then makes a continuous shock train, a harsh buzzing roar at turns per second times supersonic tips, loud on the ship and audible 192 blocks off (half as loud at 96), fading once the tips stay under 90% of the barrier for a second. A tip's speed is the spin in rad/s (RPM x 0.105) times its distance from the axis: at 256 RPM a tip 13 blocks out or more; a 3x3x16 arm spun about its middle (tips 8 out, 214 m/s) makes neither, and `debugShipCollisionLog` says so every three seconds. Nothing booms where there is no air (VS Genesis's space).
+  Sonic booms and the roar (`shipSonicBooms`, on): any part of a hull faster than sound (343 m/s) booms once for each listener, heard when the shock reaches them and from where it came, up to 192 blocks off; a rotor whose tips stay supersonic then makes a continuous shock train: one crack per shock (a 150 ms N-wave, `ship.shock_crack`), played at the rotor's own cadence - turns a second times supersonic tips, a two-tip rotor at 256 RPM every 118 ms - so it is heard as a harsh buzzing roar that follows every change of speed at once, one crack a tick at rising pitch past 15 a second; deeper just over the barrier, sharper and louder well past it; loud on the ship and audible 192 blocks off (half as loud at 96), ending once the tips stay under 90% of the barrier for a second. A tip's speed is the spin in rad/s (RPM x 0.105) times its distance from the axis: at 256 RPM a tip 13 blocks out or more; a 3x3x16 arm spun about its middle (tips 8 out, 214 m/s) makes neither, and `debugShipCollisionLog` says so every three seconds. Nothing booms where there is no air (VS Genesis's space).
+  Pistons move ships (`pistonsPushShips`, on): a world piston extending into a hull pushes the ship one block in step with its head, a sticky one pulls it back a block as its head clears when it retracts (one too heavy is left where it is), a piston on a ship pushing into the terrain shoves its ship a block the other way (`pistonShipReaction`), and the blocks a piston pushes count as its head. One piston moves up to `pistonPushMassKg` (6 t, the twelve oak planks a vanilla piston pushes); pistons pushing the same ship the same way add up, and a group that can't move its ship doesn't extend. Pinned (static) ships don't move; a scaled ship weighs what its physics body does.
 
   Sound: a ship hitting terrain or another ship plays BOTH blocks' own sounds at the contact (a stone cube on grass: grass and stone), louder and higher-pitched the faster the hit (a heavier ship sounds a little louder and deeper), with block-crack particles on harder hits. Only new contacts sound, so resting and sliding ships stay quiet; breaking can be off.
 

@@ -1,0 +1,23 @@
+{
+  "display": {
+    "icon": {
+      "item": "minecraft:slime_ball"
+    },
+    "title": {
+      "translate": "advancements.fullstop.bouncy.title"
+    },
+    "description": {
+      "translate": "advancements.fullstop.bouncy.description"
+    },
+    "frame": "task",
+    "show_toast": true,
+    "announce_to_chat": true,
+    "hidden": false
+  },
+  "criteria": {
+    "bouncy": {
+      "trigger": "fullstop:bouncy"
+    }
+  },
+  "parent": "fullstop:ouch"
+}

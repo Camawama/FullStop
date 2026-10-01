@@ -18,6 +18,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.AttachFace;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.PlayLevelSoundEvent;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
 import org.slf4j.Logger;
@@ -100,6 +106,36 @@ public final class ButtonPressTests {
                 .thenExecute(() -> {
                     report("a pig at 20 m/s into a stone button", "pressed");
                     pig[0].discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * The click: an arrow pressing an oak button plays the button's own press sound. FullStop's press was vanilla's
+     * silent {@code press} (only the release clicked, twenty ticks later); it now clicks as a player's use does.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void anArrowPressingAnOakButtonClicks(GameTestHelper helper) {
+        BlockPos o = lane(helper, 3);
+        ServerLevel level = helper.getLevel();
+        BlockPos button = rig(level, o, Blocks.OAK_BUTTON);
+        Entity[] arrow = new Entity[1];
+        List<String> heard = new ArrayList<>();
+        Consumer<PlayLevelSoundEvent.AtPosition> ear = event -> {
+            if (event.getLevel() != level) return;
+            if (event.getPosition().distanceToSqr(Vec3.atCenterOf(button)) > 4.0) return;
+            heard.add(event.getSound().value().getLocation().toString());
+        };
+        MinecraftForge.EVENT_BUS.addListener(ear);
+        whenTicking(helper, o)
+                .thenExecute(() -> arrow[0] = arrow(level, air(o, 0.0, 1.5, 0.0), new Vec3(1.5, 0.0, 0.0)))
+                .thenWaitUntil(() -> helper.assertTrue(powered(level, button), "the oak button isn't pressed yet"))
+                .thenExecute(() -> {
+                    MinecraftForge.EVENT_BUS.unregister(ear);
+                    String click = SoundEvents.WOODEN_BUTTON_CLICK_ON.getLocation().toString();
+                    report("an arrow at 30 m/s pressing an oak button", "sounds at the button: " + heard);
+                    helper.assertTrue(heard.contains(click), "the press played no click: " + heard);
+                    arrow[0].discard();
                 })
                 .thenSucceed();
     }

@@ -50,7 +50,7 @@ import java.util.function.Predicate;
  * a few a second the harsh buzzing roar of a supersonic propeller (the XF-84H "Thunderscreech"). While a source's
  * stretch is live and it pulses ({@link #train}: turns a second times supersonic tips, from {@code ShipSonicBooms}),
  * every listener within {@link #TRAIN_RANGE} is sent the train's rate and place ({@link ShockTrainPacket}: at first,
- * every {@link #TRAIN_RESEND_TICKS}, and when the rate changes) and plays it as a loop pitched to that rate; when the
+ * every {@link #TRAIN_RESEND_TICKS}, and when the rate or the tips' speed changes) and plays one crack per shock at that cadence; when the
  * stretch ends, or the listener moves out of range, it is told to stop. A body flying straight and fast pulses
  * nothing: it booms once as it passes. Riders hear a rotor's train (the hub of a rotor is swept by its tips' shocks
  * like anywhere else) but not the train of a ship that itself flies supersonic (they are inside its cone).</p>
@@ -115,6 +115,8 @@ public final class SonicBooms {
     /** The shock train a source makes while its stretch is live: its rate (pulses a second, 0: none) and where it is. */
     private static final class Train {
         double rate;
+        /** The fastest tip's speed over the speed of sound. */
+        double mach = 1.0;
         Vec3 at = Vec3.ZERO;
         boolean ridersHear;
     }
@@ -132,8 +134,9 @@ public final class SonicBooms {
         Train train;
         /** Who is playing the train, and the tick each was last told about it. */
         final Map<UUID, Long> listening = new HashMap<>();
-        /** The rate the listeners were last told. */
+        /** The rate and Mach number the listeners were last told. */
         double sentRate = -1.0;
+        double sentMach = -1.0;
     }
 
     private static final Map<ServerLevel, Map<Key, Source>> SOURCES = new WeakHashMap<>();
@@ -206,15 +209,17 @@ public final class SonicBooms {
      * The shock train a source makes this tick (see the class notes): {@code pulsesPerSecond} shocks sweep a listener
      * each second (0: none), from {@code at} (world). Only heard while the source's stretch is live.
      *
+     * @param tipSpeed   how fast the fastest tip moves (m/s): the cracks' pitch and bite grow past the barrier
      * @param ridersHear whether the listeners riding the source hear it too (a rotor's hub: yes; a ship flying
      *                   supersonic as a whole: no, they are inside its cone)
      */
-    public static void train(ServerLevel level, Key key, Vec3 at, double pulsesPerSecond, boolean ridersHear) {
+    public static void train(ServerLevel level, Key key, Vec3 at, double pulsesPerSecond, double tipSpeed, boolean ridersHear) {
         Map<Key, Source> sources = SOURCES.get(level);
         Source source = sources == null ? null : sources.get(key);
         if (source == null) return;
         if (source.train == null) source.train = new Train();
         source.train.rate = Math.max(0.0, pulsesPerSecond);
+        source.train.mach = Math.max(0.0, tipSpeed / SOUND_MPS);
         source.train.at = at;
         source.train.ridersHear = ridersHear;
     }
@@ -298,24 +303,32 @@ public final class SonicBooms {
         Stretch live = source.live;
         boolean on = train != null && live != null && train.rate > 0.0;
         if (!on && source.listening.isEmpty()) return;
-        boolean rateChanged = on && Math.abs(train.rate - source.sentRate) > 0.05 * Math.max(source.sentRate, 0.1);
+        boolean rateChanged = on && (Math.abs(train.rate - source.sentRate) > 0.05 * Math.max(source.sentRate, 0.1)
+                || Math.abs(train.mach - source.sentMach) > 0.05 * Math.max(source.sentMach, 0.1));
         for (ServerPlayer listener : level.players()) {
             UUID id = listener.getUUID();
             Long last = source.listening.get(id);
             boolean should = on && !listener.isSpectator() && listener.getEyePosition().distanceToSqr(train.at) <= TRAIN_RANGE * TRAIN_RANGE
                     && (train.ridersHear || !live.aboard.test(listener));
+            if (on && !listener.isSpectator() && listener.getEyePosition().distanceToSqr(train.at)
+                    <= net.camacraft.fullstop.advancement.FullStopTriggers.THUNDERSCREECH_RANGE_SQ) {
+                net.camacraft.fullstop.advancement.FullStopTriggers.trainNear(listener, now); // "Thunderscreech"
+            }
             if (should) {
                 if (last == null || rateChanged || now - last >= TRAIN_RESEND_TICKS) {
                     PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), true, (float) train.rate,
-                            train.at.x, train.at.y, train.at.z, TRAIN_LOUDNESS));
+                            train.at.x, train.at.y, train.at.z, TRAIN_LOUDNESS, (float) train.mach));
                     source.listening.put(id, now);
                 }
             } else if (last != null) {
                 source.listening.remove(id);
-                PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), false, 0.0f, 0.0, 0.0, 0.0, 0.0f));
+                PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), false, 0.0f, 0.0, 0.0, 0.0, 0.0f, 0.0f));
             }
         }
-        if (on) source.sentRate = train.rate;
+        if (on) {
+            source.sentRate = train.rate;
+            source.sentMach = train.mach;
+        }
         // listeners who left the server
         source.listening.keySet().removeIf(id -> level.getServer().getPlayerList().getPlayer(id) == null);
     }
@@ -324,7 +337,7 @@ public final class SonicBooms {
         for (UUID id : source.listening.keySet()) {
             ServerPlayer listener = level.getServer().getPlayerList().getPlayer(id);
             if (listener != null) {
-                PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), false, 0.0f, 0.0, 0.0, 0.0, 0.0f));
+                PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), false, 0.0f, 0.0, 0.0, 0.0, 0.0f, 0.0f));
             }
         }
         source.listening.clear();
@@ -336,6 +349,7 @@ public final class SonicBooms {
         float crack = (0.72f + (level.random.nextFloat() - level.random.nextFloat()) * 0.06f) * (1.0f - 0.15f * far);
         send(listener, SoundEvents.GENERIC_EXPLODE, from, crack, level.random.nextLong());
         send(listener, SoundEvents.WARDEN_SONIC_BOOM, from, 2.0f - 0.4f * far, level.random.nextLong());
+        net.camacraft.fullstop.advancement.FullStopTriggers.BOOM.trigger(listener);
     }
 
     private static void send(ServerPlayer listener, SoundEvent sound, Vec3 at, float pitch, long seed) {

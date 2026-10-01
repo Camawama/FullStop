@@ -374,7 +374,7 @@ public final class ShipEntityImpacts {
             if (SERVER.reactionImpulses.get() && !pushed.equals(Vec3.ZERO)) {
                 // the contact force back on the ship, in its frame as it is now: normal and friction
                 Vec3 impulse = normalNow.scale(exchange.impulse() * share).add(slipDirNow.scale(entityKg * frictionDv));
-                ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), bestPoint);
+                ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), bestPoint, exchange.approach());
             }
         }
 
@@ -510,7 +510,7 @@ public final class ShipEntityImpacts {
         double approach = Mth.clamp(report.closing(), 0.0, hullBound + report.ownMps().length());
         boolean cooling = !report.hit() || (cap != null && cap.isShipHitOnCooldown(ship.id(), now));
 
-        double mass = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.mass();
+        double mass = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(mass > 0.0)) mass = Double.POSITIVE_INFINITY;
         double effective = ShipInertia.effectiveMassKg(ship, mass, point, normal);
         boolean weightless = Gravity.isWeightless(player);
@@ -545,7 +545,7 @@ public final class ShipEntityImpacts {
                 tangential = tangential.subtract(upPart);
             }
             Vec3 impulse = normal.scale(exchange.impulse()).add(tangential.scale(exchange.entityKg()));
-            impulseNs = ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), point).length();
+            impulseNs = ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), point, exchange.approach()).length();
         }
 
         if (!cooling && !ShipContactPhysics.gentle(player, approach)) {
