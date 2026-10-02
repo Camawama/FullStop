@@ -151,9 +151,14 @@ public final class ShockTrainSounds {
         return (float) Mth.clamp(pitch, 0.5, 2.0);
     }
 
-    /** The crack's gain: the server's loudness, a little less right at the barrier, full from Mach 1.5 on. */
+    /**
+     * The crack's gain: the server's loudness, a little less right at the barrier, full from Mach 1.5 on, times this
+     * client's {@code shockTrainVolume} (0.63 by default: about 4 dB under the clip's own level).
+     */
     static float volume(double loudness, double mach) {
-        return (float) Mth.clamp(loudness * (0.75 + 0.5 * Mth.clamp(mach - 1.0, 0.0, 0.5)), 0.0, 1.0);
+        double setting = net.camacraft.fullstop.FullStopConfig.CLIENT_SPEC.isLoaded()
+                ? net.camacraft.fullstop.FullStopConfig.CLIENT.shockTrainVolume.get() : 0.63;
+        return (float) Mth.clamp(loudness * (0.75 + 0.5 * Mth.clamp(mach - 1.0, 0.0, 0.5)) * setting, 0.0, 1.0);
     }
 
     private static final class Train {

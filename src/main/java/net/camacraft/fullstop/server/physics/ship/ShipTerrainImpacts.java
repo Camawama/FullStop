@@ -172,8 +172,10 @@ public final class ShipTerrainImpacts {
             for (ShipCollision collision : collisions) {
                 if (collision.isTerrain()) {
                     terrain(level, tracker, collision, now, struck, levelBudget);
-                } else if (collision.ship().id() < collision.other().id()) {
-                    // Each pair comes twice (once from each side): handle it once.
+                } else if (collision.ship().id() < collision.other().id()
+                        && !Ships.joined(level, collision.ship().id(), collision.other().id())) {
+                    // Each pair comes twice (once from each side): handle it once. Ships held together by
+                    // joints (a phys-bearing rotor and the ship it turns in) are one machine, never a crash.
                     ships(level, tracker, collision, now, struck, levelBudget);
                 }
             }
@@ -206,12 +208,16 @@ public final class ShipTerrainImpacts {
         if (state == null || state.inGrace(now) || ship.isStatic()) return;
 
         double floor = slowestUseful();
+        // a ship a piston is moving meets the terrain (the head, what it's pushed against) at the head's speed: that
+        // is the push, not a crash
+        boolean piston = ShipPistons.moving(level, ship.id(), now);
         List<Strike> strikes = new ArrayList<>();
         for (ShipCollision.Contact contact : collision.contacts()) {
             // Into the terrain: the normal points out of it, toward the ship.
             double before = -state.prevVelocityAt(contact.point()).dot(contact.normal());
             double into = speedInto(collision.started(), contact, before);
             if (into < floor) continue;
+            if (piston && into <= ShipPistons.PUSH_CONTACT_MPS) continue;
             strikes.add(resolve(level, ship, contact, into));
         }
         if (strikes.isEmpty()) return;
@@ -391,6 +397,8 @@ public final class ShipTerrainImpacts {
         double reduced = reducedMass(massA, massB);
 
         double floor = slowestUseful();
+        // a piston pushing one ship into the other (or a ship's piston head into another ship) at the head's speed
+        boolean piston = ShipPistons.moving(level, a.id(), now) || ShipPistons.moving(level, b.id(), now);
         double slowest = Double.POSITIVE_INFINITY, fastestSeen = 0.0, beforeSeen = 0.0;
         List<ShipImpactSounds.Hit> hits = new ArrayList<>();
         List<PairStrike> strikes = new ArrayList<>();
@@ -410,6 +418,7 @@ public final class ShipTerrainImpacts {
             fastestSeen = Math.max(fastestSeen, speed);
             beforeSeen = Math.max(beforeSeen, before);
             if (speed < floor) continue;
+            if (piston && speed <= ShipPistons.PUSH_CONTACT_MPS) continue;
             BlockPos posA = shipBlock(level, a, point, normal, 1.0);
             BlockPos posB = shipBlock(level, b, point, normal, -1.0);
             BlockState blockA = posA != null ? loadedState(level, posA) : null;

@@ -259,6 +259,13 @@ public class KineticDamageCalculator {
                         // Water's block hardness is 100 (bedrock-tier) — meaningless for an
                         // impact; its softness is already handled by the dive/flop factor.
                         if (state.is(Blocks.WATER)) continue;
+                        // Any other liquid's block also has hardness 100; met as a solid (oobleck
+                        // struck hard, Camafy's solidAboveMps) it lands like stone, not bedrock.
+                        if (net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isLiquidBlock(state)) {
+                            totalHardness += 1.5;
+                            count++;
+                            continue;
+                        }
 
                         float hardness = state.getDestroySpeed(entity.level(), entity.blockPosition());
                         if (state.is(FullStopTags.FRAGILE)) {

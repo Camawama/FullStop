@@ -23,7 +23,8 @@
     "ShipButtonHoldMixin",
     "ShipPlateInvoker",
     "ShipPressurePlateMixin",
-    "ShipWeightedPlateMixin"
+    "ShipWeightedPlateMixin",
+    "PistonHeadWaitsForShipMixin"
   ],
   "injectors": {
     "defaultRequire": 1

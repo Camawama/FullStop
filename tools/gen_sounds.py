@@ -69,8 +69,20 @@ def add_wrapped(x, start, y):
     np.add.at(x, idx, y)
 
 
-def shock_crack(seconds=0.15, seed=7):
-    """One shock: N-wave, crack, thump and a short tail; the whole clip fades to nothing."""
+def raised_cosine(n):
+    """0 to 1 over n samples, with no corner at either end."""
+    return 0.5 - 0.5 * np.cos(np.pi * np.arange(n) / max(1, n - 1))
+
+
+def shock_crack(seconds=0.17, seed=7):
+    """One shock: N-wave, crack, thump and a short tail.
+
+    Clicks: the clip used to start on a full-height sample (the N-wave's leap) and stop after a 20 ms straight
+    fade, so every crack began with a step from silence - heard as a click on top of the crack, one per shock, a
+    rattle at the train's rate. Now it rises over 4 ms and dies over 60 ms on raised-cosine curves (no corner where
+    they meet the silence), has no DC offset (a constant offset clicks where the clip starts and stops), and sits
+    between 2 ms of silence before and 6 ms after, so the decoder never starts or ends on anything but zero.
+    """
     n = int(SR * seconds)
     rng = np.random.RandomState(seed)
     x = np.zeros(n)
@@ -92,11 +104,28 @@ def shock_crack(seconds=0.15, seed=7):
     x += 0.15 * tail * np.exp(-np.arange(n) / SR / 0.04)
     # a hard edge on everything: the harmonics that make it tearing rather than thudding
     x = np.tanh(1.8 * x)
-    # to nothing at the end, so a crack that overlaps the next never clicks
-    f = int(0.02 * SR)
-    x[-f:] *= np.linspace(1.0, 0.0, f)
-    return x
+    # no DC: a constant offset is a step at the clip's start and end
+    x = fft_band(x - np.mean(x), lo=20)
+    # the envelope: up over 4 ms, down over the last 60 ms, both raised cosines
+    up = int(0.004 * SR)
+    down = int(0.06 * SR)
+    x[:up] *= raised_cosine(up)
+    x[-down:] *= raised_cosine(down)[::-1]
+    x -= np.linspace(x[0], x[-1], n)  # exactly zero at both ends
+    return np.concatenate([np.zeros(int(0.002 * SR)), x, np.zeros(int(0.006 * SR))])
+
+
+def edges(x, ms=2.0):
+    """How the clip meets silence: its first and last samples, and its largest sample-to-sample step in the first
+    and last few ms against the largest anywhere (a step at an edge that is large next to the body's is a click)."""
+    k = int(ms / 1000.0 * SR)
+    d = np.abs(np.diff(x))
+    return x[0], x[-1], float(d[:k].max()), float(d[-k:].max()), float(d.max())
 
 
 if __name__ == "__main__":
-    save(os.path.join("ship", "shock_crack"), shock_crack())
+    crack = shock_crack()
+    first, last, head, tail, body = edges(crack / (np.max(np.abs(crack)) or 1.0))
+    print("shock_crack edges: first %.5f last %.5f, largest step in the first 2 ms %.4f, last 2 ms %.4f, anywhere %.4f"
+          % (first, last, head, tail, body))
+    save(os.path.join("ship", "shock_crack"), crack)

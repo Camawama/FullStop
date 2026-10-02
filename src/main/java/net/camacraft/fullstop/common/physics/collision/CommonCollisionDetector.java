@@ -23,6 +23,9 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import net.minecraft.world.level.material.FluidState;
+import net.camacraft.camafy.liquid.LiquidProperties;
+import net.camacraft.camafy.liquid.Liquids;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -159,6 +162,13 @@ public class CommonCollisionDetector {
         Collision.CollisionType impactType = Collision.CollisionType.NONE;
         // Per ship: whether the entity really meets it this tick (see shipHitIsContact).
         java.util.Map<Long, Boolean> shipContacts = null;
+        // A body plunging down through water looks THROUGH it (see looksThroughWater).
+        boolean throughWater = looksThroughWater(entity, frame, velocity);
+        // A liquid that turns solid under a sudden blow (Flow Fun's oobleck, Camafy's
+        // LiquidProperties.solidAboveMps) is met as a block by a body moving into it fast enough:
+        // looked for only when this body is that fast, so nothing changes for anyone else.
+        double speedMps = velocity.length() * 20.0;
+        boolean solidLiquidsPossible = speedMps >= minSolidLiquidMps();
 
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));
@@ -166,13 +176,26 @@ public class CommonCollisionDetector {
             // Ship blocks are only reachable through the (expensive, VS-wrapped)
             // Level.clip; far from ships the vanilla-equivalent fast path is used.
             BlockHitResult blockHit = shipsNearby
-                    ? level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity))
+                    ? level.clip(new ClipContext(start, end, ClipContext.Block.COLLIDER,
+                            throughWater ? ClipContext.Fluid.NONE : ClipContext.Fluid.SOURCE_ONLY, entity))
+                    : throughWater ? clipBlocksOnly(level, start, end, shapeContext)
                     : FastRaycast.clip(level, start, end, shapeContext);
+
+            // A liquid acting solid at this body's speed into it, nearer than whatever the ray met.
+            boolean solidLiquid = false;
+            if (solidLiquidsPossible) {
+                BlockHitResult liquidHit = clipSolidLiquid(level, start, end, velocity);
+                if (liquidHit != null && (blockHit.getType() != HitResult.Type.BLOCK
+                        || start.distanceToSqr(liquidHit.getLocation()) <= start.distanceToSqr(blockHit.getLocation()))) {
+                    blockHit = liquidHit;
+                    solidLiquid = true;
+                }
+            }
 
             if (blockHit.getType() != HitResult.Type.BLOCK) continue;
 
             BlockPos hitPos = blockHit.getBlockPos();
-            if (shipsNearby && ShipCompat.isShipBlock(level, hitPos)) {
+            if (shipsNearby && !solidLiquid && ShipCompat.isShipBlock(level, hitPos)) {
                 // A block of a moving hull in the ray's way now is not necessarily one the entity
                 // meets - a hull moving away, a rotor's arm sweeping past: only a real contact
                 // within a tick, judged with the two bodies' relative motion in the ship's frame.
@@ -191,7 +214,10 @@ public class CommonCollisionDetector {
             BlockState hitState = level.getBlockState(hitPos);
             Direction hitFace = blockHit.getDirection();
 
-            boolean isWater = !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
+            // (a ray looking through water only ever hits block shapes: a waterlogged slab at the
+            // bottom is the bottom, not a surface)
+            boolean isWater = !throughWater && !solidLiquid
+                    && !hitState.getFluidState().isEmpty() && hitState.getFluidState().is(FluidTags.WATER);
             boolean isOpposing;
 
             if (isWater) {
@@ -274,6 +300,103 @@ public class CommonCollisionDetector {
         }
 
         return new Collision(impactType, collidedBlockStates, List.of(), collidedBlockPositions, collidedBlockHits);
+    }
+
+    /**
+     * Where the ray {@code from -> to} first meets a liquid that acts as a solid block for this
+     * body: a liquid whose Camafy description declares {@link LiquidProperties#solidAboveMps()}
+     * (Flow Fun's oobleck), met at a face the body moves into at or above that speed
+     * ({@link Liquids#actsSolid}; the speed is the body's world velocity into the face, m/s). Any
+     * fluid cell counts, flowing or source, at the height its fluid shape has; null when the ray
+     * meets none. World grid only (a liquid carried on a ship is not looked for).
+     *
+     * <p>Such a hit is judged exactly as a block's: the same surface, floor and buried-face gates,
+     * a SOLID impact, the same damage (the liquid counts as stone in the hardness curve, see
+     * KineticDamageCalculator) - the body is stopped there by the liquid's own collision shape
+     * (Flow Fun makes oobleck's a full block for a fast body). Below the speed it is a liquid
+     * again and the body sinks, as before.</p>
+     *
+     * @param velocityNative the body's velocity going into the impact, blocks per tick
+     */
+    public static BlockHitResult clipSolidLiquid(Level level, Vec3 from, Vec3 to, Vec3 velocityNative) {
+        double speedMps = velocityNative.length() * 20.0;
+        BlockHitResult hit = net.minecraft.world.level.BlockGetter.traverseBlocks(from, to, null, (unused, pos) -> {
+            FluidState fluid = level.getFluidState(pos);
+            // the cheap test first: not even the body's whole speed makes it solid
+            if (fluid.isEmpty() || !Liquids.actsSolid(fluid, speedMps)) return null;
+            BlockHitResult fluidHit = fluid.getShape(level, pos).clip(from, to, pos);
+            if (fluidHit == null) return null;
+            Vec3 normal = Vec3.atLowerCornerOf(fluidHit.getDirection().getNormal());
+            double intoMps = -velocityNative.dot(normal) * 20.0;
+            return Liquids.actsSolid(fluid, intoMps) ? fluidHit : null;
+        }, unused -> null);
+        return hit;
+    }
+
+    /**
+     * The lowest speed (m/s) at which any described liquid acts solid, or +infinity when none does
+     * (then no ray looks for one). Recomputed at most once a second (descriptions are registered at
+     * start-up, and one can be replaced under the same id), so it costs nothing per ray.
+     */
+    public static double minSolidLiquidMps() {
+        long now = System.nanoTime();
+        if (now - minSolidLiquidAt > 1_000_000_000L || minSolidLiquidAt == 0L) {
+            double min = Double.POSITIVE_INFINITY;
+            for (LiquidProperties p : Liquids.all()) {
+                if (p.solidAboveMps() > 0.0) min = Math.min(min, p.solidAboveMps());
+            }
+            minSolidLiquid = min;
+            minSolidLiquidAt = now;
+        }
+        return minSolidLiquid;
+    }
+
+    private static volatile double minSolidLiquid = Double.POSITIVE_INFINITY;
+    private static volatile long minSolidLiquidAt = 0L;
+
+    /**
+     * Whether {@code state} is a liquid's own block (vanilla's or a Forge fluid's), not a block that
+     * merely holds a fluid (a waterlogged slab). Impacts on one never crack or break it.
+     */
+    public static boolean isLiquidBlock(BlockState state) {
+        return state.getBlock() instanceof net.minecraft.world.level.block.LiquidBlock
+                || state.getBlock() instanceof net.minecraftforge.fluids.IFluidBlock;
+    }
+
+    /**
+     * Whether a body's rays look through the water it is in: a body already in water and still
+     * plunging down through it (faster than the water-entry gate, -0.35 blocks a tick along its
+     * frame's down). From inside a pool every fluid-picking ray stops at the water it starts in (an
+     * "inside" hit), so the bottom was never seen: a fall into a puddle met water, never the stone
+     * under it, and dealt no damage however fast the body still was when it got there (the owner's
+     * report of 2026-10-01; Full Stop looked through water for any body in it until the 2.0 refactor
+     * of 2026-07-05 made every ray SOURCE_ONLY). Only a plunge does: a swimmer, a boat or a ship's
+     * crew in the water keeps the old rays, so nothing changes for them. The surface hit (water
+     * entry, belly flops, skipping) is the ray of a body NOT yet in water, unchanged; the water's
+     * braking over the depth actually crossed is vanilla's drag, so a one-block puddle barely slows
+     * a fall and deep water stops it before the bottom.
+     */
+    public static boolean looksThroughWater(Entity entity, GravityFrame frame, Vec3 velocity) {
+        return entity.isInWater() && frame.vertical(velocity) < -0.35;
+    }
+
+    /**
+     * {@link FastRaycast#clip} for a body in water: block collision shapes only, fluids ignored
+     * (as {@code level.clip} with {@code Fluid.NONE}), with the same shared shape context and no
+     * per-ray allocations. Only valid when no ship is within the ray's reach.
+     */
+    static BlockHitResult clipBlocksOnly(Level level, Vec3 from, Vec3 to, CollisionContext shapeContext) {
+        return net.minecraft.world.level.BlockGetter.traverseBlocks(from, to, null, (unused, pos) -> {
+            BlockState state = level.getBlockState(pos);
+            if (state.isAir()) {
+                return null;
+            }
+            net.minecraft.world.phys.shapes.VoxelShape shape = ClipContext.Block.COLLIDER.get(state, level, pos, shapeContext);
+            return level.clipWithInteractionOverride(from, to, pos, shape, state);
+        }, unused -> {
+            Vec3 back = from.subtract(to);
+            return BlockHitResult.miss(to, Direction.getNearest(back.x, back.y, back.z), BlockPos.containing(to));
+        });
     }
 
     /**

@@ -311,7 +311,9 @@ public final class ShipEntityImpacts {
         if (hullIn < Math.max(pushMin, -motion.turn(entityV, -t).dot(normalNow))) return;
 
         // a slow hull only pushes: no bounce, no lift (see gentlePushSpeed)
-        boolean gentle = ShipContactPhysics.gentle(root, approach);
+        // a hull a piston is moving pushes like the piston itself
+        boolean gentle = ShipContactPhysics.gentle(root, approach)
+                || (ShipPistons.moving(level, ship.id(), now) && approach <= ShipPistons.PUSH_CONTACT_MPS);
         // Within a hit's cooldown only a hull that has actually caught the body up again strikes it on - not one that
         // would, going by a velocity that hasn't caught up with the push. A slow hull's push is a contact, not a strike:
         // the face reaching the body within this tick pushes it now by as much as the face will have come into it by the
@@ -548,7 +550,8 @@ public final class ShipEntityImpacts {
             impulseNs = ShipImpulses.applyCapped(level, ship, impulse.scale(-1.0), point, exchange.approach()).length();
         }
 
-        if (!cooling && !ShipContactPhysics.gentle(player, approach)) {
+        if (!cooling && !ShipContactPhysics.gentle(player, approach)
+                && !(ShipPistons.moving(level, ship.id(), now) && approach <= ShipPistons.PUSH_CONTACT_MPS)) {
             // where the hull met the player as its client saw it - on the player's side facing the hull - not where this
             // server's pose of a fast rotor has taken that spot of the hull since (up to a turn's worth further round)
             AABB box = player.getBoundingBox();

@@ -551,6 +551,11 @@ public class PhysicsDispatchServer {
         }
         for (BlockState blockState : collision.blockStates) {
             SoundType soundType = blockState.getSoundType();
+            // a liquid's own block is silent; one met as a solid (oobleck struck hard) thuds like mud
+            if (soundType == SoundType.EMPTY
+                    && net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isLiquidBlock(blockState)) {
+                soundType = SoundType.MUD;
+            }
             SoundEvent sound = soundType.getFallSound();
             if (!playedSounds.contains(sound)) {
                 FSSoundPlayer.playSoundServer(entity.level(), entity.blockPosition(), sound, SoundSource.PLAYERS, volume, pitch);

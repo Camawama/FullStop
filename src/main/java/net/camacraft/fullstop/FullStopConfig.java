@@ -1264,6 +1264,7 @@ public class FullStopConfig {
     public static class ClientConfigValues {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue rotateCameraOnlyWhenFlying;
+        public final ForgeConfigSpec.DoubleValue shockTrainVolume;
 
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
@@ -1279,6 +1280,13 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.rotateCameraOnlyWhenFlying")
                     .comment("Default: false")
                     .define("rotateCameraOnlyWhenFlying", false);
+
+            this.shockTrainVolume = builder
+                    .comment("How loud a supersonic rotor's train of cracks is on this client (1 = full; the default is about 4 dB",
+                            "quieter). The single boom when something first passes the speed of sound is not affected.")
+                    .translation("config.fullstop.client.shockTrainVolume")
+                    .comment("Default: 0.63")
+                    .defineInRange("shockTrainVolume", 0.63, 0.0, 1.0);
 
             // The g-force thresholds used to live here. They gate a gameplay
             // mechanic (blackouts, nausea, the potions that shift them), so a

@@ -389,6 +389,10 @@ public class KineticBlockInteractions {
             if (block instanceof SlimeBlock || block instanceof HoneyBlock || block instanceof BedBlock) {
                 continue; // bounce handling owns these
             }
+            // A liquid met as a solid (oobleck struck hard) is never cracked, broken or pathed.
+            if (net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isLiquidBlock(state)) {
+                continue;
+            }
 
             // --- Interaction allowlist ------------------------------------
             if (block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock) {
@@ -1008,6 +1012,7 @@ public class KineticBlockInteractions {
      */
     private static double craterCost(ServerLevel level, BlockPos pos, BlockState state, Entity entity) {
         if (state.isAir()) return -1;
+        if (net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isLiquidBlock(state)) return -1;
         Block block = state.getBlock();
         if (block instanceof SlimeBlock || block instanceof HoneyBlock || block instanceof BedBlock
                 || block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock

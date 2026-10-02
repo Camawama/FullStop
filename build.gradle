@@ -29,6 +29,11 @@ jarJar.enable()
 if (project.hasProperty('shipTests')) {
     sourceSets.main.java.srcDir 'src/gametest/java'
     sourceSets.main.resources.srcDir 'src/gametest/resources'
+    // -PflowfunTests (with -PshipTests): landing on Flow Fun's oobleck (src/flowfunTest), with
+    // Flow Fun on the runtime from mavenLocal (gradlew publishToMavenLocal in Flow Fun first).
+    if (project.hasProperty('flowfunTests')) {
+        sourceSets.main.java.srcDir 'src/flowfunTest/java'
+    }
 }
 
 // Which Valkyrien Skies physics backend the ship tests run on: -PvsBackend=classic|physx|jolt
@@ -89,6 +94,14 @@ minecraft {
                 if (project.hasProperty('hideBackend')) {
                     property 'camafy.vsPhysicsBackend', 'unknown'
                 }
+                // -PtestOnly=ShipPistonTests,... registers only those test classes (src/gametest/.../mixin/GameTestFilterMixin)
+                if (project.hasProperty('testOnly')) {
+                    property 'fullstop.test.only', project.property('testOnly').toString()
+                }
+                // -PflowfunDebugOff=buoyancy,fumes,... (with -PflowfunTests): Flow Fun's modules left off, to bisect its effect
+                if (project.hasProperty('flowfunDebugOff')) {
+                    property 'flowfun.debug.off', project.property('flowfunDebugOff').toString()
+                }
             }
         }
 
@@ -106,7 +119,11 @@ repositories {
 
     // Camafy (net.camacraft.camafy:camafy): publishToMavenLocal from the Camafy project.
     mavenLocal {
-        content { includeGroup 'net.camacraft.camafy' }
+        content {
+            includeGroup 'net.camacraft.camafy'
+            // only for -PflowfunTests
+            includeGroup 'net.camacraft.flowfun'
+        }
     }
 
     // Parchment mapping data: mirror first, canonical host as fallback (see settings.gradle).
@@ -138,6 +155,10 @@ dependencies {
     // Camafy: the shared library FullStop builds on (weight model, ship and gravity
     // compat, audio effects). A required mod at runtime (see mods.toml).
     implementation fg.deobf("net.camacraft.camafy:camafy:${camafy_version}")
+    if (project.hasProperty('flowfunTests')) {
+        // Flow Fun on the test runtime for the oobleck landing tests (never bundled, never a dependency of the mod)
+        runtimeOnly fg.deobf("net.camacraft.flowfun:flowfun:${project.findProperty('flowfun_version') ?: '0.1.1'}")
+    }
 
     // Mixin Extras
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.4.1"))
@@ -198,6 +219,12 @@ mixin {
     add sourceSets.main, 'mixins.fullstop.refmap.json'
     config 'mixins.fullstop.common.json'
     config 'mixins.fullstop.client.json'
+}
+// The ship tests' own mixin (the -PtestOnly filter), on dev test runs only: never in the release jar.
+if (project.hasProperty('shipTests')) {
+    mixin {
+        config 'mixins.fullstop.gametest.json'
+    }
 }
 
 // The mixin annotation processor writes the refmap next to compileJava's outputs, not as one of them. With the

@@ -112,6 +112,7 @@ Useful setup commands:
 - [ ] **Steep/vertical dive into deep water.** *Expect:* you plunge IN (no trampoline off the surface).
 - [ ] **Belly flop:** sprint-swim pose / holding sprint when hitting water flat from height. *Expect:* significant damage (~like pavement), "flopped into the water" on death.
 - [ ] **Clean feet-first dive from height.** *Expect:* almost no damage.
+- [ ] **Fall into shallow water** (30 blocks up, into pools 1, 2 and 8 deep over stone). *Expect:* 1 deep hurts nearly as much as landing on the stone itself, 2 deep less, 8 deep nothing; the bottom blocks can crack like any landing. `[FIX]`
 - [ ] **Step off a 2-block ledge into a pond.** *Expect:* silent, no water impact triggered.
 - [ ] **Minecart off a ramp onto water.** *Expect:* it skips across the surface (intended easter egg).
 - [ ] **Swim around fast underwater.** *Expect:* slosh sounds rate-limited (not machine-gun), slowdown feels unchanged `[REG]`. On a server: another player swimming near you should be audible.
@@ -601,6 +602,18 @@ Optional: `debugShipCollisionLog = true` ("shock train ON/OFF", "piston: ship N 
 - [ ] **An obsidian (or any heavy) ship rammed into a floating plank raft at about 20 m/s, once on a quiet world and once while the server is busy** (another big contraption running, or spark showing ticks over 50 ms). *Expect:* planks break at the contact both times (on a busy server the crash used to be judged at the speed of the frames the game happened to see, under 5 m/s, and nothing broke). Needs Camafy 0.1.18.
 - [ ] **`pistonsPushShips` off.** *Expect:* pistons extend into hulls and ships ooze out of them, as VS does by itself.
 
+## 43. Joined ships, pistons that push without breaking (round 9) `[VS]` `[FIX]`
+
+Optional: `debugShipCollisionLog = true` ("piston: ship N ... 1.00 block(s) along ...", "pushed off ship N by ...").
+
+- [ ] **An obsidian ship with a Clockwork phys bearing inside it, its rotor's tips close to the walls; spin the rotor, then fly the main ship around.** *Expect:* neither ship loses a block, however the two knock together (before: the rotor's planks, then more, broke as crashes).
+- [ ] **Two ships glued with honey, or welded with VMod, knocked into each other.** *Expect:* nothing breaks between them; they still crash into anything else as usual.
+- [ ] **A piston on a ship, facing a wall, powered (stone, dirt, glass).** *Expect:* the ship is shoved a block off the wall as the head extends; the wall, the piston and the ship stay whole.
+- [ ] **A sticky piston pulling a raft back, watched closely (F5, or slow it with `/tick` if a mod gives you one).** *Expect:* the raft comes back with the head, not a few frames after it, and stops exactly where it started. On VS's default KRUNCH_CLASSIC backend the pull comes back the whole block too, ending just short of the piston base; known gap: it starts about a tick (60 ms) after the head, while VS's world still has the retracted head.
+- [ ] **A ship's piston extending into another ship of about the same size.** *Expect:* both move apart, about half a block each; a small raft against a big ship: the raft goes nearly the whole block.
+- [ ] **A raft pushed by a piston into a second raft, or into you.** *Expect:* nothing breaks; you are pushed, not hit (no damage).
+- [ ] **The wall push again while the server lags (a heavy build, a chunk-loading flight, or a pack with many mods).** *Expect:* the same one-block shove; the raft never jumps over the wall, up into the air or sideways (before: under lag the head turned solid inside the wall and flung the raft).
+
 ## Known cosmetic gaps (not bugs — no need to test)
 
 - Clarity/Vertigo effect icons are still missing textures (art needed at
@@ -611,3 +624,21 @@ Optional: `debugShipCollisionLog = true` ("shock train ON/OFF", "piston: ship N 
 
 Note: **section number, what you did, what happened vs. the Expect line**, and if damage-related,
 roughly your speed (elytra? sprint?) and the block/mob involved. That's enough for me to trace it.
+
+## 44. Pistons that set a ship down, slime launchers, quieter cracks (round 10) `[VS]` `[FIX]`
+
+Optional: `debugShipCollisionLog = true` ("piston: ship N ... pulling toward the terrain", "springing off the terrain", "launched off slime").
+
+- [ ] **A ship of one sticky piston (or a small raft with one in the middle) placed upside down on the ground, a button on it, pressed.** *Expect:* the ship rises a block, standing on its head; when the button lets go the head pulls it back down onto the ground where it was - never into or through the ground. Try it on a raft that's slow to settle too.
+- [ ] **A slime block under a ship's upside-down piston, resting on the ground, then power the piston.** *Expect:* the ship is flung up several blocks off the slime (not a one-block push), the slime never enters the ground, nothing breaks.
+- [ ] **A world piston with a slime block in front of it, against a raft's side.** *Expect:* the raft is launched and slides several blocks, not one.
+- [ ] **A rotor whose tips pass the speed of sound.** *Expect:* the cracks have no click at their start or end, and are a little quieter than before; `shockTrainVolume` (client config) scales them, 1 = the old level.
+
+## 45. Landing on oobleck (round 10) `[FIX]`
+
+Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you fall onto it.
+
+- [ ] **Drop from 20 blocks onto a pool of oobleck (survival).** *Expect:* you stop dead on its surface like on stone, take about the damage stone would give (a mud thud, the impact particles), then slowly sink once still.
+- [ ] **Walk into the pool, or stand still on its edge.** *Expect:* you sink, unhurt (walking is under oobleck's 5 m/s).
+- [ ] **Sprint across it.** *Expect:* you run across the top (Flow Fun), and Full Stop counts no impact.
+- [ ] **Drop a mob from high up onto it.** *Expect:* it stops on the surface and is hurt as on stone; the oobleck itself is never cracked or removed by the impact.

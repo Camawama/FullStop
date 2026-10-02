@@ -147,14 +147,29 @@ public final class RaycastLineRenderer {
         // Same swept box the gameplay classifier uses for its seam-graze test.
         net.minecraft.world.phys.AABB sweptBox = entity.getBoundingBox().expandTowards(direction.scale(rayLength));
 
+        boolean throughWater = net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.looksThroughWater(
+                entity, fullstop.getFrame(), fullstop.getPreImpactNativeVelocity());
+        // the detector's other fluid rule: a liquid acting solid at this body's speed (oobleck struck hard)
+        boolean solidLiquidsPossible = fullstop.getPreImpactNativeVelocity().length() * 20.0
+                >= net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.minSolidLiquidMps();
+
         int index = 0;
         for (Vec3 tickStart : rayStarts) {
             Vec3 start = tickStart.add(renderOffset);
             Vec3 end = start.add(direction.scale(rayLength));
-            // SOURCE_ONLY to match the gameplay detector (NONE hid water-skip /
-            // belly-flop hits from the debug view).
-            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER, ClipContext.Fluid.SOURCE_ONLY, entity);
+            // The gameplay detector's fluid rule: SOURCE_ONLY above water (water-skip and
+            // belly-flop hits), NONE while plunging through it (the bottom under a pool).
+            ClipContext ctx = new ClipContext(start, end, ClipContext.Block.COLLIDER,
+                    throughWater ? ClipContext.Fluid.NONE : ClipContext.Fluid.SOURCE_ONLY, entity);
             BlockHitResult blockHit = level.clip(ctx);
+            if (solidLiquidsPossible) {
+                BlockHitResult liquidHit = net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.clipSolidLiquid(
+                        level, start, end, fullstop.getPreImpactNativeVelocity());
+                if (liquidHit != null && (blockHit.getType() != HitResult.Type.BLOCK
+                        || start.distanceToSqr(liquidHit.getLocation()) <= start.distanceToSqr(blockHit.getLocation()))) {
+                    blockHit = liquidHit;
+                }
+            }
             boolean hitBlock = blockHit.getType() == HitResult.Type.BLOCK;
 
             // Red only when the gameplay classifier would count this hit — i.e.

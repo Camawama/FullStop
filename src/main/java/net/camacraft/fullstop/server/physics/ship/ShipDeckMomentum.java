@@ -192,6 +192,8 @@ public final class ShipDeckMomentum {
         ShipTracker.JoltMode mode = state.joltMode(now);
         if (mode == ShipTracker.JoltMode.NONE) return;
         state.markJudged(mode);
+        // a piston moving the ship starts and stops it with the head, as it would a block: what stands on it goes along
+        if (ShipPistons.moving(level, ship.id(), now)) return;
         double allowance = allowance(state, mode);
         double lift = SERVER.deckThrowLift.get();
         boolean seated = SERVER.deckMomentumSeated.get();
@@ -308,6 +310,8 @@ public final class ShipDeckMomentum {
                 fastest = Math.max(fastest, contact.approachMps());
             }
             if (fastest < CRASH_MPS) continue;
+            // ships held together by joints touching each other (a rotor in its ship) is no crash
+            if (collision.other() != null && net.camacraft.camafy.compat.vs.Ships.joined(level, collision.ship().id(), collision.other().id())) continue;
             last.put(collision.ship().id(), now);
             if (collision.other() != null) last.put(collision.other().id(), now);
         }

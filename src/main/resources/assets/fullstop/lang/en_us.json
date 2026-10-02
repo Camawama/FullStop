@@ -44,6 +44,7 @@
   "config.fullstop.server.enableGForceEffects": "Enable G-Force Effects",
   "config.fullstop.client.rotateCamera": "Rotate Camera On Bounce",
   "config.fullstop.client.rotateCameraOnlyWhenFlying": "Rotate Camera Only While Elytra Flying",
+  "config.fullstop.client.shockTrainVolume": "Supersonic Rotor Crack Volume",
   "config.fullstop.server.minGForceThreshold": "G-Force Effect Start Threshold",
   "config.fullstop.server.maxGForceThreshold": "G-Force Blackout Threshold",
   "config.fullstop.server.spinNauseaThreshold": "Spin Nausea Threshold",

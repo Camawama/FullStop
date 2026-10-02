@@ -166,6 +166,10 @@ final class ShipHullClash {
                 Party b = parties.get(j);
                 if (a.ship().isStatic() && b.ship().isStatic()) continue;
                 if (!a.bounds().inflate(a.reach()).intersects(b.bounds().inflate(b.reach()))) continue;
+                // ships held together by joints (a phys-bearing rotor and the ship it turns in) never clash
+                if (net.camacraft.camafy.compat.vs.Ships.joined(level, a.ship().id(), b.ship().id())) continue;
+                // a ship a piston is moving goes at the head's speed: whatever it meets, it is pushed into, not through
+                if (ShipPistons.moving(level, a.ship().id(), now) || ShipPistons.moving(level, b.ship().id(), now)) continue;
                 // the hulls must close faster than anything breaks at, somewhere, over the tick
                 double closing = (a.reach() + b.reach()) / TICK;
                 if (closing < breakMin) {

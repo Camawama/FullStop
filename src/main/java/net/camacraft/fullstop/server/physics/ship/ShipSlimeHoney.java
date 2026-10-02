@@ -138,8 +138,10 @@ public final class ShipSlimeHoney {
         for (ShipCollision collision : ShipCollisions.thisTick(level)) {
             if (collision.isTerrain()) {
                 terrain(level, tracker, collision, now);
-            } else if (collision.ship().id() < collision.other().id()) {
-                // each pair comes twice (once from each side): handled once
+            } else if (collision.ship().id() < collision.other().id()
+                    && !net.camacraft.camafy.compat.vs.Ships.joined(level, collision.ship().id(), collision.other().id())) {
+                // each pair comes twice (once from each side): handled once; ships held together by joints don't
+                // bounce off or glue to each other
                 pair(level, tracker, collision, now);
             }
         }
