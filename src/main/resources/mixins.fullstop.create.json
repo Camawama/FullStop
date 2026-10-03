@@ -1,0 +1,16 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "net.camacraft.fullstop.common.compat.create.mixin",
+  "plugin": "net.camacraft.fullstop.common.compat.create.mixin.CreateMixinPlugin",
+  "refmap": "mixins.fullstop.refmap.json",
+  "compatibilityLevel": "JAVA_17",
+  "mixins": [
+    "TrainDamageMixin",
+    "KineticStressMixin",
+    "ContraptionStallMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

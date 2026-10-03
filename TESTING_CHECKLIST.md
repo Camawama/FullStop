@@ -33,6 +33,52 @@
 - [ ] **Shift-dismount a boat at speed (retest #4).** *Expect:* you fly out forward, the boat glides STRAIGHT on without you — no sideways veer, no speed dump into you. After ~2 s you and the boat push each other normally again (walk into it: it nudges).
 - [ ] **Dismount at speed, WAIT for the boat to fully stop, re-enter it.** *Expect:* the boat stays put — no ghost launch with its old speed. Then retest boarding a boat that IS moving: momentum still transfers.
 
+## Create Catastrophes: contraptions strike `[NEW]` (needs Create)
+
+- [ ] **Stand in the sweep of a mechanical bearing's arm (a few planks glued to it) at 64 RPM.** *Expect:* the arm knocks you away and hurts you (about 13 damage at 3.5 blocks from the axis), dust and the planks' sound where it hit; at 256 RPM it never passes through you, it launches you hard.
+- [ ] **Slow it to 8 RPM.** *Expect:* the arm only shoves you along, as Create does: no damage, no fling.
+- [ ] **Stand on a plate the bearing turns, and ride a fast piston or pulley elevator.** *Expect:* carried, never struck, never hurt.
+- [ ] **Get rammed by a mechanical piston at full speed, then with a wall behind you.** *Expect:* knocked ahead of the ram; against the wall, crushed (no knock-away).
+- [ ] **Stand in front of a train.** *Expect:* one hit, judged like a ship's ("was struck by a contraption"), not Create's run-over on top of it.
+- [ ] **Turn `contraptionImpacts` off.** *Expect:* Create's own behaviour: contraptions shove, trains deal their run-over damage.
+- [ ] **Remove Create.** *Expect:* FullStop loads and plays exactly as before; no errors about Create in the log.
+- [ ] **A gantry at full speed rams you, a rope pulley's platform comes down on you.** *Expect:* a hit each (gantry 9.8 m/s, knocked away; the platform pins you against the ground), not just a shove.
+- [ ] **F3+V by a spinning bearing arm, a gantry, a cogwheel and a water wheel.** *Expect:* the arm's paths curve round its axis and turn red where they reach you at speed; the gantry's go straight along its shafts; the cogwheel and wheel show a ring with arrows (red when fast enough to bite or drown, grey when stopped) and a line from you to the teeth or the wheel's bottom while you're caught.
+- [ ] **`debugContraptionLog` on, stand by a moving contraption.** *Expect:* the log says why it didn't strike you (carried, a gentle push, ...), once a second per reason.
+
+## Create Catastrophes: gears and water wheels `[NEW]` (needs Create)
+
+- [ ] **Walk into the teeth of a single cogwheel turning at 4, 16 and 64 RPM.** *Expect:* never hurt, never pulled in; pushed off along the way the teeth move (barely at 4 RPM). Standing half a block away nothing happens at all `[FIX]`.
+- [ ] **Walk into a single cogwheel at 256 RPM, and a large cogwheel at 128 and 256.** *Expect:* flung, a whack sound: up and out where the teeth run up (about 20 m/s from a cogwheel, about twice that from a large one at 256), squeezed out along the floor where they run down; the gear itself never hurts you, the landing or a wall you hit may. Once per half second per gear `[NEW]`.
+- [ ] **Stand between a large cogwheel at 256 RPM and a wall two blocks away.** *Expect:* thrown into the wall and hurt by it (Full Stop's impact), not by the gear `[NEW]`.
+- [ ] **F3+V by a single gear at 256 RPM.** *Expect:* its ring and arrows red (it flings), yellow at 64; red line out from you while you touch it `[NEW]`.
+- [ ] **Two cogwheels side by side on one axis (or a large and a small one diagonally), spinning; step into the V where both gears' teeth run into the mesh.** *Expect:* drawn in and crushed (about 3 a bite at 64 RPM, "was caught in the gears"; with a large cog "was ground up by a large cogwheel"); on the other side of the pair (where the teeth come out of the mesh) you're only pushed away `[NEW]`.
+- [ ] **The same pair driven by a single water wheel or a hand crank.** *Expect:* the moment you're caught the network overstresses (goggles say so) and the gears stop with you wedged in them; step out and they turn again. Driven by a creative motor they keep crushing `[NEW]`.
+- [ ] **Sneak while caught in a nip, then walk out of the gears' plane.** *Expect:* sneaking pulls in slower; walking out along the axles frees you within a second `[NEW]`.
+- [ ] **An encased cogwheel, a gearbox, a shaft, a cogwheel turning under 4 RPM.** *Expect:* nothing at all.
+- [ ] **Swim under / next to a water wheel turning in a channel (on the side the water falls).** *Expect:* swept down and held under the paddles; holding jump doesn't bring you up; air runs out, then drowning damage. Swimming sideways along the axle gets you out. After 30 s held you are let go.
+- [ ] **Stand on top of a turning water wheel.** *Expect:* the paddles sweep you off the downstroke side into the water.
+- [ ] **Creative mode near any of these.** *Expect:* never caught, never hurt; on foot a single gear still pushes you off, and a very fast one flings you `[NEW]`.
+- [ ] **A cogwheel on a Valkyrien Skies ship (Clockwork), spinning, with you beside it on the deck.** *Expect:* the same pull and bites as on the ground.
+- [ ] **`gearHazards` / `waterWheelHazards` off.** *Expect:* Create's vanilla behaviour.
+
+## Create Catastrophes: contraptions meet terrain and ships `[NEW]` (needs Create)
+- [ ] A bearing with an iron arm at 64 RPM swept into a stone block breaks it in one pass (drops, crack sound); a stressometer on its network shows the load jump and fade; the arm keeps turning.
+- [ ] The same arm at 16 RPM cracks the stone (overlay) and jams with its tip against the stone (Create's overstressed state, goggles say so). It stays there as long as the motor runs: it never pushes into the stone, never restarts by itself, never breaks through `[FIX]`.
+- [ ] An arm into bedrock (or obsidian it can't break) jams against it and stays jammed. Stop the motor: the arm is set down as blocks at the last quarter turn it passed, whole, the obstacle untouched. Start it again: it turns into the obstacle and jams again. Reverse the motor instead: it turns away. Remove the obstacle instead: it turns on `[FIX]`.
+- [ ] A gantry with an iron ram at full speed into bedrock stops right in front of it and is set down as blocks there; it doesn't keep starting up into it `[FIX]`.
+- [ ] A wool arm into stone loses its tip: the wool vanishes from the drawn contraption (no ghost block), drops, and the rest keeps turning; the stone stands.
+- [ ] An arm at 8 RPM passes through stone as in Create (nothing breaks, no jam).
+- [ ] A gantry with a heavy ram (iron) at full speed ploughs through dirt; a mechanical piston retracting never breaks its own poles.
+- [ ] A minecart contraption on a rail at full speed stops dead at a bedrock wall across its load; a furnace cart (4 m/s) passes through.
+- [ ] A fast arm swats a small VS raft (pushed, planks broken); a heavy or static ship jams the arm.
+- [ ] F3+V on a spinning arm: the paths start on the arm's blocks (its corners and faces), not out in a wide circle around it `[FIX]`. A fast arm's paths turn red where they reach stone it will break.
+- [ ] F3+V on a cogwheel spinning clockwise: its arrows point clockwise, the way its teeth move; and the teeth push you that way too `[FIX]`.
+- [ ] F3+V on two meshing cogwheels: a wedge at the in-running side of their nip with an arrow into the mesh (red when fast enough to crush, grey when jammed), and a red line from you into the mesh while you're caught `[NEW]`.
+- [ ] F3+V on a train, a minecart contraption, a gantry, a piston and a pulley: every line starts on the contraption's blocks; nothing is drawn from far outside it `[FIX]`.
+- [ ] A bearing arm at least 13 blocks long at 256 RPM, heard from 20-30 blocks away: one sonic boom as it goes supersonic, then a buzzing train of cracks (about 4 a second) while it spins; riding it you hear no boom. A shorter arm never booms `[NEW]`.
+- [ ] Death messages: kill a mob (or yourself in survival) with a cogwheel, a large cogwheel, a fast water wheel's paddles, by drowning under a water wheel, and with a windmill, a piston, a gantry, a pulley, a train: each has its own message; pinned against a wall / a ship, the crushed variants.
+
 ## 0. NEW in this build `[FIX]` — test these first
 
 **IMPORTANT: delete `velocityDamageThresholdHorizontal` from the saved server config (or set it to 10.5) — old configs keep 12.77 and mask the grounded-damage fix.**

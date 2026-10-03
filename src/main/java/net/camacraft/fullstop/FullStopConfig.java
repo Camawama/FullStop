@@ -181,6 +181,34 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue enableProjectileCollisions;
         public final ForgeConfigSpec.DoubleValue projectileRestitution;
 
+        // Create ("Create Catastrophes", compat/create): the section and the master switch; contraption hits
+        public final ForgeConfigSpec.BooleanValue enableCreateCompat;
+        public final ForgeConfigSpec.BooleanValue contraptionImpacts;
+        public final ForgeConfigSpec.DoubleValue contraptionDamageMultiplier;
+        public final ForgeConfigSpec.BooleanValue contraptionsReplaceTrainDamage;
+        public final ForgeConfigSpec.IntValue maxContraptionHitChecksPerTick;
+        public final ForgeConfigSpec.BooleanValue debugContraptionLog;
+        // Create: contraptions meeting terrain and ships, both sides giving (compat/create/contraption)
+        public final ForgeConfigSpec.BooleanValue contraptionTerrainImpacts;
+        public final ForgeConfigSpec.BooleanValue contraptionBlocksBreak;
+        public final ForgeConfigSpec.BooleanValue contraptionImpactStress;
+        public final ForgeConfigSpec.BooleanValue contraptionShipImpacts;
+        public final ForgeConfigSpec.DoubleValue contraptionTerrainMinSpeed;
+        public final ForgeConfigSpec.DoubleValue contraptionImpactStrength;
+        public final ForgeConfigSpec.DoubleValue contraptionStressPerImpact;
+        public final ForgeConfigSpec.IntValue maxContraptionTerrainChecksPerTick;
+        public final ForgeConfigSpec.BooleanValue contraptionSonicBooms;
+        // Create: spinning gears and water wheels (compat/create/kinetic)
+        public final ForgeConfigSpec.BooleanValue gearHazards;
+        public final ForgeConfigSpec.DoubleValue gearPullStrength;
+        public final ForgeConfigSpec.DoubleValue gearDamage;
+        public final ForgeConfigSpec.DoubleValue gearMinRpm;
+        public final ForgeConfigSpec.DoubleValue gearJamStress;
+        public final ForgeConfigSpec.DoubleValue gearFlingSpeed;
+        public final ForgeConfigSpec.BooleanValue waterWheelHazards;
+        public final ForgeConfigSpec.DoubleValue waterWheelGrip;
+        public final ForgeConfigSpec.DoubleValue waterWheelHoldSeconds;
+
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
             this.velocityIncrement = builder
@@ -1253,6 +1281,220 @@ public class FullStopConfig {
                     .comment("Default: 0.1")
                     .defineInRange("projectileRestitution", 0.1, 0.0, 1.0);
 
+            builder.pop();
+            builder.comment("Create Catastrophes: with Create installed, every moving part of it is dangerous. Moving contraptions",
+                            "(bearings and windmills, pistons, gantries, pulleys and elevators, minecart contraptions, trains) strike",
+                            "what they run into like a Valkyrien Skies ship does, spinning gears pull in and hurt whoever stands too",
+                            "close, and water wheels drag bodies under. Nothing here does anything without Create.")
+                    .push("Create");
+
+            this.enableCreateCompat = builder
+                    .comment("When true and Create is installed, Create's moving parts are dangerous (the settings below). Turn off to",
+                            "play with Create as if FullStop didn't know it.")
+                    .translation(key("enableCreateCompat"))
+                    .comment("Default: true")
+                    .define("enableCreateCompat", true);
+
+            this.contraptionImpacts = builder
+                    .comment("A moving contraption strikes the bodies it runs into exactly as a ship's hull does: the speed of the",
+                            "contraption's block at the point of contact (a bearing's arm is fastest at its tip) against the body's own,",
+                            "the same two-body law (a contraption is driven: it never gives way), the same damage, knock-away, friction,",
+                            "lift and crush against what's behind (shipEntityImpacts' settings: pushMinSpeed, gentlePushSpeed,",
+                            "entityRestitution, hullFriction, hitLift, maxHitLaunchSpeed, pinnedDamageMultiplier). Slower than",
+                            "gentlePushSpeed it only pushes, as Create itself does; bodies standing on or riding the contraption move",
+                            "with it and are never hit. Off: contraptions push bodies out of the way as Create does.")
+                    .translation(key("contraptionImpacts"))
+                    .comment("Default: true")
+                    .define("contraptionImpacts", true);
+
+            this.contraptionDamageMultiplier = builder
+                    .comment("Multiplies the damage a contraption deals to what it strikes (after kineticDamageMultiplier).")
+                    .translation(key("contraptionDamageMultiplier"))
+                    .comment("Default: 1.0")
+                    .defineInRange("contraptionDamageMultiplier", 1.0, 0.0, 100.0);
+
+            this.contraptionsReplaceTrainDamage = builder
+                    .comment("With contraptionImpacts on, a train or minecart contraption running into a body is judged like any other",
+                            "contraption hit, and Create's own run-over damage (its trainsCauseDamage) stands down so nothing is hurt",
+                            "twice. Off: Create's train damage as Create deals it, and trains are left to it.")
+                    .translation(key("contraptionsReplaceTrainDamage"))
+                    .comment("Default: true")
+                    .define("contraptionsReplaceTrainDamage", true);
+
+            this.maxContraptionHitChecksPerTick = builder
+                    .comment("Most bodies checked against moving contraptions per level per tick (each a swept test through the",
+                            "contraption's motion). Contraptions slower than pushMinSpeed everywhere cost nothing.")
+                    .translation(key("maxContraptionHitChecksPerTick"))
+                    .comment("Default: 256")
+                    .defineInRange("maxContraptionHitChecksPerTick", 256, 0, 100000);
+
+            this.debugContraptionLog = builder
+                    .comment("Log every contraption hit (closing speed, the block, damage, push) to the server log.")
+                    .translation(key("debugContraptionLog"))
+                    .comment("Default: false")
+                    .define("debugContraptionLog", false);
+
+            this.contraptionTerrainImpacts = builder
+                    .comment("A moving contraption that sweeps into the terrain at contraptionTerrainMinSpeed or faster meets it like a",
+                            "ship's hull does: the speed of its block there, and FullStop's material rule (toughness = hardness x",
+                            "(block mass / 1000 kg)^massInfluence) decides which side gives. A fast iron arm carves stone, cracking",
+                            "it first when one hit isn't enough (hits add up); bedrock, ship_unbreakable blocks and protected blocks",
+                            "never break. What nothing gives way to stops the contraption (contraptionImpactStress). Slower than",
+                            "contraptionTerrainMinSpeed, a contraption passes through blocks as in Create. Also needs kineticBlockBreaking.")
+                    .translation(key("contraptionTerrainImpacts"))
+                    .comment("Default: true")
+                    .define("contraptionTerrainImpacts", true);
+
+            this.contraptionBlocksBreak = builder
+                    .comment("When the contraption's own block is the weaker one (a wool sail hitting stone, planks hitting obsidian),",
+                            "it is knocked off the moving contraption and drops, and the rest keeps moving. Blocks with block entities",
+                            "(chests, drills, saws), seats, controls and the block the contraption hangs from are never knocked off.",
+                            "Off: the contraption's blocks never break; a contact where they would is one nothing gives way to.")
+                    .translation(key("contraptionBlocksBreak"))
+                    .comment("Default: true")
+                    .define("contraptionBlocksBreak", true);
+
+            this.contraptionImpactStress = builder
+                    .comment("Every hit a contraption makes on terrain or a ship loads the kinetic network driving it (its bearing,",
+                            "piston, pulley or gantry shaft) with stress, in proportion to the hit (contraptionStressPerImpact),",
+                            "fading over about a second. A hit nothing gives way to (bedrock, a block too tough to break this hit, a",
+                            "heavy ship) jams it: it stops with its block against the obstacle, stalled as Create stalls a contraption,",
+                            "and its network is held overstressed (everything on it stops, as any overstressed network does) for as",
+                            "long as its drive would still turn it into the obstacle and the obstacle is there. Stopping or reversing",
+                            "the motor, or moving the obstacle, lets it go. Minecart contraptions and trains have no network: they",
+                            "lose speed instead, and stop dead on a jam.")
+                    .translation(key("contraptionImpactStress"))
+                    .comment("Default: true")
+                    .define("contraptionImpactStress", true);
+
+            this.contraptionShipImpacts = builder
+                    .comment("A contraption sweeping into a Valkyrien Skies ship at contraptionTerrainMinSpeed or faster pushes the ship",
+                            "at the point it hits, as an immovable driven body would (a raft is swatted, a big ship barely moves), and",
+                            "breaks blocks on whichever side is weaker (the ship's by the hullDamage rules). A ship far heavier than",
+                            "the contraption, or a static one, jams it. Contraptions that are themselves on a ship are left to the ship.")
+                    .translation(key("contraptionShipImpacts"))
+                    .comment("Default: true")
+                    .define("contraptionShipImpacts", true);
+
+            this.contraptionTerrainMinSpeed = builder
+                    .comment("Slowest speed (m/s, of the contraption's block where it meets the terrain or a ship) that counts as a",
+                            "hit. A bearing arm at 8 RPM moves about 3.4 m/s four blocks out, at 64 RPM about 27 m/s.")
+                    .translation(key("contraptionTerrainMinSpeed"))
+                    .comment("Default: 5.0")
+                    .defineInRange("contraptionTerrainMinSpeed", 5.0, 0.0, 1000.0);
+
+            this.contraptionImpactStrength = builder
+                    .comment("How hard a contraption hits terrain and ships: the breaking energy of a hit is the striking block's",
+                            "kinetic energy at that speed (times terrainEnergyFraction) times this. A contraption is driven: its",
+                            "motor keeps pushing through the hit, so it hits harder than the block alone would. At 4 an iron",
+                            "arm at 64 RPM breaks stone in one pass; at 32 RPM it cracks it and grinds through in a few.")
+                    .translation(key("contraptionImpactStrength"))
+                    .comment("Default: 4.0")
+                    .defineInRange("contraptionImpactStrength", 4.0, 0.0, 1000.0);
+
+            this.contraptionStressPerImpact = builder
+                    .comment("Stress (SU) a contraption's network takes per FullStop energy unit of a hit (about 46 kJ). Breaking a",
+                            "stone block costs about 12 units (768 SU at the default): a blip on a big network, a stall on a small",
+                            "water wheel's. It fades by about a tenth each tick.")
+                    .translation(key("contraptionStressPerImpact"))
+                    .comment("Default: 64.0")
+                    .defineInRange("contraptionStressPerImpact", 64.0, 0.0, 1.0E7);
+
+            this.maxContraptionTerrainChecksPerTick = builder
+                    .comment("Most block positions checked against the terrain and ships per level per tick, over all moving",
+                            "contraptions (only their outer blocks moving at contraptionTerrainMinSpeed or faster are checked).")
+                    .translation(key("maxContraptionTerrainChecksPerTick"))
+                    .comment("Default: 8192")
+                    .defineInRange("maxContraptionTerrainChecksPerTick", 8192, 0, 1000000);
+
+            this.contraptionSonicBooms = builder
+                    .comment("A contraption whose fastest point passes the speed of sound (343 m/s) booms like a ship: once per",
+                            "supersonic stretch for everyone its shock reaches, its riders hearing nothing; a bearing's arm whose",
+                            "tips stay supersonic makes the shock train of a supersonic rotor (one crack per tip per turn). At",
+                            "Create's top speed, 256 RPM, an arm's tip passes the barrier from 12.8 blocks out.")
+                    .translation(key("contraptionSonicBooms"))
+                    .comment("Default: true")
+                    .define("contraptionSonicBooms", true);
+
+            this.gearHazards = builder
+                    .comment("Spinning gears are dangerous where two of them mesh: a body at the in-running side of the nip (where",
+                            "both gears' teeth run into the mesh: two cogwheels side by side, or a large and a small one diagonally)",
+                            "is drawn in and crushed (gearDamage), and jams them (gearJamStress). A single spinning gear never pulls",
+                            "and never hurts: touching its teeth pushes you off, along the way they move (a nudge when slow), and a",
+                            "very fast one flings you (gearFlingSpeed). Encased cogwheels, gearboxes and shafts are safe. Creative",
+                            "and spectator players are never caught (a creative player on foot is still pushed and flung).")
+                    .translation(key("gearHazards"))
+                    .comment("Default: true")
+                    .define("gearHazards", true);
+
+            this.gearPullStrength = builder
+                    .comment("How hard gears move bodies: the nip of two gears drawing a body in (1 = at 64 RPM a nip draws about a",
+                            "third as hard as walking pushes, growing with the square root of the speed: half at 16 RPM, double at",
+                            "256), and a single gear pushing off what touches it. A sneaking player braces against it, heavy bodies",
+                            "are harder to move.")
+                    .translation(key("gearPullStrength"))
+                    .comment("Default: 1.0")
+                    .defineInRange("gearPullStrength", 1.0, 0.0, 10.0);
+
+            this.gearDamage = builder
+                    .comment("Damage the nip of two gears deals per bite at 64 RPM (a bite whenever the damage cooldown allows, twice",
+                            "a second). It grows with the speed to the 0.75 power (16 RPM: 0.35x, 256 RPM: 2.8x), a quarter more with",
+                            "a large cogwheel in the pair. Nothing below 8 RPM, and nothing from a single gear. 0 turns the bites off",
+                            "but keeps the pull.")
+                    .translation(key("gearDamage"))
+                    .comment("Default: 3.0")
+                    .defineInRange("gearDamage", 3.0, 0.0, 1000.0);
+
+            this.gearMinRpm = builder
+                    .comment("Gears and water wheels turning slower than this (RPM) catch nothing.")
+                    .translation(key("gearMinRpm"))
+                    .comment("Default: 4.0")
+                    .defineInRange("gearMinRpm", 4.0, 0.0, 256.0);
+
+            this.gearJamStress = builder
+                    .comment("Stress a body caught in the nip of two gears puts on their network, as Create counts a machine's",
+                            "stress impact: stress units per RPM, per kilogram of the body. At 0.5 a player (75 kg) jams like a",
+                            "37.5 SU/RPM machine, more than a lone water wheel or a hand crank supplies, a pig (150 kg) like 75 and",
+                            "a cow (650 kg) like 325; a creative motor never notices. Overstressed, the gears stop and the body",
+                            "stays wedged until it walks out. 0: bodies never jam the gears.")
+                    .translation(key("gearJamStress"))
+                    .comment("Default: 0.5")
+                    .defineInRange("gearJamStress", 0.5, 0.0, 1000.0);
+
+            this.gearFlingSpeed = builder
+                    .comment("A single gear whose teeth hit a body at least this fast (m/s) flings it instead of pushing it off: thrown",
+                            "along the teeth and out from the gear like a hull's strike, at (1 + entityRestitution) of that speed,",
+                            "lifted off the ground (hitLift), at most maxHitLaunchSpeed; once per gear per half second. The throw",
+                            "itself never hurts; what it is thrown into (a wall, the ground) does, as any impact. Teeth speed is the",
+                            "rim's: a cogwheel's at 256 RPM is 15 m/s, at 128 RPM 7.5; a large cogwheel's twice that. At 10 a cogwheel",
+                            "flings at 256 RPM and a large one from about 128. 0: any turning gear flings; past 30 none does.")
+                    .translation(key("gearFlingSpeed"))
+                    .comment("Default: 10.0")
+                    .defineInRange("gearFlingSpeed", 10.0, 0.0, 1000.0);
+
+            this.waterWheelHazards = builder
+                    .comment("Turning water wheels (both sizes) drag bodies under: above the axle the paddles sweep a body off the",
+                            "wheel and down into the water; on the downstroke and below the axle every paddle presses it under, so it",
+                            "can't surface and drowns as in any water, unless it swims out sideways (the wheel holds weakly along its",
+                            "axle), the wheel stops, or it has been held waterWheelHoldSeconds. A wheel driven fast (24 RPM or more)",
+                            "also bites like a gear out of water.")
+                    .translation(key("waterWheelHazards"))
+                    .comment("Default: true")
+                    .define("waterWheelHazards", true);
+
+            this.waterWheelGrip = builder
+                    .comment("How firmly water wheel paddles hold a body (1 = as described in waterWheelHazards; below about 0.6",
+                            "a swimming body can rise out from under the wheel).")
+                    .translation(key("waterWheelGrip"))
+                    .comment("Default: 1.0")
+                    .defineInRange("waterWheelGrip", 1.0, 0.0, 10.0);
+
+            this.waterWheelHoldSeconds = builder
+                    .comment("Longest a water wheel holds a body under without a break, in seconds; then it lets go for five seconds.",
+                            "Air lasts 15 seconds and drowning then costs 2 health a second, so the default drowns what can't escape.")
+                    .translation(key("waterWheelHoldSeconds"))
+                    .comment("Default: 30.0")
+                    .defineInRange("waterWheelHoldSeconds", 30.0, 0.0, 600.0);
             builder.pop();
         }
 

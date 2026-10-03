@@ -42,6 +42,9 @@ public final class FullStopDamageSources {
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "atmosphere"));
     public static final ResourceKey<DamageType> SHIP =
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "ship"));
+    /** A moving Create contraption striking what it runs into (compat/create). */
+    public static final ResourceKey<DamageType> CONTRAPTION =
+            ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "contraption"));
 
     private FullStopDamageSources() {
     }
@@ -283,6 +286,46 @@ public final class FullStopDamageSources {
         String name = ship == null ? null : ship.customName();
         if (name == null) return null;
         return Component.literal(name).withStyle(s -> s.withColor(velocity.color()));
+    }
+
+    /**
+     * Damage a moving Create contraption deals to what it strikes ({@code fullstop:contraption}): a bearing's arm,
+     * a piston's ram, a train. A {@link ShipSource}, so Kinetic Protection covers the right piece of armour. The
+     * driver (a train's conductor), when there is one, answers for it.
+     *
+     * @param crushed the victim was pinned between the contraption and something that didn't give
+     */
+    public static DamageSource contraption(Entity victim, @Nullable Entity driver, VelocityDisplay velocity, boolean crushed,
+                                           boolean above, boolean below) {
+        return contraption(victim, driver, velocity, null, crushed, false, above, below);
+    }
+
+    /**
+     * As above, for a contraption of a known {@code kind} ({@code spinning}, {@code windmill}, {@code clock},
+     * {@code piston}, {@code gantry}, {@code pulley}, {@code elevator}, {@code minecart}, {@code train}; null for one
+     * FullStop can't tell): its own damage type ({@code fullstop:contraption_<kind>}) and death message
+     * ({@code death.fullstop.contraption.<kind>.hit}, {@code .crushed} when pinned against terrain,
+     * {@code .crushed_ship} against a ship; {@code .player} when a driver answers for it).
+     */
+    public static DamageSource contraption(Entity victim, @Nullable Entity driver, VelocityDisplay velocity, @Nullable String kind,
+                                           boolean crushed, boolean crushedAgainstShip, boolean above, boolean below) {
+        ResourceKey<DamageType> type = kind == null ? CONTRAPTION
+                : ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "contraption_" + kind));
+        Holder<DamageType> holder = victim.level().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolder(type)
+                .map(h -> (Holder<DamageType>) h).orElseGet(() -> holder(victim, CONTRAPTION));
+        String base = "death.fullstop.contraption" + (kind == null ? "" : "." + kind);
+        String key = base + (crushed ? (crushedAgainstShip ? ".crushed_ship" : ".crushed") : ".hit");
+        return new ShipSource(holder, driver, above, below) {
+            @Override
+            @NotNull
+            public Component getLocalizedDeathMessage(@NotNull LivingEntity dead) {
+                Component suffix = velocitySuffix(velocity);
+                if (driver != null && driver != dead) {
+                    return Component.translatable(key + ".player", dead.getDisplayName(), driver.getDisplayName()).append(suffix);
+                }
+                return Component.translatable(key, dead.getDisplayName()).append(suffix);
+            }
+        };
     }
 
     /**

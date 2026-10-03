@@ -44,6 +44,11 @@ public final class ClientRenderEvents {
                 // Moving Valkyrien Skies ships, in the same style (no-op without VS).
                 ShipVelocityDebug.update(mc.level, event.getPartialTick());
 
+                // Create's moving contraptions and its gears and water wheels (only with Create installed).
+                if (net.camacraft.fullstop.common.compat.create.CreateCompat.LOADED) {
+                    net.camacraft.fullstop.common.compat.create.CreateDebugHooks.update(mc.level, event.getPartialTick());
+                }
+
                 PoseStack poseStack = event.getPoseStack();
                 RaycastLineRenderer.render(poseStack, event.getPartialTick());
             } else {

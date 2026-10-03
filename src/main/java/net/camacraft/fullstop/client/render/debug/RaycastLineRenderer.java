@@ -116,6 +116,9 @@ public final class RaycastLineRenderer {
      * rays visibly stutter (this is a debug view; the extra clips are accepted).
      */
     public static void updateDebugRays(Entity entity, float partialTick) {
+        // An entity FullStop never simulates casts no rays: a Create contraption's own view draws its paths from its
+        // blocks (its entity's box is Create's bounds, which a train or cart widens to the whole circle it can turn in)
+        if (entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_BLACKLIST)) return;
         FullStopCapability fullstop = FullStopCapability.grabCapability(entity);
         if (fullstop == null) return;
 

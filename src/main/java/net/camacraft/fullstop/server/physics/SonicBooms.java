@@ -198,6 +198,13 @@ public final class SonicBooms {
         return source != null && source.live != null;
     }
 
+    /** The shock train's rate the source last asked for (pulses a second; 0 for none or one never seen); for the tests. */
+    public static double trainRate(ServerLevel level, Key key) {
+        Map<Key, Source> sources = SOURCES.get(level);
+        Source source = sources == null ? null : sources.get(key);
+        return source == null || source.train == null ? 0.0 : source.train.rate;
+    }
+
     /** How many supersonic stretches the source has begun (0 for one never seen); for the tests. */
     public static int stretchesStarted(ServerLevel level, Key key) {
         Map<Key, Source> sources = SOURCES.get(level);
@@ -355,6 +362,89 @@ public final class SonicBooms {
     private static void send(ServerPlayer listener, SoundEvent sound, Vec3 at, float pitch, long seed) {
         listener.connection.send(new ClientboundSoundPacket(BuiltInRegistries.SOUND_EVENT.wrapAsHolder(sound), SoundSource.NEUTRAL,
                 at.x, at.y, at.z, VOLUME, pitch, seed));
+    }
+
+    /** Two supersonic tips within this angle of each other round the spin axis are one tip. */
+    private static final double TIP_SPREAD = Math.toRadians(45.0);
+
+    /**
+     * How many separate tips of a spinning body are past {@code threshold} (m/s): of its {@code points} (each
+     * {@code {world point, velocity m/s}}), those moving that fast, grouped by their direction from {@code centre}
+     * round the spin axis (within {@link #TIP_SPREAD}: one tip). 0 when it hardly spins: then its speed is its travel,
+     * and there is no train. Used for ships ({@code ShipSonicBooms}) and Create's contraptions.
+     */
+    public static int supersonicTips(List<Vec3[]> points, Vec3 centre, Vec3 angularVelocity, double threshold) {
+        double spin = angularVelocity.length();
+        if (spin < 1.0e-3) return 0;
+        Vec3 axis = angularVelocity.scale(1.0 / spin);
+        Vec3 e1 = (Math.abs(axis.y) < 0.9 ? axis.cross(new Vec3(0.0, 1.0, 0.0)) : axis.cross(new Vec3(1.0, 0.0, 0.0))).normalize();
+        Vec3 e2 = axis.cross(e1);
+        List<Double> angles = new ArrayList<>();
+        for (Vec3[] point : points) {
+            if (point[1].lengthSqr() < threshold * threshold) continue;
+            Vec3 r = point[0].subtract(centre);
+            angles.add(Math.atan2(r.dot(e2), r.dot(e1)));
+        }
+        if (angles.isEmpty()) return 0;
+        if (angles.size() == 1) return 1;
+        angles.sort(null);
+        int gaps = 0;
+        for (int i = 1; i < angles.size(); i++) {
+            if (angles.get(i) - angles.get(i - 1) > TIP_SPREAD) gaps++;
+        }
+        if (angles.get(0) + 2.0 * Math.PI - angles.get(angles.size() - 1) > TIP_SPREAD) gaps++;
+        return Math.max(1, gaps);
+    }
+
+    /**
+     * The outermost block corners of a body built of blocks, in its own frame: for each of 26 directions, the corner of
+     * its blocks reaching farthest that way. The fastest point of a turning body is one of these, or next to one. Fed
+     * every block ({@link #add}), then read ({@link #points}). Used for ships and Create's contraptions.
+     */
+    public static final class Outermost {
+        private static final double[][] DIRS = directions();
+        private final double[] reach = new double[26];
+        private final Vec3[] corner = new Vec3[26];
+
+        public Outermost() {
+            java.util.Arrays.fill(reach, Double.NEGATIVE_INFINITY);
+        }
+
+        private static double[][] directions() {
+            double[][] dirs = new double[26][];
+            int n = 0;
+            for (int x = -1; x <= 1; x++) {
+                for (int y = -1; y <= 1; y++) {
+                    for (int z = -1; z <= 1; z++) {
+                        if (x == 0 && y == 0 && z == 0) continue;
+                        dirs[n++] = new double[]{x, y, z};
+                    }
+                }
+            }
+            return dirs;
+        }
+
+        /** One block of the body, by its cell. */
+        public void add(int x, int y, int z) {
+            for (int i = 0; i < 26; i++) {
+                double[] d = DIRS[i];
+                double cx = x + (d[0] > 0 ? 1.0 : 0.0), cy = y + (d[1] > 0 ? 1.0 : 0.0), cz = z + (d[2] > 0 ? 1.0 : 0.0);
+                double r = cx * d[0] + cy * d[1] + cz * d[2];
+                if (r > reach[i]) {
+                    reach[i] = r;
+                    corner[i] = new Vec3(cx, cy, cz);
+                }
+            }
+        }
+
+        /** The outermost corners found, each once. */
+        public List<Vec3> points() {
+            List<Vec3> points = new ArrayList<>(26);
+            for (Vec3 c : corner) {
+                if (c != null && !points.contains(c)) points.add(c);
+            }
+            return points;
+        }
     }
 
     /** A ring of vapour puffing out across the body's motion where it went supersonic. */

@@ -36,6 +36,19 @@ if (project.hasProperty('shipTests')) {
     }
 }
 
+// CREATE TESTS ARE OPT-IN: gradlew runGameTestServer -Pcreate [-PgameTestDir=run-gametest-<you>]
+// puts the real Create 6.0.8 (with Flywheel, Ponder and Registrate) on the dev runtime and compiles
+// src/createTest (contraption hits, gears, water wheels). Combine with -PshipTests for -PtestOnly=<classes>.
+// Create is compileOnly in every build (compat/create), never bundled and never a runtime dependency.
+if (project.hasProperty('create')) {
+    sourceSets.main.java.srcDir 'src/createTest/java'
+    sourceSets.main.resources.srcDir 'src/createTest/resources'
+}
+// -PshipTests -Pcreate together also compile src/createShipTest: contraptions meeting real VS ships (the ship tests' rigs).
+if (project.hasProperty('create') && project.hasProperty('shipTests')) {
+    sourceSets.main.java.srcDir 'src/createShipTest/java'
+}
+
 // Which Valkyrien Skies physics backend the ship tests run on: -PvsBackend=classic|physx|jolt
 // (default physx). VS 2.4.11 fires collision events only on PhysX and Jolt; on classic (VS's
 // default) Camafy's collision fallback reports the crashes instead, and the tests check that
@@ -50,6 +63,9 @@ def shipTestBackend = {
     }
     return backend
 }
+
+// -PgameTestDir=<dir> runs the gametest server in another folder, so two runs at once don't share a world.
+def gameTestDir = project.findProperty('gameTestDir') ?: 'run-gametest'
 
 minecraft {
     mappings channel: mapping_channel, version: mapping_version
@@ -82,7 +98,11 @@ minecraft {
             property 'forge.enabledGameTestNamespaces', mod_id
             // Its own directory and world (see cleanGameTestWorld below), so test runs never
             // rotate the dev client's logs or touch its saves.
-            workingDirectory project.file('run-gametest')
+            workingDirectory project.file(gameTestDir)
+            // -PdebugContraptionTerrain: every tick's terrain sweep of each sliding or riding contraption in the log
+            if (project.hasProperty('debugContraptionTerrain')) {
+                property 'fullstop.debug.contraptionTerrain', 'true'
+            }
             if (project.hasProperty('shipTests')) {
                 // Camafy logs every ship collision it publishes: the contact frames the tests check.
                 property 'camafy.debugCollisions', 'true'
@@ -139,6 +159,20 @@ repositories {
     }
     maven { url = 'https://thedarkcolour.github.io/KotlinForForge/' }
 
+    // Create 6, Flywheel and Ponder (compat/create; on the runtime only with -Pcreate), and Registrate
+    maven {
+        url = 'https://maven.createmod.net'
+        content {
+            includeGroup 'com.simibubi.create'
+            includeGroup 'dev.engine-room.flywheel'
+            includeGroup 'net.createmod.ponder'
+        }
+    }
+    maven {
+        url = 'https://maven.tterrag.com'
+        content { includeGroup 'com.tterrag.registrate' }
+    }
+
     // CurseMaven + Modrinth Maven for runtime test mods
     maven { url = "https://cursemaven.com" }
     maven { url = "https://api.modrinth.com/maven" }
@@ -190,6 +224,24 @@ dependencies {
     runtimeOnly fg.deobf("thedarkcolour:kotlinforforge:4.11.0")
 
     // -------------------------
+    // Create (optional: "Create Catastrophes", compat/create)
+    // -------------------------
+    // CREATE BUILD SETUP READY (2026-10-02, create-contraptions agent): Create 6.0.8 (the pack's build, 6.0.8-289) and
+    // what its classes need at compile time are compileOnly in every build; -Pcreate puts the same set on the dev runtime
+    // (gametests in src/createTest). Never bundled: the jar and jarJar carry none of it. Everything that names a Create
+    // type lives in compat/create and is only loaded when Create is (CreateCompat.LOADED).
+    compileOnly fg.deobf("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
+    compileOnly fg.deobf("net.createmod.ponder:Ponder-Forge-${minecraft_version}:${ponder_version}") { transitive = false }
+    compileOnly fg.deobf("dev.engine-room.flywheel:flywheel-forge-api-${minecraft_version}:${flywheel_version}") { transitive = false }
+    compileOnly fg.deobf("com.tterrag.registrate:Registrate:${registrate_version}") { transitive = false }
+    if (project.hasProperty('create')) {
+        runtimeOnly fg.deobf("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
+        runtimeOnly fg.deobf("net.createmod.ponder:Ponder-Forge-${minecraft_version}:${ponder_version}") { transitive = false }
+        runtimeOnly fg.deobf("dev.engine-room.flywheel:flywheel-forge-${minecraft_version}:${flywheel_version}") { transitive = false }
+        runtimeOnly fg.deobf("com.tterrag.registrate:Registrate:${registrate_version}") { transitive = false }
+    }
+
+    // -------------------------
     // Other Mods (compat testing only)
     // -------------------------
 
@@ -198,8 +250,8 @@ dependencies {
     runtimeOnly fg.deobf("curse.maven:spark-361579:4738952")
     // Client-side mods: the game test server (-PshipTests) is a DEDICATED server, and Cubes
     // Without Borders refuses to load there ("invalid dist DEDICATED_SERVER"), so these stay off
-    // that run.
-    if (!project.hasProperty('shipTests')) {
+    // that run (nor the Create test run, -Pcreate, also a dedicated server).
+    if (!project.hasProperty('shipTests') && !project.hasProperty('create')) {
         runtimeOnly fg.deobf("curse.maven:nbt-autocomplete-813557:5957924")
         runtimeOnly fg.deobf("curse.maven:do-a-barrel-roll-663658:5326142")
         runtimeOnly fg.deobf("curse.maven:embeddium-908741:5681725")
@@ -219,6 +271,8 @@ mixin {
     add sourceSets.main, 'mixins.fullstop.refmap.json'
     config 'mixins.fullstop.common.json'
     config 'mixins.fullstop.client.json'
+    // FullStop's mixins into Create: applied only when Create is installed (CreateMixinPlugin)
+    config 'mixins.fullstop.create.json'
 }
 // The ship tests' own mixin (the -PtestOnly filter), on dev test runs only: never in the release jar.
 if (project.hasProperty('shipTests')) {
@@ -236,6 +290,8 @@ tasks.named('compileJava') {
 }
 
 tasks.named('processResources', ProcessResources).configure {
+    // -Pcreate and -PshipTests both carry the shared test structure (flat_48x8x48): one copy is enough
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     var replaceProperties = [
             minecraft_version: minecraft_version, minecraft_version_range: minecraft_version_range,
             forge_version: forge_version, forge_version_range: forge_version_range,
@@ -293,7 +349,7 @@ tasks.withType(JavaCompile).configureEach {
 tasks.register('cleanGameTestWorld', Delete) {
     group = 'verification'
     description = 'Deletes the saved game test world so each run starts clean.'
-    delete file('run-gametest/world')
+    delete file("${gameTestDir}/world")
 }
 
 tasks.register('gameTestServerProperties') {
@@ -301,7 +357,7 @@ tasks.register('gameTestServerProperties') {
     description = 'Forces the game test world to be flat, fixed-seed and empty.'
     doLast {
         def props = new Properties()
-        def target = file('run-gametest/server.properties')
+        def target = file("${gameTestDir}/server.properties")
         target.parentFile.mkdirs()
         if (target.exists()) target.withInputStream { props.load(it) }
         props.setProperty('level-type', 'minecraft:flat')
@@ -317,7 +373,7 @@ tasks.register('gameTestServerProperties') {
             // otherwise). Valkyrien Skies 2.4.11 only fires collision events on PhysX and Jolt;
             // on KRUNCH_CLASSIC, its default, Camafy's fallback reports the crashes.
             def backend = [classic: 'KRUNCH_CLASSIC', physx: 'KRUNCH_PHYSX', jolt: 'KRUNCH_JOLT'][shipTestBackend()]
-            def vsCore = file('run-gametest/defaultconfigs/valkyrienskies/vs-core-server.toml')
+            def vsCore = file("${gameTestDir}/defaultconfigs/valkyrienskies/vs-core-server.toml")
             vsCore.parentFile.mkdirs()
             vsCore.text = "[\"Krunch Konfig\"]\n    physicsBackend = \"${backend}\"\n"
             println "Ship tests on Valkyrien Skies' ${backend} backend"

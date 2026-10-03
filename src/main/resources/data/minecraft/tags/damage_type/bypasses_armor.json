@@ -5,6 +5,17 @@
     "fullstop:kinetic_fall",
     "fullstop:pressure",
     "fullstop:atmosphere",
-    "fullstop:ship"
+    "fullstop:ship",
+    "fullstop:contraption",
+    "fullstop:contraption_spinning",
+    "fullstop:contraption_windmill",
+    "fullstop:contraption_clock",
+    "fullstop:contraption_piston",
+    "fullstop:contraption_gantry",
+    "fullstop:contraption_pulley",
+    "fullstop:contraption_elevator",
+    "fullstop:contraption_minecart",
+    "fullstop:contraption_train",
+    "fullstop:water_wheel_drown"
   ]
 }

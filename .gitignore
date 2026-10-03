@@ -29,3 +29,4 @@ src/reference
 forge*changelog.txt
 
 __pycache__/
+run-gametest-*

@@ -107,7 +107,7 @@ public final class ShipImpactSounds {
      * Plays the strongest of {@code hits} for one ship (or one ship pair, keyed by {@code key}) if
      * it deserves a sound this tick. {@code started}: the collision began this tick.
      */
-    static void play(ServerLevel level, long key, double massKg, boolean started, List<Hit> hits, long now) {
+    public static void play(ServerLevel level, long key, double massKg, boolean started, List<Hit> hits, long now) {
         if (!SERVER.impactSounds.get() || hits.isEmpty()) return;
         double min = SERVER.impactSoundMinSpeed.get();
 

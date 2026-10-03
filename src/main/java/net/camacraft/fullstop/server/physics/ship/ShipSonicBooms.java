@@ -42,8 +42,6 @@ final class ShipSonicBooms {
 
     /** How long (ticks) a ship's outermost blocks are kept before being looked up again. */
     private static final int EXTREMES_TICKS = 100;
-    /** Two supersonic tips within this angle of each other round the spin axis are one tip. */
-    private static final double TIP_SPREAD = Math.toRadians(45.0);
 
     /** Each ship's outermost block corners (ship space), found when its hull first nears the barrier. */
     private static final Map<ServerLevel, Long2ObjectOpenHashMap<Extremes>> EXTREMES = new WeakHashMap<>();
@@ -192,34 +190,15 @@ final class ShipSonicBooms {
 
     /**
      * How many separate tips of the hull are past {@code threshold} (m/s): its outermost corners moving that fast,
-     * grouped by their direction from the centre of mass round the spin axis ({@link #TIP_SPREAD}). 0 when the ship
-     * hardly spins (then its speed is its travel, and there is no train).
+     * grouped by their direction from the centre of mass round the spin axis ({@link SonicBooms#supersonicTips}).
      */
     private static int supersonicTips(ShipRef ship, ShipTracker.State state, Extremes extremes, double threshold) {
-        Vec3 w = state.angularVelocity();
-        double spin = w.length();
-        if (spin < 1.0e-3) return 0;
-        Vec3 axis = w.scale(1.0 / spin);
-        Vec3 e1 = (Math.abs(axis.y) < 0.9 ? axis.cross(new Vec3(0.0, 1.0, 0.0)) : axis.cross(new Vec3(1.0, 0.0, 0.0))).normalize();
-        Vec3 e2 = axis.cross(e1);
-        Vec3 com = state.position();
-        List<Double> angles = new ArrayList<>();
+        List<Vec3[]> points = new ArrayList<>(extremes.points().size());
         for (Vec3 local : extremes.points()) {
             Vec3 world = ship.toWorld(local);
-            if (world == null) continue;
-            if (state.velocityAt(world).lengthSqr() < threshold * threshold) continue;
-            Vec3 r = world.subtract(com);
-            angles.add(Math.atan2(r.dot(e2), r.dot(e1)));
+            if (world != null) points.add(new Vec3[]{world, state.velocityAt(world)});
         }
-        if (angles.isEmpty()) return 0;
-        if (angles.size() == 1) return 1;
-        angles.sort(null);
-        int gaps = 0;
-        for (int i = 1; i < angles.size(); i++) {
-            if (angles.get(i) - angles.get(i - 1) > TIP_SPREAD) gaps++;
-        }
-        if (angles.get(0) + 2.0 * Math.PI - angles.get(angles.size() - 1) > TIP_SPREAD) gaps++;
-        return Math.max(1, gaps);
+        return SonicBooms.supersonicTips(points, state.position(), state.angularVelocity(), threshold);
     }
 
     /**
@@ -227,35 +206,9 @@ final class ShipSonicBooms {
      * farthest that way. The fastest point of a turning hull is one of these, or next to one.
      */
     private static List<Vec3> outermost(ShipRef ship) {
-        double[][] dirs = new double[26][];
-        int n = 0;
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                for (int z = -1; z <= 1; z++) {
-                    if (x == 0 && y == 0 && z == 0) continue;
-                    dirs[n++] = new double[]{x, y, z};
-                }
-            }
-        }
-        double[] reach = new double[26];
-        Vec3[] corner = new Vec3[26];
-        java.util.Arrays.fill(reach, Double.NEGATIVE_INFINITY);
-        ship.forEachBlock(state -> !state.isAir(), (pos, state) -> {
-            for (int i = 0; i < 26; i++) {
-                double[] d = dirs[i];
-                double cx = pos.getX() + (d[0] > 0 ? 1.0 : 0.0), cy = pos.getY() + (d[1] > 0 ? 1.0 : 0.0), cz = pos.getZ() + (d[2] > 0 ? 1.0 : 0.0);
-                double r = cx * d[0] + cy * d[1] + cz * d[2];
-                if (r > reach[i]) {
-                    reach[i] = r;
-                    corner[i] = new Vec3(cx, cy, cz);
-                }
-            }
-        });
-        List<Vec3> points = new ArrayList<>(26);
-        for (Vec3 c : corner) {
-            if (c != null && !points.contains(c)) points.add(c);
-        }
-        return points;
+        SonicBooms.Outermost outermost = new SonicBooms.Outermost();
+        ship.forEachBlock(state -> !state.isAir(), (pos, state) -> outermost.add(pos.getX(), pos.getY(), pos.getZ()));
+        return outermost.points();
     }
 
     /** Forgets the outermost blocks of ships no longer loaded. */
