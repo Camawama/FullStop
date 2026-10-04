@@ -22,5 +22,11 @@ final class CreateHooks {
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.common.compat.create.contraption.ContraptionSonicBooms.class);
         // spinning gears pull in and chew, water wheels drag under (gearHazards, waterWheelHazards)
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.common.compat.create.kinetic.KineticHazards.class);
+        // bodies standing on a contraption turning about the vertical turn with it (contraptionRidersTurn); a player
+        // on its own client, every frame
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.common.compat.create.contraption.ContraptionRiders.class);
+        if (net.minecraftforge.fml.loading.FMLEnvironment.dist.isClient()) {
+            MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.client.compat.create.ContraptionRidersClient.class);
+        }
     }
 }

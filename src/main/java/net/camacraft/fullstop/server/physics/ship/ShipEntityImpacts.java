@@ -413,7 +413,8 @@ public final class ShipEntityImpacts {
         // Damage first: vanilla's own on-hurt knockback must not overwrite the push after it. The speed lost as
         // the body's own size sees it (a 1/16 player struck at 8 m/s is struck as a full-size one at 128).
         double damage = KineticDamageCalculator.damageForSpeedLost(root, ShipContactPhysics.atOwnScale(root, speedLost),
-                hullAbove || hullBelow, List.of(hull)) * SERVER.entityDamageMultiplier.get();
+                hullAbove || hullBelow, List.of(hull)) * SERVER.entityDamageMultiplier.get()
+                * ShipContactPhysics.strikeDamageShare(hull); // a wool hull shoves, barely hurts
         if (pinned) damage *= SERVER.pinnedDamageMultiplier.get();
         if (damage < 1) return false;
         Entity credited = SERVER.creditPilot.get() ? pilot.get() : null;

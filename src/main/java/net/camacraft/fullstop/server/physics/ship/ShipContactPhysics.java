@@ -214,7 +214,28 @@ public final class ShipContactPhysics {
     public static double restitution(Vec3 normal, GravityFrame frame, boolean weightless,
                                      @org.jetbrains.annotations.Nullable net.minecraft.world.level.block.state.BlockState hull) {
         if (ShipSlimeHoney.bouncy(hull)) return SERVER.slimeRestitution.get();
-        return restitution(normal, frame, weightless);
+        double e = restitution(normal, frame, weightless);
+        return softStriker(hull) ? e * SOFT_SPRING : e;
+    }
+
+    /** How much of {@code entityRestitution} a soft striking block springs back with ({@link #softStriker}). */
+    public static final double SOFT_SPRING = 1.0 / 3.0;
+
+    /**
+     * Whether {@code block}, striking a body (a hull's block, a Create contraption's), is soft: wool, hay, leaves,
+     * moss, sponge, dripleaves ({@code #fullstop:cushioning}, {@code #fullstop:soft_landing}), wool carpets and beds.
+     * It deals only {@code softStrikeDamage} of the strike's damage ({@link #strikeDamageShare}) and springs back less
+     * ({@link #SOFT_SPRING}); the body is still carried along at the block's speed.
+     */
+    public static boolean softStriker(@org.jetbrains.annotations.Nullable net.minecraft.world.level.block.state.BlockState block) {
+        return block != null && (block.is(net.camacraft.fullstop.common.physics.rules.FullStopTags.CUSHIONING)
+                || block.is(net.camacraft.fullstop.common.physics.rules.FullStopTags.SOFT_LANDING)
+                || block.is(net.minecraft.tags.BlockTags.WOOL_CARPETS) || block.is(net.minecraft.tags.BlockTags.BEDS));
+    }
+
+    /** The share of a strike's damage {@code block} deals as the striking block: {@code softStrikeDamage} if soft, else 1. */
+    public static double strikeDamageShare(@org.jetbrains.annotations.Nullable net.minecraft.world.level.block.state.BlockState block) {
+        return softStriker(block) ? SERVER.softStrikeDamage.get() : 1.0;
     }
 
     /** The mass (kg) a ride stack hits and is hit with: every body in it, what they carry left out. */

@@ -4,6 +4,7 @@ import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.physics.Impacts;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
+import net.camacraft.fullstop.common.physics.PlayerLandingBounce;
 import net.camacraft.fullstop.common.physics.math.BounceMath;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.entity.Entity;
@@ -84,7 +85,10 @@ public final class BounceHandler {
                 && carrierType == null) return;
         if (entity instanceof Minecart) return;
 
-        if (!fullstop.canBounce()) return;
+        if (!fullstop.canBounce()) {
+            debug(entity, "skipped: bounce cooldown", null, null, null);
+            return;
+        }
 
         // PRE-IMPACT velocity, not last tick's: a client-authoritative vehicle's
         // positions arrive already clipped, so the bounce is usually detected a
@@ -95,20 +99,42 @@ public final class BounceHandler {
         Vec3 preV = fullstop.getPreImpactScaledVelocity();
         // (a ship block's face in the world: slime on a ship's side or underside bounces too)
         Vec3 normal = BounceMath.mostOpposedNormal(entity.level(), collision.impactedHits, preV);
-        if (normal == null) return;
+        if (normal == null) {
+            debug(entity, "skipped: no face opposes the motion", preV, null, null);
+            return;
+        }
 
         // Rubbing along a surface is not an impact: without real, mostly-direct
         // speed INTO the surface, walking through a slime tunnel (or diagonally
         // beside a slime/honey wall) bounced or dead-stopped the player around.
-        if (!BounceMath.isDirectImpact(preV, normal)) return;
+        if (!BounceMath.isDirectImpact(preV, normal)) {
+            debug(entity, "skipped: not a direct impact", preV, normal, null);
+            return;
+        }
 
         // Already rebounding (e.g. last tick's bounce): re-applying a bounce from
         // the stale pre-impact velocity would pin the entity to the wall.
-        if (fullstop.getCurrentScaledVelocity().dot(normal) > 0.5) return;
+        if (fullstop.getCurrentScaledVelocity().dot(normal) > 0.5) {
+            debug(entity, "skipped: already rebounding", preV, normal, fullstop.getCurrentScaledVelocity());
+            return;
+        }
 
         Collision.CollisionType bounceType = carrierType != null ? carrierType : collision.collisionType;
+        // A player's landing on slime is its own client's (PlayerLandingBounce, at the moment it lands): bounced again
+        // from here, a tick or two late, it raced the client's (and on a Valkyrien Skies ship it was sometimes lost).
+        if (bounceType == Collision.CollisionType.SLIME && carrierType == null && entity instanceof Player
+                && PlayerLandingBounce.onClient() && normal.dot(fullstop.getFrame().up()) > 0.7) {
+            fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
+            fullstop.setJustBounced(true);
+            triggerBouncy(entity, bounceType, collision, preV);
+            debug(entity, "left to the player's client (a landing)", preV, normal, null);
+            return;
+        }
         Vec3 newV = BounceMath.bounceVelocity(preV, normal, bounceType);
-        if (newV == null) return;
+        if (newV == null) {
+            debug(entity, "skipped: not moving into the face", preV, normal, null);
+            return;
+        }
 
         if (carrierType != null) {
             newV = newV.scale(0.8); // carriers lose energy so they eventually settle and place
@@ -118,12 +144,8 @@ public final class BounceHandler {
         Gravity.setWorldVelocity(entity, newV.scale(0.05), fullstop.getFrame());
         entity.hurtMarked = true;
         fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
-        // "Bouncy": a player off slime at 20 m/s or more
-        if (entity instanceof net.minecraft.server.level.ServerPlayer player
-                && (bounceType == Collision.CollisionType.SLIME || collision.bouncy())
-                && preV.length() >= net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY_MPS) {
-            net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY.trigger(player);
-        }
+        debug(entity, "bounced (" + bounceType + ")", preV, normal, newV);
+        triggerBouncy(entity, bounceType, collision, preV);
 
         if (collision.bouncy() || carrierType == Collision.CollisionType.SLIME) {
             fullstop.setJustBounced(true);
@@ -137,6 +159,27 @@ public final class BounceHandler {
             mob.setSprinting(false);
         }
     }
+
+    /** "Bouncy": a player off slime at 20 m/s or more. */
+    private static void triggerBouncy(Entity entity, Collision.CollisionType bounceType, Collision collision, Vec3 preV) {
+        if (entity instanceof net.minecraft.server.level.ServerPlayer player
+                && (bounceType == Collision.CollisionType.SLIME || collision.bouncy())
+                && preV.length() >= net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY_MPS) {
+            net.camacraft.fullstop.advancement.FullStopTriggers.BOUNCY.trigger(player);
+        }
+    }
+
+    /** debugImpactLog: what became of a springy contact (players only, whether it bounced and why not). */
+    private static void debug(Entity entity, String what, @org.jetbrains.annotations.Nullable Vec3 preV,
+                              @org.jetbrains.annotations.Nullable Vec3 normal, @org.jetbrains.annotations.Nullable Vec3 after) {
+        if (!(entity instanceof Player) || !net.camacraft.fullstop.FullStopConfig.SERVER.debugImpactLog.get()) return;
+        LOGGER.info("[FullStop] bounce {} at tick {}: {}{}{}{}", entity.getName().getString(), entity.level().getGameTime(), what,
+                preV == null ? "" : String.format(java.util.Locale.ROOT, " pre=(%.1f, %.1f, %.1f)", preV.x, preV.y, preV.z),
+                normal == null ? "" : String.format(java.util.Locale.ROOT, " normal=(%.2f, %.2f, %.2f)", normal.x, normal.y, normal.z),
+                after == null ? "" : String.format(java.util.Locale.ROOT, " -> (%.1f, %.1f, %.1f) m/s", after.x, after.y, after.z));
+    }
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
 
     private static void handleWaterSkip(Entity entity, FullStopCapability fullstop, Collision collision) {
         // Pre-impact velocity for the same reason as apply(): late detection on

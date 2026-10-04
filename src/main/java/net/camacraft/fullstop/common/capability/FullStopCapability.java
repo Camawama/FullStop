@@ -160,6 +160,10 @@ public class FullStopCapability {
 
     private boolean isDamageImmune = false;
     private boolean hasTeleported = false;
+    // A position jump the server or this client set (teleportTo, a server-set player position, a correction): the
+    // speed history forgets it, as for hasTeleported, but without the teleport's damage immunity (a player the server
+    // corrects often - lag, a ship deck - must not go unhurt).
+    private boolean jumped = false;
     private boolean wasSleeping = false;
     private boolean hasDismounted = false;
     private boolean firstTick = true;
@@ -784,7 +788,10 @@ public class FullStopCapability {
             previousPosition = currentPosition;
         }
 
-        if (hasTeleported) {
+        if (hasTeleported || jumped) {
+            // a jump holds until a step takes it: a player's tick can pass with no client sample (held), and the first
+            // sample after it must not be measured from before the jump
+            jumped = false;
             currentPosition = position;
             previousPosition = currentPosition;
             velocityMps = Vec3.ZERO;
@@ -1416,6 +1423,20 @@ public class FullStopCapability {
 
     public void setHasTeleported(boolean value) {
         this.hasTeleported = value;
+    }
+
+    /**
+     * The entity's position was set, not travelled to (a teleport no event announced, a server-set player position):
+     * the next step's motion is forgotten, as for a teleport, without its damage immunity.
+     */
+    public void markJump() {
+        this.jumped = true;
+        // the client ticks queued before it were measured where the entity was: the next step starts from the new place
+        samples.clear();
+        hasPending = false;
+        pendingVelocityMps = null;
+        pendingCarryMps = null;
+        pendingPushMps = null;
     }
 
     public void justDismounted() {

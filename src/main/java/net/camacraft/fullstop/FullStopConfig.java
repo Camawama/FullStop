@@ -71,6 +71,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue impactCraterMaxRadius;
         public final ForgeConfigSpec.IntValue impactCraterMaxDepth;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
+        public final ForgeConfigSpec.BooleanValue playerSlimeLandingsOnClient;
         public final ForgeConfigSpec.BooleanValue debugImpactLog;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
         public final ForgeConfigSpec.DoubleValue minGForceThreshold;
@@ -123,6 +124,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue pistonShipReaction;
         public final ForgeConfigSpec.DoubleValue entityDamageMultiplier;
         public final ForgeConfigSpec.DoubleValue entityRestitution;
+        public final ForgeConfigSpec.DoubleValue softStrikeDamage;
+        public final ForgeConfigSpec.BooleanValue punchShips;
+        public final ForgeConfigSpec.DoubleValue punchShipImpulse;
         public final ForgeConfigSpec.DoubleValue pinnedDamageMultiplier;
         public final ForgeConfigSpec.BooleanValue creditPilot;
         public final ForgeConfigSpec.BooleanValue reactionImpulses;
@@ -198,6 +202,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue contraptionStressPerImpact;
         public final ForgeConfigSpec.IntValue maxContraptionTerrainChecksPerTick;
         public final ForgeConfigSpec.BooleanValue contraptionSonicBooms;
+        public final ForgeConfigSpec.BooleanValue contraptionRidersTurn;
         // Create: spinning gears and water wheels (compat/create/kinetic)
         public final ForgeConfigSpec.BooleanValue gearHazards;
         public final ForgeConfigSpec.DoubleValue gearPullStrength;
@@ -490,6 +495,15 @@ public class FullStopConfig {
                     .translation(key("dripstoneDamageMultiplier"))
                     .defineInRange("dripstoneDamageMultiplier", 2.0, 1.0, 100.0);
 
+            this.playerSlimeLandingsOnClient = builder
+                    .comment("A player landing on slime bounces on its own client the moment it lands (as in vanilla, with Full Stop's",
+                            "restitution, off the slime's face and relative to a moving Valkyrien Skies deck). A player's client moves the",
+                            "player, and the server sees a landing a tick or two after it happened (later still on a ship): its bounce came",
+                            "after the player had stopped on the slime, and on a ship it was sometimes lost. Off: the server bounces players",
+                            "as it does mobs.")
+                    .translation(key("playerSlimeLandingsOnClient"))
+                    .define("playerSlimeLandingsOnClient", true);
+
             this.raycastMode = builder
                     .comment("Experimental: Choose the raycast mode for collision detection. FULL_SWEEP may have significant performance impact.")
                     .translation(key("raycastMode"))
@@ -720,6 +734,32 @@ public class FullStopConfig {
                     .translation(key("entityRestitution"))
                     .comment("Default: 0.3")
                     .defineInRange("entityRestitution", 0.3, 0.0, 1.0);
+
+            this.softStrikeDamage = builder
+                    .comment("The share of a strike's damage a soft block deals when it is the block that hits (a hull's or a Create",
+                            "contraption's): wool, hay, leaves, moss, sponge, dripleaves, wool carpets and beds (#fullstop:cushioning,",
+                            "#fullstop:soft_landing). A soft block also springs back less (a third of entityRestitution): it still",
+                            "carries the body along at its own speed, so a fast wool arm shoves an iron golem hard but barely hurts it.",
+                            "1 = soft blocks hit as hard as their hardness says.")
+                    .translation(key("softStrikeDamage"))
+                    .comment("Default: 0.1")
+                    .defineInRange("softStrikeDamage", 0.1, 0.0, 1.0);
+
+            this.punchShips = builder
+                    .comment("A player's fist (or sword) hitting a block of a ship gives the ship a small push at the point hit, along",
+                            "the punch: a one-block ship drifts off, a raft barely moves, a big ship not at all. Not while sneaking, not",
+                            "with a tool in hand, not in creative, not on the ship you stand on.")
+                    .translation(key("punchShips"))
+                    .comment("Default: true")
+                    .define("punchShips", true);
+
+            this.punchShipImpulse = builder
+                    .comment("The push of a 75 kg player's bare fist on a ship (newton-seconds; heavier and bigger players push more,",
+                            "a sword up to twice as much). A plank weighs 500 kg to Valkyrien Skies: 250 sends a one-block ship off at",
+                            "half a metre a second.")
+                    .translation(key("punchShipImpulse"))
+                    .comment("Default: 250.0")
+                    .defineInRange("punchShipImpulse", 250.0, 0.0, 100000.0);
 
             this.hullFriction = builder
                     .comment("Friction between a hull and an entity it strikes: a hull sliding past (a spinning paddle's sweep, a",
@@ -1415,6 +1455,14 @@ public class FullStopConfig {
                     .translation(key("contraptionSonicBooms"))
                     .comment("Default: true")
                     .define("contraptionSonicBooms", true);
+
+            this.contraptionRidersTurn = builder
+                    .comment("Players and mobs standing on a contraption that turns about the vertical (a bearing's turning plate, a",
+                            "carousel) turn with it, as on a Valkyrien Skies ship: Create carries them round, this turns their facing",
+                            "too (a player's every frame, on its own client). Seated passengers are Create's own.")
+                    .translation(key("contraptionRidersTurn"))
+                    .comment("Default: true")
+                    .define("contraptionRidersTurn", true);
 
             this.gearHazards = builder
                     .comment("Spinning gears are dangerous where two of them mesh: a body at the in-running side of the nip (where",

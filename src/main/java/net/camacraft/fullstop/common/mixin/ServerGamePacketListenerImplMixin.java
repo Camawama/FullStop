@@ -37,6 +37,26 @@ public abstract class ServerGamePacketListenerImplMixin {
         }
     }
 
+    /**
+     * Every position the server sets on a player (a command, an ender pearl, chorus fruit, another mod's
+     * {@code teleportTo}, a correction) goes through here: FullStop's speed history must not read the jump as motion.
+     * Only some of them fire {@code EntityTeleportEvent}; a short one stays under the 60 m/s discontinuity guard and was
+     * judged as a hit at that speed a tick later (a slime ceiling threw a teleported player down at 43 m/s).
+     */
+    @Inject(method = "teleport(DDDFFLjava/util/Set;)V", at = @At("HEAD"))
+    private void fullstop$teleported(double x, double y, double z, float yaw, float pitch,
+                                     java.util.Set<net.minecraft.world.entity.RelativeMovement> relative, CallbackInfo ci) {
+        ServerPlayer moved = this.player;
+        if (moved == null) return;
+        // only a real move (a look-only set, relative and zero, is none)
+        double dx = relative.contains(net.minecraft.world.entity.RelativeMovement.X) ? x : x - moved.getX();
+        double dy = relative.contains(net.minecraft.world.entity.RelativeMovement.Y) ? y : y - moved.getY();
+        double dz = relative.contains(net.minecraft.world.entity.RelativeMovement.Z) ? z : z - moved.getZ();
+        if (dx * dx + dy * dy + dz * dz < 0.05 * 0.05) return;
+        FullStopCapability cap = FullStopCapability.grabCapability(moved);
+        if (cap != null) cap.markJump();
+    }
+
     @Inject(method = "handleMoveVehicle", at = @At("RETURN"))
     private void fullstop$sampleVehicleMove(ServerboundMoveVehiclePacket packet, CallbackInfo ci) {
         ServerPlayer driver = this.player;

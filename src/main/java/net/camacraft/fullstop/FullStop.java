@@ -83,6 +83,7 @@ public class FullStop
         MinecraftForge.EVENT_BUS.register(CancelEvents.class);
         MinecraftForge.EVENT_BUS.register(ShipWeightHandler.class);
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.ship.ShipPistons.class);
+        MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.ship.ShipPunches.class);
         // Create Catastrophes: Create's moving parts are dangerous (nothing without Create).
         net.camacraft.fullstop.common.compat.create.CreateCompat.init();
         MinecraftForge.EVENT_BUS.addListener((RegisterCommandsEvent e) -> FullStopCommand.register(e.getDispatcher()));

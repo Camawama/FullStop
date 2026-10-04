@@ -11,6 +11,7 @@
     "WaterSlowdownMixin",
     "FallingBlockEntityMixin",
     "SlimeBlockNoBounceMixin",
+    "BlockFallOnSlimeMixin",
     "PhaseableBlockMixin",
     "BoatLerpMixin",
     "EntityPushMixin",
@@ -24,7 +25,8 @@
     "ShipPlateInvoker",
     "ShipPressurePlateMixin",
     "ShipWeightedPlateMixin",
-    "PistonHeadWaitsForShipMixin"
+    "PistonHeadWaitsForShipMixin",
+    "EntityTeleportMixin"
   ],
   "injectors": {
     "defaultRequire": 1

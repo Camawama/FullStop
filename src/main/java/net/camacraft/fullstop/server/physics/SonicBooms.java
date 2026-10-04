@@ -280,7 +280,8 @@ public final class SonicBooms {
     private static void arrive(ServerLevel level, Stretch stretch, long now) {
         if (stretch.waves.isEmpty()) return;
         for (ServerPlayer listener : level.players()) {
-            if (listener.isSpectator() || stretch.heard.contains(listener.getUUID()) || stretch.aboard.test(listener)) continue;
+            // spectators hear booms too (they watch; only the advancement is for players in the game)
+            if (stretch.heard.contains(listener.getUUID()) || stretch.aboard.test(listener)) continue;
             Vec3 ear = listener.getEyePosition();
             Wave first = null;
             double firstArrival = Double.POSITIVE_INFINITY, firstDistance = 0.0;
@@ -315,7 +316,7 @@ public final class SonicBooms {
         for (ServerPlayer listener : level.players()) {
             UUID id = listener.getUUID();
             Long last = source.listening.get(id);
-            boolean should = on && !listener.isSpectator() && listener.getEyePosition().distanceToSqr(train.at) <= TRAIN_RANGE * TRAIN_RANGE
+            boolean should = on && listener.getEyePosition().distanceToSqr(train.at) <= TRAIN_RANGE * TRAIN_RANGE
                     && (train.ridersHear || !live.aboard.test(listener));
             if (on && !listener.isSpectator() && listener.getEyePosition().distanceToSqr(train.at)
                     <= net.camacraft.fullstop.advancement.FullStopTriggers.THUNDERSCREECH_RANGE_SQ) {
@@ -356,7 +357,7 @@ public final class SonicBooms {
         float crack = (0.72f + (level.random.nextFloat() - level.random.nextFloat()) * 0.06f) * (1.0f - 0.15f * far);
         send(listener, SoundEvents.GENERIC_EXPLODE, from, crack, level.random.nextLong());
         send(listener, SoundEvents.WARDEN_SONIC_BOOM, from, 2.0f - 0.4f * far, level.random.nextLong());
-        net.camacraft.fullstop.advancement.FullStopTriggers.BOOM.trigger(listener);
+        if (!listener.isSpectator()) net.camacraft.fullstop.advancement.FullStopTriggers.BOOM.trigger(listener);
     }
 
     private static void send(ServerPlayer listener, SoundEvent sound, Vec3 at, float pitch, long seed) {

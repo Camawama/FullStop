@@ -445,7 +445,8 @@ public final class ContraptionImpacts {
         boolean above = vertical < -0.7;
         boolean below = vertical > 0.7;
         double damage = KineticDamageCalculator.damageForSpeedLost(root, ShipContactPhysics.atOwnScale(root, speedLost),
-                above || below, List.of(block)) * SERVER.contraptionDamageMultiplier.get();
+                above || below, List.of(block)) * SERVER.contraptionDamageMultiplier.get()
+                * ShipContactPhysics.strikeDamageShare(block); // a wool arm shoves, barely hurts
         if (pinned) damage *= SERVER.pinnedDamageMultiplier.get();
         if (damage < 1) return 0.0;
         DamageSource source = FullStopDamageSources.contraption(root, driver,

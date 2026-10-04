@@ -140,6 +140,8 @@ Useful setup commands:
 - [ ] **Plain fall, ~20+ blocks.** *Expect:* heavy damage or death; death message reads "hit the ground too hard" with velocity appended.
 - [ ] **Fall onto hay / wool / leaves.** *Expect:* clearly reduced damage vs stone from the same height (soft landing / cushioning tags).
 - [ ] **Slime block landing.** *Expect:* bounce, no damage (unless crouching), camera reaction if enabled.
+- [ ] **Land on slime on a Valkyrien Skies ship, from low and from high (20+ blocks), on a ship at rest, one moving and one turning, many times.** *Expect:* a bounce every time, as on world slime, never a dead stop; sneaking lands without a bounce `[FIX]`.
+- [ ] **Slime on a ship's underside and sides: jump or get flung up into it, run or get flung into it; roll a slime ship upside down or on its side and land on its slime; stand under a ship with a gravity core in it and fall up onto its slime underside.** *Expect:* each bounces the way the same face of world slime does (the underside sends you back down) `[FIX]`.
 - [ ] **Fall while holding a full stack of passengers is N/A — see §7 for stacks.*
 
 ## 2. Elytra impacts — your reported issue `[FIX]` (test thoroughly!)
@@ -688,3 +690,13 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Walk into the pool, or stand still on its edge.** *Expect:* you sink, unhurt (walking is under oobleck's 5 m/s).
 - [ ] **Sprint across it.** *Expect:* you run across the top (Flow Fun), and Full Stop counts no impact.
 - [ ] **Drop a mob from high up onto it.** *Expect:* it stops on the surface and is hurt as on stone; the oobleck itself is never cracked or removed by the impact.
+
+## 46. Soft blocks, spectators, punching ships, turning plates, teleports (round 11) `[VS]` `[FIX]` `[NEW]`
+
+- [ ] **A wool arm on a bearing at 256 RPM (Create) swinging into an iron golem, then an iron-block arm.** *Expect:* the wool arm shoves the golem hard (nearly as far as the iron one) but takes about 4 health off it, never kills it; the iron arm still does heavy damage. At 64 RPM the wool arm doesn't hurt at all. `softStrikeDamage` (Ship Collisions, 0.1) is the soft block's share; 1 = as hard as before.
+- [ ] **A small wool ship rammed into a mob at speed, then a stone one.** *Expect:* the wool ship pushes the mob away almost as fast as the stone one but barely hurts it.
+- [ ] **In spectator mode, 20-30 blocks from a 14-block arm spinning at 256 RPM (or a supersonic ship).** *Expect:* you hear the boom when it goes supersonic and the shock train's cracks while it spins, as a survival player would.
+- [ ] **A one-block plank ship floating in water: punch its side with an empty hand (survival).** *Expect:* it drifts away from you, slowly (about half a metre a second), turning a little if you hit it off-centre. A 3x3 raft barely moves, a big ship not at all.
+- [ ] **The same while sneaking, with a pickaxe, in creative, and standing on the ship you punch.** *Expect:* no push in any of these. Clicking fast pushes at most every 8 ticks. `punchShips` / `punchShipImpulse` (Ship Collisions) switch and size it.
+- [ ] **Stand on a bearing's horizontal plate turning at 16 RPM (and lead a pig onto it).** *Expect:* your view turns with the plate smoothly, as on a Valkyrien Skies ship (no stutter per tick), and the pig keeps facing the same way relative to the plate. A windmill or a sideways bearing doesn't turn you. `contraptionRidersTurn` (Create) switches it off.
+- [ ] **Fall, `/tp` yourself 2 blocks against a wall or onto slime, an ender pearl next to a wall, chorus fruit.** *Expect:* the teleport itself never hurts you or bounces you; a real hit right after still does.
