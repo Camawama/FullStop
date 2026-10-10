@@ -8,6 +8,7 @@ import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.camafy.minigame.MatchPolicies;
 import net.camacraft.camafy.weight.Weights;
+import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
@@ -16,8 +17,12 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SwordItem;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
+import net.minecraft.world.item.enchantment.Enchantments;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.level.BlockEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
@@ -30,18 +35,22 @@ import java.util.UUID;
 import static net.camacraft.fullstop.FullStopConfig.SERVER;
 
 /**
- * A fist (or a sword) striking a block of a Valkyrien Skies ship gives the ship a small push at the point hit, along
- * the punch ({@code punchShips}; {@code punchShipImpulse} newton-seconds for a 75 kg player's bare fist): a one-block
- * ship drifts off at about half a metre a second, a 3x3 raft at a few centimetres, a big ship not perceptibly. It goes
- * through Camafy's {@code ShipForces} at the point hit, so a light ship also turns a little.
+ * A player's hit on a block of a Valkyrien Skies ship gives the ship a small push at the point hit, along the hit
+ * ({@code punchShips}; {@code punchShipImpulse} newton-seconds for a 75 kg player's bare fist): a one-block ship drifts
+ * off at about half a metre a second, a 3x3 raft at a few centimetres, a big ship not perceptibly. It goes through
+ * Camafy's {@code ShipForces} at the point hit, so a light ship also turns a little.
  *
- * <p>Server side, on the start of a hit (a click: holding the button to mine doesn't push again). The push grows with
- * the puncher's mass and size (a 1/16 player punching a 1/16 ship moves it as a full-size one does a full-size ship)
- * and a little with a sword's attack damage (its square root, at most twice a fist's). None while sneaking, with a
- * tool or any other item in hand (mining a ship's blocks doesn't shove it about), in creative (the click breaks the
- * block), on the ship the puncher stands on or rides (nobody propels a raft by punching its own deck), on a static
- * ship, or where the puncher may not alter blocks (adventure mode, a minigame's protection). At most once per
- * {@value #COOLDOWN_TICKS} ticks per player.
+ * <p>Server side, on the start of a hit (a click: holding the button to mine doesn't push again), with a fist or
+ * whatever is in hand ({@code punchShipsAnyItem}; off: an empty hand and swords only, as at first). The push grows with
+ * the puncher's mass and size (a 1/16 player punching a 1/16 ship moves it as a full-size one does a full-size ship),
+ * a little with the item's attack damage (its square root, at most twice a fist's), and with Knockback: each level
+ * (and a sprint, as vanilla's knockback counts one) adds {@code punchShipEnchantBonus} pushes. Full Stop's Pullback
+ * counts the same the other way: the ship is pulled toward the player instead; on one item the two subtract. None
+ * while sneaking (the way to hit, or mine, a ship without moving it), in creative (the click breaks the block), on the
+ * ship the puncher stands on or rides (nobody propels a raft by punching its own deck), on a static ship, or where
+ * the puncher may not alter blocks (adventure mode, a minigame's protection). At most once per
+ * {@value #COOLDOWN_TICKS} ticks per player, and not within {@value #MINING_ON_TICKS} ticks of a block that player broke
+ * (the button held to mine on starts a hit on the next block by itself).
  */
 public final class ShipPunches {
 
@@ -52,7 +61,11 @@ public final class ShipPunches {
     /** A body of this mass punches with {@code punchShipImpulse}. */
     private static final double REFERENCE_KG = 75.0;
 
+    /** Ticks after a player broke a block in which their next hit is the held button mining on, not a new click. */
+    static final int MINING_ON_TICKS = 10;
+
     private static final Map<UUID, Long> LAST = new HashMap<>();
+    private static final Map<UUID, Long> BROKE = new HashMap<>();
 
     private ShipPunches() {
     }
@@ -72,7 +85,9 @@ public final class ShipPunches {
         if (player.isCreative() || player.isSpectator()) return refused(player, ship, "creative or spectator");
         if (player.isShiftKeyDown()) return refused(player, ship, "sneaking");
         ItemStack held = player.getMainHandItem();
-        if (!held.isEmpty() && !(held.getItem() instanceof SwordItem)) return refused(player, ship, "holding " + held.getItem());
+        if (!held.isEmpty() && !(held.getItem() instanceof SwordItem) && !SERVER.punchShipsAnyItem.get()) {
+            return refused(player, ship, "holding " + held.getItem());
+        }
         if (ship.isStatic()) return refused(player, ship, "a static ship");
         ShipRef underfoot = ShipEntities.standingOn(player, 2);
         ShipRef mounted = ShipEntities.mountedTo(player);
@@ -83,6 +98,8 @@ public final class ShipPunches {
         long now = level.getGameTime();
         Long last = LAST.get(player.getUUID());
         if (last != null && now - last < COOLDOWN_TICKS && now >= last) return refused(player, ship, "cooling down");
+        Long broke = BROKE.get(player.getUUID());
+        if (broke != null && now - broke < MINING_ON_TICKS && now >= broke) return refused(player, ship, "mining on with the button held");
 
         // where the fist lands: the middle of the face struck, in the ship's own blocks
         Direction side = face == null ? Direction.UP : face;
@@ -96,15 +113,25 @@ public final class ShipPunches {
         // a shrunk player's punch moves a shrunk ship as a full-size one moves a full-size ship: the impulse also
         // shrinks with the length scale (mass alone would leave the ship moving as fast, in world blocks, as full size)
         double size = EntityScale.heightFactor(player);
-        double impulse = SERVER.punchShipImpulse.get() * weapon * body * size;
+        // Knockback pushes harder (a sprinting hit one level more, as vanilla's knockback), Pullback pulls the ship in
+        int knock = EnchantmentHelper.getItemEnchantmentLevel(Enchantments.KNOCKBACK, held) + (player.isSprinting() ? 1 : 0)
+                - EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.PULLBACK.get(), held);
+        double enchant = 1.0 + SERVER.punchShipEnchantBonus.get() * Math.abs(knock);
+        double impulse = SERVER.punchShipImpulse.get() * weapon * body * size * enchant;
         if (!(impulse > 0.0)) return false;
         Vec3 along = player.getLookAngle();
+        if (knock < 0) {
+            // toward the puncher: from where the hit landed to their eyes
+            Vec3 back = player.getEyePosition().subtract(worldPoint);
+            along = back.lengthSqr() > 1.0e-6 ? back.normalize() : along.scale(-1.0);
+        }
         if (!ShipForces.applyImpulseAtShipPos(level, ship.id(), along.scale(impulse), shipPoint)) return refused(player, ship, "VS refused the impulse");
         LAST.put(player.getUUID(), now);
         if (SERVER.debugShipCollisionLog.get()) {
-            LOGGER.info("[FullStop] punch: {} pushed ship {} by {} N s along ({}, {}, {}) at {} (face {})", player.getName().getString(),
-                    ship.id(), String.format(Locale.ROOT, "%.1f", impulse), String.format(Locale.ROOT, "%.2f", along.x),
-                    String.format(Locale.ROOT, "%.2f", along.y), String.format(Locale.ROOT, "%.2f", along.z), worldPoint, side);
+            LOGGER.info("[FullStop] punch: {} {} ship {} by {} N s along ({}, {}, {}) at {} (face {}; holding {}, knockback {})",
+                    player.getName().getString(), knock < 0 ? "pulled" : "pushed", ship.id(), String.format(Locale.ROOT, "%.1f", impulse),
+                    String.format(Locale.ROOT, "%.2f", along.x), String.format(Locale.ROOT, "%.2f", along.y),
+                    String.format(Locale.ROOT, "%.2f", along.z), worldPoint, side, held.isEmpty() ? "nothing" : held.getItem(), knock);
         }
         return true;
     }
@@ -116,8 +143,15 @@ public final class ShipPunches {
         return false;
     }
 
+    /** A block the player finished breaking: the hit that starts on the next block is the same held button. */
+    @SubscribeEvent(priority = EventPriority.LOWEST)
+    public static void onBreak(BlockEvent.BreakEvent event) {
+        if (event.getPlayer() instanceof ServerPlayer player) BROKE.put(player.getUUID(), player.level().getGameTime());
+    }
+
     @SubscribeEvent
     public static void onLogout(PlayerEvent.PlayerLoggedOutEvent event) {
         LAST.remove(event.getEntity().getUUID());
+        BROKE.remove(event.getEntity().getUUID());
     }
 }

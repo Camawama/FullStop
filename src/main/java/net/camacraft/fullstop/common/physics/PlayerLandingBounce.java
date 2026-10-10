@@ -15,9 +15,12 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.SlimeBlock;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.List;
 
 /**
  * Landings on slime, where vanilla bounces them ({@code SlimeBlock.updateEntityAfterFallOn}, which FullStop otherwise
@@ -39,6 +42,8 @@ public final class PlayerLandingBounce {
 
     /** How far below the feet, along the body's down, the block it stands on is looked for (blocks). */
     private static final double BELOW_FEET = 0.08;
+    /** How far below the feet a ship's deck the body's box rests on by an edge or a corner is looked for (blocks). */
+    private static final double BELOW_BOX = 0.5;
 
     private PlayerLandingBounce() {
     }
@@ -59,6 +64,13 @@ public final class PlayerLandingBounce {
     /**
      * The slime {@code entity} stands on, looked for just past its feet along its own down (its gravity frame), in the
      * world and in any Valkyrien Skies ship there; null when what it stands on (if anything) isn't slime.
+     *
+     * <p>On a ship the look goes on deeper when nothing is that close ({@link #BELOW_BOX} below the feet, across the
+     * whole footprint): a body's box is upright while a deck may lean, so it rests on a leaning deck by an edge or a
+     * corner with its middle clear of the deck by more than {@link #BELOW_FEET} (0.1 blocks on a deck leaning 20
+     * degrees across its diagonal). There the first block under each point decides: slime, or something else on top of
+     * it. On a ship smaller than full size the steps are its own blocks' (at 1/16, {@link #BELOW_FEET} is more than a
+     * whole block of the ship, and the look went straight through a one-block slime deck into what lies under it).
      */
     @Nullable
     public static Surface underFeet(Entity entity) {
@@ -71,6 +83,7 @@ public final class PlayerLandingBounce {
         Vec3 side2 = up.cross(side).normalize();
         double r = entity.getBbWidth() * 0.35;
         Vec3[] offsets = {Vec3.ZERO, side.scale(r), side.scale(-r), side2.scale(r), side2.scale(-r)};
+        List<ShipRef> ships = ShipCompat.active() ? Ships.intersecting(level, new AABB(feet, feet).inflate(entity.getBbWidth() + BELOW_BOX)) : List.of();
         for (Vec3 o : offsets) {
             Vec3 p = feet.add(o).subtract(up.scale(BELOW_FEET));
             BlockPos cell = BlockPos.containing(p);
@@ -78,28 +91,55 @@ public final class PlayerLandingBounce {
                 Direction face = Direction.getNearest(up.x, up.y, up.z);
                 return new Surface(Vec3.atLowerCornerOf(face.getNormal()), Vec3.ZERO);
             }
-            if (!ShipCompat.active()) continue;
-            for (ShipRef ship : Ships.intersecting(level, new AABB(p, p).inflate(0.05))) {
-                Vec3 local = ship.toShip(p);
+            for (ShipRef ship : ships) {
+                // within the ship's first block under the feet, whatever its size
+                double depth = Math.min(BELOW_FEET, 0.45 * ship.scale());
+                if (!(depth > 0.0)) continue;
+                Vec3 local = ship.toShip(feet.add(o).subtract(up.scale(depth)));
                 if (local == null) continue;
                 BlockPos shipCell = BlockPos.containing(local);
                 if (!(level.getBlockState(shipCell).getBlock() instanceof SlimeBlock)) continue;
-                // the ship block's face that turns toward the body's up (a rolled ship's underside, a tilted deck's top)
-                Vec3 normal = up;
-                double best = -2.0;
-                for (Direction d : Direction.values()) {
-                    Vec3 n = ShipCompat.worldFaceNormal(level, shipCell, d);
-                    double dot = n.dot(up);
-                    if (dot > best) {
-                        best = dot;
-                        normal = n;
-                    }
+                return onShip(level, ship, shipCell, up, feet);
+            }
+        }
+        if (ships.isEmpty()) return null;
+        // a deck the box rests on by an edge or a corner: the first block under each point of the footprint
+        double edge = entity.getBbWidth() * 0.5 - 0.01;
+        Vec3[] footprint = {Vec3.ZERO, side.scale(edge), side.scale(-edge), side2.scale(edge), side2.scale(-edge),
+                side.scale(edge).add(side2.scale(edge)), side.scale(edge).add(side2.scale(-edge)),
+                side.scale(-edge).add(side2.scale(edge)), side.scale(-edge).add(side2.scale(-edge))};
+        for (ShipRef ship : ships) {
+            double step = Math.min(BELOW_FEET, 0.45 * ship.scale());
+            if (!(step > 1.0E-4)) continue;
+            for (Vec3 o : footprint) {
+                for (double depth = step; depth <= BELOW_BOX; depth += step) {
+                    Vec3 local = ship.toShip(feet.add(o).subtract(up.scale(depth)));
+                    if (local == null) break;
+                    BlockPos shipCell = BlockPos.containing(local);
+                    BlockState state = level.getBlockState(shipCell);
+                    if (state.isAir()) continue;
+                    if (state.getBlock() instanceof SlimeBlock) return onShip(level, ship, shipCell, up, feet);
+                    break; // something else lies on top here
                 }
-                Vec3 at = ship.velocityAt(feet);
-                return new Surface(normal, at == null ? Vec3.ZERO : at.scale(0.05));
             }
         }
         return null;
+    }
+
+    /** The face of a ship's slime block that turns toward the body's up (a rolled ship's underside, a tilted deck's top). */
+    private static Surface onShip(Level level, ShipRef ship, BlockPos shipCell, Vec3 up, Vec3 feet) {
+        Vec3 normal = up;
+        double best = -2.0;
+        for (Direction d : Direction.values()) {
+            Vec3 n = ShipCompat.worldFaceNormal(level, shipCell, d);
+            double dot = n.dot(up);
+            if (dot > best) {
+                best = dot;
+                normal = n;
+            }
+        }
+        Vec3 at = ship.velocityAt(feet);
+        return new Surface(normal, at == null ? Vec3.ZERO : at.scale(0.05));
     }
 
     /**

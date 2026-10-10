@@ -46,7 +46,7 @@ final class HazardScanner {
 
     /** Every hazard within {@link #MAX_REACH} of {@code body} (world blocks and blocks of ships), into {@code out}. */
     static void scan(Level level, AABB body, boolean gears, boolean wheels, List<Hazard> out) {
-        scanBox(level, body.inflate(MAX_REACH), Hazard.NO_SHIP, gears, wheels, out);
+        scanBox(level, body.inflate(MAX_REACH), Hazard.NO_SHIP, gears, wheels, out, false);
         if (!Ships.available()) return;
         AABB reach = body.inflate(MAX_REACH);
         if (!Ships.anyIntersecting(level, reach)) return;
@@ -55,15 +55,31 @@ final class HazardScanner {
             if (!(scale > 1.0E-4)) continue;
             // the parts' reach is in the ship's own blocks: a 1/16 ship's gear reaches 1/16 as far in the world
             AABB shipBox = ship.worldBoxToShip(body.inflate(MAX_REACH * Math.min(scale, 1.0)));
-            if (shipBox != null) scanBox(level, shipBox, ship.id(), gears, wheels, out);
+            if (shipBox != null) scanBox(level, shipBox, ship.id(), gears, wheels, out, false);
         }
     }
 
-    private static void scanBox(Level level, AABB box, long shipId, boolean gears, boolean wheels, List<Hazard> out) {
+    /**
+     * Every gear around a ship's world box, for {@code GearPushables}: the world's, searched through the whole box (a
+     * section without a cogwheel in its palette costs one look), and other ships' there; never {@code selfShip}'s own.
+     */
+    static void scanAround(Level level, AABB shipBox, long selfShip, List<Hazard> out) {
+        AABB reach = shipBox.inflate(Hazard.Kind.LARGE_COGWHEEL.radius + 1.0);
+        scanBox(level, reach, Hazard.NO_SHIP, true, false, out, true);
+        if (!Ships.available()) return;
+        for (ShipRef other : Ships.intersecting(level, reach)) {
+            if (other.id() == selfShip) continue;
+            if (!(other.scale() > 1.0E-4)) continue;
+            AABB box = other.worldBoxToShip(reach);
+            if (box != null) scanBox(level, box, other.id(), true, false, out, false);
+        }
+    }
+
+    private static void scanBox(Level level, AABB box, long shipId, boolean gears, boolean wheels, List<Hazard> out, boolean whole) {
         int x0 = Mth.floor(box.minX), y0 = Mth.floor(box.minY), z0 = Mth.floor(box.minZ);
         int x1 = Mth.floor(box.maxX), y1 = Mth.floor(box.maxY), z1 = Mth.floor(box.maxZ);
         long volume = (long) (x1 - x0 + 1) * (y1 - y0 + 1) * (z1 - z0 + 1);
-        if (volume > MAX_POSITIONS) {
+        if (volume > MAX_POSITIONS && !whole) {
             // clip around the centre: a scaled-down ship's box can be enormous in its own blocks
             int cx = (x0 + x1) >> 1, cy = (y0 + y1) >> 1, cz = (z0 + z1) >> 1;
             int half = 15;

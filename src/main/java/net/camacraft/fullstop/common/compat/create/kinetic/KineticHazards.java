@@ -278,7 +278,7 @@ public final class KineticHazards {
 
     /** Of the in-running mouths of the meshing pairs among {@code cogs}, the one the body is deepest in; null for none. */
     @Nullable
-    private static KineticGrip.NipCatch deepestNip(AABB box, List<Hazard.Live> cogs) {
+    static KineticGrip.NipCatch deepestNip(AABB box, List<Hazard.Live> cogs) {
         KineticGrip.NipCatch best = null;
         for (int i = 0; i < cogs.size(); i++) {
             for (int j = i + 1; j < cogs.size(); j++) {
@@ -377,7 +377,9 @@ public final class KineticHazards {
         LivingEntity body = event.getEntity();
         if (body.level().isClientSide() || !event.getSource().is(net.minecraft.world.damagesource.DamageTypes.DROWN)) return;
         State state = STATES.get(body);
-        if (state == null || body.level().getGameTime() - state.wheelHoldTick > 2) return;
+        // compared this way round: gameTime - Long.MIN_VALUE (never held) overflows to a negative "age",
+        // which relabelled every drowning of a body this class had ever tracked as a water wheel's
+        if (state == null || state.wheelHoldTick < body.level().getGameTime() - 2) return;
         event.setCanceled(true);
         body.hurt(GearDamage.drowned(body), event.getAmount());
     }

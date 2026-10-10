@@ -114,11 +114,8 @@ public class GforceEffectsRenderer {
                 }
             }
 
-            int airSupply = player.getAirSupply();
-            int maxAir = player.getMaxAirSupply();
-            if (airSupply < maxAir && !PhysicsAspect.ENVIRONMENT.in(claims)) {
-                float intensity = 1.0f - ((float) airSupply / (float) maxAir);
-                drowningIntensity = intensity * intensity * intensity;
+            if (!PhysicsAspect.ENVIRONMENT.in(claims)) {
+                drowningIntensity = OxygenBlackout.intensity(player);
             }
         }
 

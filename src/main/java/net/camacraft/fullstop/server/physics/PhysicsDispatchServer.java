@@ -325,6 +325,8 @@ public class PhysicsDispatchServer {
         // this tick has not moved: there is no impact to look for (and its
         // zero position delta must not read as one).
         if (!fullstop.hasFreshSample()) return;
+        // the move right after a teleport or a server-set position is that jump: nothing to judge (jumpedLately)
+        if (fullstop.jumpedLately()) return;
 
         sonicBoom(entity, fullstop);
 

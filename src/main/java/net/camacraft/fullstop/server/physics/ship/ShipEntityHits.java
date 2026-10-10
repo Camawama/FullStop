@@ -176,8 +176,11 @@ public final class ShipEntityHits {
         boolean weightless = cap.isWeightless();
         boolean fromBelow = ShipContactPhysics.fromBelow(normal, frame, weightless);
         if (fromBelow && cap.getGroundedTicks() > LANDING_TICKS) return Outcome.PASS; // standing on it
-        // its own ship: it stood on this deck just now, or VS is still carrying it with the ship
-        boolean rider = !fromBelow && (cap.stoodOnBefore(ship.id(), now, RIDER_TICKS) || ShipCompat.carriedBy(entity, ship));
+        // its own ship: it stood on this deck just now, or VS is still carrying it with the ship - and it is on that deck:
+        // VS takes a body touching a ship's side for one standing on it (a car driven into a ship's side was its "rider"
+        // from the first touch on, and never pushed it)
+        boolean rider = !fromBelow && (cap.stoodOnBefore(ship.id(), now, RIDER_TICKS) || ShipCompat.carriedBy(entity, ship))
+                && onDeck(level, entity, ship, frame);
         double entityKg = fromBelow ? deckKg(entity) : ShipContactPhysics.bodyKg(entity);
         double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
@@ -230,6 +233,32 @@ public final class ShipEntityHits {
                             : cap.isShipFeedbackBlocked(ship.id(), now) ? " (thrown by it: no push)" : "");
         }
         return new Outcome(true, damage, struck, false);
+    }
+
+    /**
+     * Whether a block of {@code ship} is right under the entity's feet (along its gravity's down, at the middle or a
+     * corner of its footprint): it stands on that ship's deck, and a hull of that ship it runs into is its own ship's.
+     * VS's own record of what a body stands on also names a ship it only touched from the side.
+     */
+    static boolean onDeck(ServerLevel level, Entity entity, ShipRef ship, @Nullable GravityFrame frame) {
+        Vec3 up = frame != null ? frame.up() : GravityFrame.WORLD_UP;
+        net.minecraft.world.phys.AABB box = entity.getBoundingBox();
+        Vec3 centre = box.getCenter();
+        // the bottom of the box along the frame's up, then a little under it
+        double half = 0.5 * (Math.abs(up.x) * box.getXsize() + Math.abs(up.y) * box.getYsize() + Math.abs(up.z) * box.getZsize());
+        Vec3 feet = centre.subtract(up.scale(half + 0.2));
+        double r = 0.45 * Math.min(box.getXsize(), box.getZsize());
+        Vec3 a = Math.abs(up.y) > 0.9 ? new Vec3(1, 0, 0) : new Vec3(0, 1, 0);
+        Vec3 u = a.subtract(up.scale(a.dot(up))).normalize();
+        Vec3 v = up.cross(u);
+        for (int i = 0; i < 5; i++) {
+            Vec3 at = i == 0 ? feet : feet.add(u.scale((i & 1) == 0 ? r : -r)).add(v.scale((i & 2) == 0 ? r : -r));
+            Vec3 local = ship.toShip(at);
+            if (local == null) continue;
+            BlockState state = ShipTerrainImpacts.loadedState(level, BlockPos.containing(local));
+            if (state != null && !state.isAir()) return true;
+        }
+        return false;
     }
 
     /** Whether every block this tick's rays struck (none counts too) belongs to ship {@code shipId}. */
@@ -398,7 +427,8 @@ public final class ShipEntityHits {
         if (normal == null || hull == null) return null;
         FullStopCapability cap = FullStopCapability.grabCapability(entity);
         long now = level.getGameTime();
-        boolean rider = (cap != null && cap.stoodOnBefore(ship.id(), now, RIDER_TICKS)) || ShipCompat.carriedBy(entity, ship);
+        boolean rider = ((cap != null && cap.stoodOnBefore(ship.id(), now, RIDER_TICKS)) || ShipCompat.carriedBy(entity, ship))
+                && onDeck(level, entity, ship, cap != null ? cap.getFrame() : FullStopCapability.currentFrame(entity));
         Vec3 world = cap != null ? cap.getPreImpactWorldVelocity() : impactVelocityBpt.scale(20.0);
         double closingMps = -world.subtract(hull).dot(normal);
         double entityKg = entityUnits * EntityStackUtils.KG_PER_UNIT;

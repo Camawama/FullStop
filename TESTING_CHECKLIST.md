@@ -79,6 +79,16 @@
 - [ ] A bearing arm at least 13 blocks long at 256 RPM, heard from 20-30 blocks away: one sonic boom as it goes supersonic, then a buzzing train of cracks (about 4 a second) while it spins; riding it you hear no boom. A shorter arm never booms `[NEW]`.
 - [ ] Death messages: kill a mob (or yourself in survival) with a cogwheel, a large cogwheel, a fast water wheel's paddles, by drowning under a water wheel, and with a windmill, a piston, a gantry, a pulley, a train: each has its own message; pinned against a wall / a ship, the crushed variants.
 
+## Bodies, 2026-10-04 `[FIX]` `[NEW]` (fs-bodies)
+
+- [ ] **Fall 10, 20 and 40 blocks onto a slime deck of a VS ship (hovering, moving, turning).** *Expect:* the same bounce as on world slime from the same height, every time; never a bounce that starts and stops dead.
+- [ ] **Bounce on world slime, then Shipify (or VMod-toolgun) the slime you are bouncing on.** *Expect:* the bounces go on; you are never left standing where you touched with WallJump's falling wind playing. (The server log may still say "moved while colliding with unloaded ships!": that is Valkyrien Skies waiting for the ship's chunks; Full Stop now keeps your motion through it.)
+- [ ] **Set yourself on fire (flint and steel on netherrack, step off) and sprint, then stand still; ride a horse burning.** *Expect:* sprinting the flames die down sooner than standing (about 1.5x at a sprint, 5x at a gallop), never at once; standing in fire or lava nothing changes.
+- [ ] **A burning ship under way** (Camafy's ship fire: oak raft in lava, then drive it). *Expect:* it goes out sooner the faster it goes.
+- [ ] **Crack packed ice by a hard hit, break it and place packed ice back in the same spot.** *Expect:* the new block shows no crack, and a second hit like the first doesn't break it. Also crack stone (fading crack) and break it at once: the crack leaves with the block.
+- [ ] **Push a small VS ship (a few planks) against a 64 RPM cogwheel's teeth; then at 256 RPM.** *Expect:* pushed off slowly at 64, flung at 256; a big ship barely moves. A plank ship wedged into the in-running nip of two cogwheels jams them (a weak network overstresses).
+- [ ] **Park an Automobility car against a turning cogwheel, then drive one into it.** *Expect:* pushed off (flung at 256 RPM), a quarter as hard as a player; driven, the push is felt at once (your client applies it).
+
 ## 0. NEW in this build `[FIX]` — test these first
 
 **IMPORTANT: delete `velocityDamageThresholdHorizontal` from the saved server config (or set it to 10.5) — old configs keep 12.77 and mask the grounded-damage fix.**
@@ -700,3 +710,14 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **The same while sneaking, with a pickaxe, in creative, and standing on the ship you punch.** *Expect:* no push in any of these. Clicking fast pushes at most every 8 ticks. `punchShips` / `punchShipImpulse` (Ship Collisions) switch and size it.
 - [ ] **Stand on a bearing's horizontal plate turning at 16 RPM (and lead a pig onto it).** *Expect:* your view turns with the plate smoothly, as on a Valkyrien Skies ship (no stutter per tick), and the pig keeps facing the same way relative to the plate. A windmill or a sideways bearing doesn't turn you. `contraptionRidersTurn` (Create) switches it off.
 - [ ] **Fall, `/tp` yourself 2 blocks against a wall or onto slime, an ender pearl next to a wall, chorus fruit.** *Expect:* the teleport itself never hurts you or bounces you; a real hit right after still does.
+
+## 47. Heavy ships on light ones, TNT on impact, hits with any item (round 12) `[VS]` `[FIX]` `[NEW]`
+
+- [ ] **A 3x3x3 obsidian ship and a one-plank ship lying on the ground: bring the cube down on the plank from two blocks up or more.** *Expect:* the plank breaks and drops, the obsidian is whole. Setting the cube down on it gently breaks nothing (under `breakMinSpeed`, 5 m/s), as on terrain.
+- [ ] **Push the plank along the ground into a wall with the cube, at a run.** *Expect:* it breaks against the wall.
+- [ ] **Swing the cube fast (15 m/s or more) into the plank while it floats free, in the air or on water.** *Expect:* it breaks. A slow bump only shoves it away, whole. `crushPinnedShips` and `shipShoveLimit` (Ship Collisions) are the two rules; with both off it takes 55 m/s.
+- [ ] **Ram a plank raft with the obsidian ship at 20 m/s.** *Expect:* more planks break than before (the raft has no time to move away); obsidian never.
+- [ ] **Assemble one TNT block as a ship and drop it from 8 blocks or more.** *Expect:* it explodes where it lands. From 2-6 blocks: it is lit (the hiss, flashing) and goes off half a second later.
+- [ ] **Fly a ship with TNT on its bow into a wall and into another ship; fly a ship into TNT standing on the ground; with Create, swing a bearing's arm into TNT, and an arm with a TNT tip into a wall.** *Expect:* the TNT goes off each time, at once at 12 m/s or more, lit from 5 m/s. TNT elsewhere on the ship, away from the hit, stays. `tntImpacts` off: TNT is a block like any other.
+- [ ] **A one-block plank ship floating in water: click its side with an empty hand, a pickaxe, a stick with Knockback II, a sword with Full Stop's Pullback II.** *Expect:* the fist pushes it slowly away, the pickaxe about twice as fast (an item's attack damage counts, at most double), the Knockback II stick three times as fast as a fist; Pullback II pulls it toward you (harder still: the sword's damage counts too).
+- [ ] **Hold the button on it with a pickaxe; sneak and click with anything.** *Expect:* holding pushes once, then mines without pushing; sneaking never pushes. `punchShipsAnyItem` off: only the empty hand and swords push.

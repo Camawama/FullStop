@@ -47,6 +47,17 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * momentum is left to VS: a rotor ploughs on through what it broke, and whatever VS resolved of
  * the overlap stands.
  *
+ * <p>A ship flung aside. On Valkyrien Skies' default physics (KRUNCH_CLASSIC) nothing reports a
+ * heavy hull knocking a light ship away: Camafy's stand-in only sees a ship that suddenly lost
+ * speed, and a 135 t hull hitting a one-block ship loses a tenth of a metre a second while the
+ * block is thrown off, and below about 20 m/s the hulls never cross either (VS's solver keeps
+ * them apart). A ship whose speed jumped this tick by more than gravity explains (at least half
+ * of {@code breakMinSpeed}) is flung; if no crash of the pair was weighed this tick, the pair is
+ * swept with the flung ship going on as it was going before ({@link Poses#unflung}). Unreported,
+ * only strikes that pushed it the way it was flung count; reported (VS saw them touch, but its
+ * contact normal or point said too slow, or found no block: PhysX takes a hull's edge meeting a
+ * block's for a vertical contact), every strike does.
+ *
  * <p>Cost: a pair is only looked at when its swept bounds meet; a block only when its own
  * travel plus the other ship's could carry it into the other's bounds; a sample only when the
  * cube's centre is within a block of the other's blocks. Two 3x3x16 rotors crossing tips are a
@@ -72,6 +83,10 @@ final class ShipHullClash {
     /** Half the diagonal of a block, and then some: how far a cube's centre may be from a cell it overlaps. */
     private static final double CUBE_REACH = 0.9;
     private static final double TICK = 0.05;
+    /** A ship whose speed jumped by this share of {@code breakMinSpeed} or more in a tick, gravity aside, was flung. */
+    private static final double FLUNG_SHARE = 0.5;
+    /** How well a strike's push must agree with the way a flung ship went (cosine). */
+    private static final double FLUNG_ALONG = 0.3;
 
     /** A ship's blocks (packed positions, ship space), when they were listed and its mass then. Null cells: too many. */
     record Hull(long found, double mass, long @Nullable [] cells) {}
@@ -129,16 +144,65 @@ final class ShipHullClash {
                     .translate(-anchor.x, -anchor.y, -anchor.z);
         }
 
+        /**
+         * These poses as they would have been had the ship gone on over the tick as it was going before
+         * ({@code velocity} m/s and {@code spin} rad/s, world): a ship VS's solver flung aside this tick, posed as
+         * if nothing had struck it.
+         */
+        Poses unflung(Vec3 velocity, Vec3 spin) {
+            Vec3 nowAt = prev.add(velocity.scale(TICK));
+            Quaterniond rotation = new Quaterniond(rotPrev);
+            double angle = spin.length() * TICK;
+            if (angle > 1.0e-9) {
+                Vec3 axis = spin.normalize();
+                rotation = new Quaterniond().rotateAxis(angle, axis.x, axis.y, axis.z).mul(rotPrev).normalize();
+            }
+            return new Poses(anchor, prev, nowAt, rotPrev, rotation, scalePrev, scalePrev);
+        }
+
         /** How far (blocks) the ship's material at {@code worldPoint} can have moved over the tick, at most. */
         double reach(Vec3 worldPoint) {
             return travel + turn * worldPoint.distanceTo(now);
         }
     }
 
-    /** One ship's part in this tick's clashes. */
-    private record Party(ShipRef ship, ShipTracker.State state, Poses poses, AABB bounds, double radius, double reach, Hull hull) {}
+    /**
+     * One ship's part in this tick's clashes. {@code flung}: how much more its speed changed this tick than gravity
+     * explains (m/s, world), when that was enough to count (see {@link #flung}); {@code unflung}: these poses are the
+     * ones it would have had without it.
+     */
+    private record Party(ShipRef ship, ShipTracker.State state, Poses poses, AABB bounds, double radius, double reach,
+                         @Nullable Vec3 flung, boolean unflung) {
 
-    static void process(ServerLevel level, ShipTracker tracker, List<ShipRef> ships, long now, Set<BlockPos> struck) {
+        /** This party posed as if nothing had flung it ({@link Poses#unflung}). */
+        Party asUnflung() {
+            Poses before = poses.unflung(state.prevVelocity, state.prevAngularVelocity);
+            return new Party(ship, state, before, bounds, radius, before.travel + before.turn * radius, flung, true);
+        }
+    }
+
+    /** A pair's key in {@code reported} (whichever way round). */
+    static long pairKey(long a, long b) {
+        return Math.min(a, b) * 0x9E3779B97F4A7C15L ^ Math.max(a, b);
+    }
+
+    /** How flung a ship is: its speed's change this tick beyond gravity's, m/s, world; null when under {@code least}. */
+    @Nullable
+    private static Vec3 flung(ServerLevel level, ShipRef ship, ShipTracker.State state, double least) {
+        if (ship.isStatic() || !state.newFrame() || state.prevVelocity == null || state.velocity == null) return null;
+        Vec3 g = ship.gravity();
+        if (g == null) g = net.camacraft.camafy.compat.vs.Ships.dimensionGravity(level);
+        Vec3 change = state.velocity.subtract(state.prevVelocity);
+        if (g != null) change = change.subtract(g.scale(state.frameSeconds()));
+        return change.length() >= least ? change : null;
+    }
+
+    /**
+     * {@code reported}: the pairs ({@link #pairKey}) a collision was reported for this tick; {@code judged}: those whose
+     * crash was weighed (blocks found and judged, or TNT set off).
+     */
+    static void process(ServerLevel level, ShipTracker tracker, List<ShipRef> ships, long now, Set<BlockPos> struck, Set<Long> reported,
+                        Set<Long> judged) {
         if (ships.size() < 2 || !SERVER.shipClashSweep.get()
                 || SERVER.shipVsShipBreaking.get() == FullStopConfig.ShipVsShipBreaking.NONE) {
             return;
@@ -154,17 +218,26 @@ final class ShipHullClash {
             double radius = 0.5 * Math.sqrt(bounds.getXsize() * bounds.getXsize() + bounds.getYsize() * bounds.getYsize()
                     + bounds.getZsize() * bounds.getZsize());
             double reach = poses.travel + poses.turn * radius;
-            parties.add(new Party(ship, state, poses, bounds, radius, reach, null));
+            parties.add(new Party(ship, state, poses, bounds, radius, reach, flung(level, ship, state, FLUNG_SHARE * breakMin), false));
         }
         int[] budget = {SERVER.shipClashMaxBlocksPerTick.get()};
         // (debugShipCollisionLog: every pair that could clash, once a second)
         boolean log = SERVER.debugShipCollisionLog.get() && now % 20 == 0;
         int pairs = 0;
         for (int i = 0; i < parties.size() && budget[0] > 0; i++) {
-            Party a = parties.get(i);
             for (int j = i + 1; j < parties.size() && budget[0] > 0; j++) {
+                Party a = parties.get(i);
                 Party b = parties.get(j);
                 if (a.ship().isStatic() && b.ship().isStatic()) continue;
+                // flung aside and not judged: swept as if it had gone on (see the class doc); a pair VS reported touching
+                // (judged too slow along a contact normal it got wrong, or with no block found at a stale contact) needs no
+                // check that the strike pushed the way it was flung
+                long key = pairKey(a.ship().id(), b.ship().id());
+                boolean touched = reported.contains(key);
+                if ((a.flung() != null || b.flung() != null) && !judged.contains(key)) {
+                    if (a.flung() != null) a = a.asUnflung();
+                    if (b.flung() != null) b = b.asUnflung();
+                }
                 if (!a.bounds().inflate(a.reach()).intersects(b.bounds().inflate(b.reach()))) continue;
                 // ships held together by joints (a phys-bearing rotor and the ship it turns in) never clash
                 if (net.camacraft.camafy.compat.vs.Ships.joined(level, a.ship().id(), b.ship().id())) continue;
@@ -182,7 +255,7 @@ final class ShipHullClash {
                     continue;
                 }
                 if (++pairs > MAX_PAIRS) return;
-                clash(level, a, b, now, struck, budget, log);
+                clash(level, a, b, now, struck, budget, log, touched);
             }
         }
     }
@@ -192,7 +265,8 @@ final class ShipHullClash {
     }
 
     /** The smaller of the two hulls swept through the other; every block pair that crossed breaks by the pair rule. */
-    private static void clash(ServerLevel level, Party a, Party b, long now, Set<BlockPos> struck, int[] budget, boolean log) {
+    private static void clash(ServerLevel level, Party a, Party b, long now, Set<BlockPos> struck, int[] budget, boolean log,
+                              boolean touched) {
         Hull hullA = hull(level, a.ship(), now);
         Hull hullB = hull(level, b.ship(), now);
         int countA = hullA.cells() == null ? Integer.MAX_VALUE : hullA.cells().length;
@@ -298,6 +372,13 @@ final class ShipHullClash {
                     b.ship().id(), fmt(b.poses().now.y), upB == null ? "?" : fmt(Math.toDegrees(Math.acos(Mth.clamp(upB.y, -1.0, 1.0)))),
                     fmt(b.poses().travel), fmt(b.poses().turn));
         }
+        if ((a.unflung() || b.unflung()) && !touched) {
+            // a flung ship's strikes: only those that pushed it the way it went (a is pushed along the normal, b against it)
+            strikes.removeIf(strike -> a.unflung() && strike.normal().dot(a.flung().normalize()) < FLUNG_ALONG
+                    || b.unflung() && -strike.normal().dot(b.flung().normalize()) < FLUNG_ALONG);
+            fastest = 0.0;
+            for (ShipTerrainImpacts.PairStrike strike : strikes) fastest = Math.max(fastest, strike.speed());
+        }
         if (strikes.isEmpty()) return;
         if (fastest < SERVER.breakMinSpeed.get()) return;
 
@@ -306,6 +387,9 @@ final class ShipHullClash {
         double reduced = ShipTerrainImpacts.reducedMass(massA, massB);
         if (!Double.isFinite(reduced)) return;
         strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
+        // a ship with the ground (a wall, another ship) right behind it answers with that too: crushed, not shoved
+        double answering = ShipTerrainImpacts.pairMass(level, a.ship(), massA, b.ship(), massB, strikes.get(0));
+        if (!Double.isFinite(answering)) return;
 
         // both hulls sound (and throw their particles) where they crossed hardest
         List<ShipImpactSounds.Hit> hits = new ArrayList<>(Math.min(4, strikes.size()));
@@ -315,17 +399,22 @@ final class ShipHullClash {
         }
         ShipImpactSounds.play(level, a.ship().id(), reduced, true, hits, now);
 
+        if (ImpactExplosives.enabled()) {
+            strikes = ShipTerrainImpacts.pairExplosives(level, a.ship(), b.ship(), strikes, struck);
+            if (strikes.isEmpty()) return;
+        }
         int cap = Math.min(budget[0], SERVER.shipClashMaxBlocksPerTick.get());
-        ShipTerrainImpacts.PairOutcome outcome = ShipTerrainImpacts.breakPair(level, a.ship(), b.ship(), reduced, fastest, strikes,
-                struck, budget, cap, 1.0, "crossed", true);
+        ShipTerrainImpacts.PairOutcome outcome = ShipTerrainImpacts.breakPair(level, a.ship(), b.ship(), answering, fastest, strikes,
+                struck, budget, cap, 1.0, a.unflung() || b.unflung() ? "flung aside" : "crossed", true);
         if (outcome.broken() > 0) {
             // what they lost changes both hulls: listed again next time
             forget(level, a.ship().id());
             forget(level, b.ship().id());
         }
         if (SERVER.debugShipCollisionLog.get()) {
-            LOGGER.info("[FullStop] ships {} and {} crossed: {} blocks of ship {} met ship {}'s over the tick, closing at up to {} m/s"
-                            + " -> {} broken{}", a.ship().id(), b.ship().id(), strikes.size(), s.ship().id(), t.ship().id(),
+            LOGGER.info("[FullStop] ships {} and {} {}: {} blocks of ship {} met ship {}'s over the tick, closing at up to {} m/s"
+                            + " -> {} broken{}", a.ship().id(), b.ship().id(), a.unflung() || b.unflung() ? "(one flung aside, unreported)"
+                            : "crossed", strikes.size(), s.ship().id(), t.ship().id(),
                     String.format(java.util.Locale.ROOT, "%.1f", fastest), outcome.broken(), outcome.held() ? " (some held)" : "");
         }
     }

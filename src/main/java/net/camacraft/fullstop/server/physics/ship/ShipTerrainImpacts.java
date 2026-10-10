@@ -65,7 +65,8 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * fortune, and equal ones can't break at all. Cracks accumulated on {@code fullstop:crackable}
  * blocks lower what is left; a hit short of breaking cracks the block instead. Nothing breaks
  * slower than {@code breakMinSpeed}; at most {@code terrainMaxBlocksPerTick} blocks break per
- * level and 12 per ship each tick.
+ * level and 12 per ship each tick. TNT at a contact, the ship's or the terrain's (or the other
+ * ship's), goes off instead of being weighed ({@link ImpactExplosives}, {@code tntImpacts}).
  *
  * <h3>Slowing</h3>
  * VS's solver stopped the ship at the terrain. If every terrain block it hit this tick broke, its
@@ -81,8 +82,10 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  *
  * <p>Ship against ship: both hulls sound, and blocks break by the same toughness rule
  * ({@code shipVsShipBreaking}, FULL by default: the weaker block at each contact, of either ship),
- * out of the pair's collision energy with their reduced mass, and two ships that broke through
- * each other plough on, both slowed (see {@code ships}). Who may break: a piloted ship is its pilot acting; an unpiloted one
+ * out of the pair's collision energy with their reduced mass (a ship with the ground, a wall or another
+ * ship right behind it along the push counts with that: a plank on the ground under a falling hull is
+ * crushed, see {@code pairMass}), and two ships that broke through each other plough on, both slowed
+ * (see {@code ships}). Who may break: a piloted ship is its pilot acting; an unpiloted one
  * follows mobGriefing ({@code unpilotedFollowsMobGriefing}). Every block also asks minigame hosts
  * ({@code MatchPolicies.mayAlter}) and posts a break event (with the pilot, or the
  * {@code [Full Stop]} fake player) that protection mods can cancel. Broken blocks, the hull's
@@ -154,6 +157,7 @@ public final class ShipTerrainImpacts {
         // slime and honey hulls (ShipSlimeHoney): bounces, and the gentlest crash that still glues
         if (SERVER.slimeBounce.get()) min = Math.min(min, SERVER.slimeMinSpeed.get());
         if (SERVER.honeyGlue.get()) min = Math.min(min, ShipGlue.MIN_SPEED);
+        if (SERVER.tntImpacts.get()) min = Math.min(min, SERVER.tntImpactMinSpeed.get());
         return min;
     }
 
@@ -167,20 +171,23 @@ public final class ShipTerrainImpacts {
 
         Set<BlockPos> struck = new HashSet<>();
         List<ShipCollision> collisions = ShipCollisions.thisTick(level);
+        Set<Long> reported = new HashSet<>();
+        Set<Long> judged = new HashSet<>();
         if (!collisions.isEmpty()) {
             int[] levelBudget = {SERVER.terrainMaxBlocksPerTick.get()};
             for (ShipCollision collision : collisions) {
                 if (collision.isTerrain()) {
                     terrain(level, tracker, collision, now, struck, levelBudget);
                 } else if (collision.ship().id() < collision.other().id()
+                        && reported.add(ShipHullClash.pairKey(collision.ship().id(), collision.other().id()))
                         && !Ships.joined(level, collision.ship().id(), collision.other().id())) {
                     // Each pair comes twice (once from each side): handle it once. Ships held together by
                     // joints (a phys-bearing rotor and the ship it turns in) are one machine, never a crash.
-                    ships(level, tracker, collision, now, struck, levelBudget);
+                    ships(level, tracker, collision, now, struck, levelBudget, judged);
                 }
             }
         }
-        ShipHullClash.process(level, tracker, ships, now, struck);
+        ShipHullClash.process(level, tracker, ships, now, struck, reported, judged);
     }
 
     /**
@@ -228,9 +235,42 @@ public final class ShipTerrainImpacts {
         }
         ShipImpactSounds.play(level, ship.id(), state.mass(), collision.started(), hits, now);
 
-        if (breaksTerrainOrHull() && levelBudget[0] > 0) {
+        if (ImpactExplosives.enabled()) strikes = explosives(level, ship, strikes, struck);
+        if (breaksTerrainOrHull() && levelBudget[0] > 0 && !strikes.isEmpty()) {
             smash(level, ship, state, strikes, now, struck, levelBudget);
         }
+    }
+
+    /**
+     * TNT at a hull's contacts with the terrain goes off ({@link ImpactExplosives}): the ship's own block there, or
+     * the terrain's. Returns the strikes whose blocks are still there to be weighed.
+     */
+    private static List<Strike> explosives(ServerLevel level, ShipRef ship, List<Strike> strikes, Set<BlockPos> struck) {
+        List<Strike> left = null;
+        ShipPhysicsServer.Pilot pilot = null;
+        for (int i = 0; i < strikes.size(); i++) {
+            Strike strike = strikes.get(i);
+            boolean went = false;
+            if (ImpactExplosives.at(strike.speed()) != ImpactExplosives.Goes.NOT) {
+                // the terrain's face looks along the normal (out of it, toward the ship); the hull's, in the ship's own
+                // grid, the other way
+                BlockPos inTerrain = ImpactExplosives.inFace(level, strike.terrainPos(), ImpactExplosives.nearest(strike.normal()));
+                Vec3 outOfHull = ship.dirToShip(strike.normal().scale(-1.0));
+                BlockPos inHull = outOfHull == null ? null
+                        : ImpactExplosives.inFace(level, strike.hullPos(), ImpactExplosives.nearest(outOfHull));
+                if (inTerrain != null || inHull != null) {
+                    if (pilot == null) pilot = new ShipPhysicsServer.Pilot(level, ship);
+                    Vec3 carry = ship.velocityAt(strike.point());
+                    went = ImpactExplosives.strikeOnce(level, inTerrain, null, strike.speed(), pilot.get(), Vec3.ZERO, struck)
+                            != ImpactExplosives.Goes.NOT;
+                    went |= ImpactExplosives.strikeOnce(level, inHull, ship, strike.speed(), pilot.get(),
+                            carry == null ? Vec3.ZERO : carry, struck) != ImpactExplosives.Goes.NOT;
+                }
+            }
+            if (went && left == null) left = new ArrayList<>(strikes.subList(0, i));
+            else if (!went && left != null) left.add(strike);
+        }
+        return left == null ? strikes : left;
     }
 
     private static void smash(ServerLevel level, ShipRef ship, ShipTracker.State state, List<Strike> strikes, long now,
@@ -381,7 +421,7 @@ public final class ShipTerrainImpacts {
      * physics frames, which VS never reports, are {@link ShipHullClash}'s.
      */
     private static void ships(ServerLevel level, ShipTracker tracker, ShipCollision collision, long now,
-                              Set<BlockPos> struck, int[] levelBudget) {
+                              Set<BlockPos> struck, int[] levelBudget, Set<Long> judged) {
         ShipRef a = collision.ship();
         ShipRef b = collision.other();
         ShipTracker.State stateA = tracker.get(a.id(), now);
@@ -434,23 +474,36 @@ public final class ShipTerrainImpacts {
         ShipImpactSounds.play(level, a.id(), Double.isFinite(reduced) ? reduced : Math.min(massA, massB),
                 collision.started(), hits, now);
 
+        strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
+        // TNT where the two meet goes off first, whatever may break otherwise
+        if (ImpactExplosives.enabled()) {
+            int before = strikes.size();
+            strikes = pairExplosives(level, a, b, strikes, struck);
+            if (strikes.size() < before) judged.add(ShipHullClash.pairKey(a.id(), b.id()));
+            if (strikes.isEmpty()) return;
+        }
         if (SERVER.shipVsShipBreaking.get() == FullStopConfig.ShipVsShipBreaking.NONE || !Double.isFinite(reduced)
                 || levelBudget[0] <= 0) {
             return;
         }
-        strikes.sort((x, y) -> Double.compare(y.speed(), x.speed()));
         double speed = strikes.get(0).speed();
         if (speed < SERVER.breakMinSpeed.get()) {
             debug("ships {} and {}: met at {} m/s (frames before it {} m/s), under breakMinSpeed {}: nothing breaks", a.id(), b.id(),
                     fmt(speed), fmt(beforeSeen), fmt(SERVER.breakMinSpeed.get()));
             return;
         }
-        PairOutcome outcome = breakPair(level, a, b, reduced, speed, strikes, struck, levelBudget, MAX_BLOCKS_PER_SHIP,
-                honeyPairShare(strikes), "hit", false);
+        // a ship with the ground (a wall, another ship) right behind it, or hit too fast to be shoved aside, answers
+        // with more than its own mass: crushed, not batted away
+        double answering = pairMass(level, a, massA, b, massB, strikes.get(0));
+        if (!Double.isFinite(answering)) return;
+        PairOutcome outcome = breakPair(level, a, b, answering, speed, strikes, struck, levelBudget, MAX_BLOCKS_PER_SHIP,
+                honeyPairShare(strikes), answering > reduced * 1.001 ? "hit, held" : "hit", false);
+        // weighed (blocks found at the contact and judged): the swept clash leaves this pair alone this tick
+        if (outcome.weighed() > 0) judged.add(ShipHullClash.pairKey(a.id(), b.id()));
         if (outcome.broken() > 0 && !outcome.held() && outcome.normalSum().lengthSqr() > 1.0e-8) {
             // Everything struck gave: the two keep closing, less what breaking cost.
             double spentJoules = outcome.spent() * EntityStackUtils.JOULES_PER_ENERGY_UNIT;
-            double squared = speed * speed - 2.0 * spentJoules * SERVER.terrainBreakDrag.get() / reduced;
+            double squared = speed * speed - 2.0 * spentJoules * SERVER.terrainBreakDrag.get() / answering;
             double target = Math.sqrt(Math.max(0.0, squared));
             if (target > 0.0) {
                 PENDING_PAIRS.computeIfAbsent(level, l -> new ArrayList<>()).add(new PairRestore(a.id(), b.id(),
@@ -459,8 +512,44 @@ public final class ShipTerrainImpacts {
         }
     }
 
+    /**
+     * TNT where two ships meet goes off ({@link ImpactExplosives}), on either ship. Returns the strikes whose blocks
+     * are still there to be weighed.
+     */
+    static List<PairStrike> pairExplosives(ServerLevel level, ShipRef a, ShipRef b, List<PairStrike> strikes, Set<BlockPos> struck) {
+        List<PairStrike> left = null;
+        ShipPhysicsServer.Pilot pilotA = null, pilotB = null;
+        for (int i = 0; i < strikes.size(); i++) {
+            PairStrike strike = strikes.get(i);
+            boolean went = false;
+            if (ImpactExplosives.at(strike.speed()) != ImpactExplosives.Goes.NOT) {
+                // the normal points from b's block toward a's: a's face looks against it, b's along it
+                Vec3 outOfA = a.dirToShip(strike.normal().scale(-1.0));
+                Vec3 outOfB = b.dirToShip(strike.normal());
+                BlockPos inA = outOfA == null ? null : ImpactExplosives.inAnyFace(level, strike.posA(), ImpactExplosives.nearest(outOfA));
+                BlockPos inB = outOfB == null ? null : ImpactExplosives.inAnyFace(level, strike.posB(), ImpactExplosives.nearest(outOfB));
+                if (inA != null) {
+                    // whoever flies the OTHER ship set it off, as with a broken block
+                    if (pilotB == null) pilotB = new ShipPhysicsServer.Pilot(level, b);
+                    Vec3 carry = a.velocityAt(strike.point());
+                    went = ImpactExplosives.strikeOnce(level, inA, a, strike.speed(), pilotB.get(), carry == null ? Vec3.ZERO : carry, struck)
+                            != ImpactExplosives.Goes.NOT;
+                }
+                if (inB != null) {
+                    if (pilotA == null) pilotA = new ShipPhysicsServer.Pilot(level, a);
+                    Vec3 carry = b.velocityAt(strike.point());
+                    went |= ImpactExplosives.strikeOnce(level, inB, b, strike.speed(), pilotA.get(), carry == null ? Vec3.ZERO : carry, struck)
+                            != ImpactExplosives.Goes.NOT;
+                }
+            }
+            if (went && left == null) left = new ArrayList<>(strikes.subList(0, i));
+            else if (!went && left != null) left.add(strike);
+        }
+        return left == null ? strikes : left;
+    }
+
     /** What breaking did for a pair of ships this tick: blocks broken, energy spent, whether anything struck held. */
-    record PairOutcome(int broken, boolean held, double spent, Vec3 normalSum, Vec3 pointSum) {}
+    record PairOutcome(int broken, boolean held, double spent, Vec3 normalSum, Vec3 pointSum, int weighed) {}
 
     /** One block a ship-against-ship contact breaks: whose it is, and which ship (its pilot) answers for breaking it. */
     private record PairVerdict(BlockPos pos, BlockState state, double cost, ShipRef owner, ShipRef breaker) {}
@@ -483,12 +572,15 @@ public final class ShipTerrainImpacts {
         double startEnergy = energy;
         int broken = 0;
         boolean held = false;
+        int weighed = 0;
+        int unfound = 0;
         Vec3 normalSum = Vec3.ZERO;
         Vec3 pointSum = Vec3.ZERO;
         for (PairStrike strike : strikes) {
             if (strike.speed() < breakMin) break;
             if (strike.blockA() == null || strike.blockB() == null) {
-                held = true; // nothing to weigh (an unloaded chunk)
+                held = true; // nothing to weigh: no block of one ship at the contact (an unloaded chunk, or the hulls moved on)
+                unfound++;
                 continue;
             }
             if (broken >= pairCap || levelBudget[0] <= 0) {
@@ -505,6 +597,7 @@ public final class ShipTerrainImpacts {
                     held = true;
                     break;
                 }
+                weighed++;
                 if (noCracks && energy < verdict.cost()) {
                     held = true;
                     continue;
@@ -533,7 +626,10 @@ public final class ShipTerrainImpacts {
                 }
             }
         }
-        return new PairOutcome(broken, held, startEnergy - energy, normalSum, pointSum);
+        if (unfound > 0 && weighed == 0) {
+            debug("ships {} and {} ({}): {} contact(s) with no block of one ship there: nothing weighed", a.id(), b.id(), how, unfound);
+        }
+        return new PairOutcome(broken, held, startEnergy - energy, normalSum, pointSum, weighed);
     }
 
     /**
@@ -583,6 +679,110 @@ public final class ShipTerrainImpacts {
             }
         }
         return 1.0;
+    }
+
+    /** How far past a ship's far side, along a push, something must stand to hold it (blocks). */
+    private static final double[] BACKING_DEPTHS = {0.1, 0.35, 0.6};
+
+    /**
+     * The mass (kg) a pair of ships' crash is judged with. Between two free ships meeting gently that is their reduced
+     * mass: a one-plank ship knocked through the air takes little with it, and a crash with it has little to break
+     * anything with. Two things put more behind the crash, up to the heavier ship's whole mass (what a crash into
+     * terrain has):
+     * <ul>
+     *   <li>{@code crushPinnedShips}: each ship counts with whatever stands right behind it along the push at the
+     *       hardest strike ({@link #backing}). A ship lying on the ground under a hull coming down on it, or pinned
+     *       against a wall or another ship, has nowhere to go;</li>
+     *   <li>{@code shipShoveLimit}: a ship the crash would have to throw aside faster than that has no time to get
+     *       out of the way ({@link #stuck}): a heavy hull swung fast into a light one hits it as if it stood still.</li>
+     * </ul>
+     * +infinity only when both ships are immovable themselves.
+     */
+    static double pairMass(ServerLevel level, ShipRef a, double massA, ShipRef b, double massB, PairStrike hardest) {
+        double plain = reducedMass(massA, massB);
+        // the normal points from b's block toward a's: a is pushed along it, b against it
+        boolean pinned = SERVER.crushPinnedShips.get();
+        double behindA = !pinned || Double.isInfinite(massA) ? 0.0 : backing(level, a, b, hardest.point(), hardest.normal());
+        double behindB = !pinned || Double.isInfinite(massB) ? 0.0 : backing(level, b, a, hardest.point(), hardest.normal().scale(-1.0));
+        double heldA = massA + behindA, heldB = massB + behindB;
+        double answering = reducedMass(heldA, heldB);
+        double stuckA = 0.0, stuckB = 0.0;
+        double limit = SERVER.shipShoveLimit.get();
+        if (limit > 0.0 && Double.isFinite(heldA) && Double.isFinite(heldB) && heldA > 0.0 && heldB > 0.0) {
+            // what the crash would change each ship's speed by, were the two to move on together
+            stuckA = stuck(hardest.speed() * answering / heldA, limit);
+            stuckB = stuck(hardest.speed() * answering / heldB, limit);
+            double quickA = stuckA >= 1.0 ? Double.POSITIVE_INFINITY : heldA / (1.0 - stuckA);
+            double quickB = stuckB >= 1.0 ? Double.POSITIVE_INFINITY : heldB / (1.0 - stuckB);
+            // never more behind the crash than the heavier of the two
+            answering = Math.min(reducedMass(quickA, quickB), Math.max(heldA, heldB));
+        }
+        // both held (a hull squeezed between two walls): what they bring themselves
+        if (!Double.isFinite(answering)) answering = plain;
+        if (answering > plain * 1.001 && SERVER.debugShipCollisionLog.get()) {
+            debug("ships {} and {}: the crash at {} has {} kg behind it, not the two's reduced {} kg (at {} m/s): ship {} held by {}, "
+                            + "{}% too fast to be shoved aside; ship {} held by {}, {}%", a.id(), b.id(), hardest.point(), Math.round(answering),
+                    Math.round(plain), fmt(hardest.speed()), a.id(), held(behindA), Math.round(stuckA * 100.0), b.id(), held(behindB),
+                    Math.round(stuckB * 100.0));
+        }
+        return answering;
+    }
+
+    /**
+     * How much of a ship fails to get out of a crash's way when the crash would change its speed by {@code dv} m/s at
+     * once: nothing up to half {@code limit}, all of it from {@code limit} on (it is hit as if it stood still).
+     */
+    public static double stuck(double dv, double limit) {
+        if (!(limit > 0.0)) return 0.0;
+        return Math.max(0.0, Math.min(1.0, (dv - 0.5 * limit) / (0.5 * limit)));
+    }
+
+    private static String held(double behind) {
+        return behind <= 0.0 ? "nothing" : Double.isInfinite(behind) ? "the terrain or a static ship" : Math.round(behind) + " kg of ship";
+    }
+
+    /**
+     * What stands right behind {@code ship} along {@code push} (a unit vector, world) from the contact at
+     * {@code point}, as mass (kg) added to what answers the push: +infinity for a terrain block the hull touches there,
+     * or a static ship; a free third ship's own mass; 0 for nothing within about half a block of the ship's far side.
+     * Soft vegetation holds nothing. Never loads a chunk.
+     */
+    static double backing(ServerLevel level, ShipRef ship, @Nullable ShipRef other, Vec3 point, Vec3 push) {
+        net.minecraft.world.phys.AABB box = ship.worldAabb();
+        if (box == null || push.lengthSqr() < 1.0e-8) return 0.0;
+        // from the contact through the ship to where the push leaves its bounds
+        double exit = Double.POSITIVE_INFINITY;
+        if (push.x > 1.0e-6) exit = Math.min(exit, (box.maxX - point.x) / push.x);
+        if (push.x < -1.0e-6) exit = Math.min(exit, (box.minX - point.x) / push.x);
+        if (push.y > 1.0e-6) exit = Math.min(exit, (box.maxY - point.y) / push.y);
+        if (push.y < -1.0e-6) exit = Math.min(exit, (box.minY - point.y) / push.y);
+        if (push.z > 1.0e-6) exit = Math.min(exit, (box.maxZ - point.z) / push.z);
+        if (push.z < -1.0e-6) exit = Math.min(exit, (box.minZ - point.z) / push.z);
+        if (!Double.isFinite(exit)) return 0.0;
+        exit = Math.max(0.0, exit);
+        double behind = 0.0;
+        for (double depth : BACKING_DEPTHS) {
+            Vec3 at = point.add(push.scale(exit + depth));
+            BlockPos pos = BlockPos.containing(at);
+            if (!Ships.inShipyard(level, pos)) {
+                BlockState state = loadedState(level, pos);
+                if (state != null && !state.getCollisionShape(level, pos).isEmpty() && !ShipMaterials.sweepCandidate(state)
+                        && ship.touchesBlock(new net.minecraft.world.phys.AABB(pos).inflate(0.4))) {
+                    return Double.POSITIVE_INFINITY;
+                }
+            }
+            for (ShipRef third : Ships.intersecting(level, new net.minecraft.world.phys.AABB(at, at).inflate(0.25))) {
+                if (third.id() == ship.id() || other != null && third.id() == other.id()) continue;
+                Vec3 inThird = third.toShip(at);
+                if (inThird == null) continue;
+                BlockState state = loadedState(level, BlockPos.containing(inThird));
+                if (state == null || state.isAir()) continue;
+                if (third.isStatic()) return Double.POSITIVE_INFINITY;
+                double mass = third.physicalMass();
+                if (mass > 0.0 && Double.isFinite(mass)) behind = Math.max(behind, mass);
+            }
+        }
+        return behind;
     }
 
     /** The reduced mass of two bodies (kg); the other's mass when one is immovable, +infinity when both are. */

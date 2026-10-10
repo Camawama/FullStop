@@ -164,6 +164,10 @@ public class FullStopCapability {
     // speed history forgets it, as for hasTeleported, but without the teleport's damage immunity (a player the server
     // corrects often - lag, a ship deck - must not go unhurt).
     private boolean jumped = false;
+    // Ticks left in which no move is judged after a position jump or teleport (jumpedLately): the move that follows
+    // one is the jump, whichever path reads it (2026-10-04: a player teleported beside a ship was struck at 463 m/s).
+    private int jumpWindow = 0;
+    private static final int JUMP_WINDOW_TICKS = 6;
     private boolean wasSleeping = false;
     private boolean hasDismounted = false;
     private boolean firstTick = true;
@@ -1075,7 +1079,9 @@ public class FullStopCapability {
     }
 
     private void tickImmunity() {
+        if (jumpWindow > 0) jumpWindow--;
         if (hasTeleported) {
+            jumpWindow = JUMP_WINDOW_TICKS;
             teleportCooldown = 5;
             hasTeleported = false;
         }
@@ -1423,6 +1429,17 @@ public class FullStopCapability {
 
     public void setHasTeleported(boolean value) {
         this.hasTeleported = value;
+        if (value) this.jumpWindow = JUMP_WINDOW_TICKS;
+    }
+
+    /**
+     * Whether the entity's position was set (a teleport, a server correction, Valkyrien Skies putting it back or on a
+     * ship) within the last few ticks: the move that follows is that jump, not motion, and no path judges it (impacts,
+     * strikes on blocks and ship blocks, a client's hull contacts). Without it a player teleported beside a ship was
+     * judged by the hull sweep's strike at 463 m/s and killed (620 damage, harness car_spin60, 2026-10-04).
+     */
+    public boolean jumpedLately() {
+        return jumpWindow > 0;
     }
 
     /**
@@ -1431,6 +1448,7 @@ public class FullStopCapability {
      */
     public void markJump() {
         this.jumped = true;
+        this.jumpWindow = JUMP_WINDOW_TICKS;
         // the client ticks queued before it were measured where the entity was: the next step starts from the new place
         samples.clear();
         hasPending = false;

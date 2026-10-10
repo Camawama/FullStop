@@ -76,6 +76,9 @@ public final class ClientShipContacts {
         Minecraft minecraft = Minecraft.getInstance();
         LocalPlayer player = minecraft.player;
         if (self != player || player == null || !FullStopConfig.SERVER_SPEC.isLoaded() || !ShipCompat.collisionsActive()) return;
+        // a move right after a position the server set (a teleport, a correction) is that jump, not a hull's strike
+        net.camacraft.fullstop.common.capability.FullStopCapability jumpCap = net.camacraft.fullstop.common.capability.FullStopCapability.grabCapability(player);
+        if (jumpCap != null && jumpCap.jumpedLately()) return;
         boolean log = SERVER.debugShipContactLog.get();
         if (player.isSpectator() || player.isPassenger()) {
             if (log) LOGGER.info("[FullStop] client: a hull shoved you by {} but you are {}: left to VS", fmt(result.subtract(movement)),

@@ -118,6 +118,66 @@ public class KineticBlockInteractions {
     private static final Map<Integer, CrackEntry> LAST_CRACK = new HashMap<>();
 
     /**
+     * Every position FullStop shows a crack on, by dimension, with the game time its overlay runs out on the clients
+     * (a kept crack: never). A block that is broken, replaced or moved takes its cracks with it ({@link #onBlockChanged}):
+     * the sweep only compared the block TYPE every two seconds, so a cracked block broken and set back in the same place
+     * was cracked again (the record), and any crack overlay stayed drawn on whatever stood there for up to twenty seconds.
+     */
+    private static final Map<ResourceKey<Level>, it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap> CRACKED = new HashMap<>();
+    /** A client drops a destruction overlay nobody refreshed for this long (LevelRenderer.tick). */
+    private static final int OVERLAY_TICKS = 400;
+
+    /** Something else that keeps crack state at positions (Create's grinding damage): told when a cracked block changes. */
+    public interface CrackOwner {
+        void forget(ServerLevel level, BlockPos pos);
+    }
+
+    private static final List<CrackOwner> CRACK_OWNERS = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    public static void registerCrackOwner(CrackOwner owner) {
+        CRACK_OWNERS.add(owner);
+    }
+
+    /** Remembers that {@code pos} shows a crack ({@code kept}: one that stays; else an overlay that fades by itself). */
+    public static void noteCrack(ServerLevel level, BlockPos pos, boolean kept) {
+        synchronized (CRACKED) {
+            CRACKED.computeIfAbsent(level.dimension(), d -> new it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap())
+                    .put(pos.asLong(), kept ? Long.MAX_VALUE : level.getGameTime() + OVERLAY_TICKS);
+        }
+    }
+
+    /**
+     * The block at {@code pos} changed to another block (broken, replaced, pushed by a piston, blown up, on a ship or in
+     * the world): every crack FullStop keeps or shows there goes, on the server and on the clients. Called for every
+     * block change of a server level ({@code ServerLevelCrackClearMixin}); a position without a crack costs one lookup.
+     */
+    public static void onBlockChanged(ServerLevel level, BlockPos pos, BlockState before, BlockState after) {
+        if (before.getBlock() == after.getBlock()) return;
+        long key = pos.asLong();
+        synchronized (CRACKED) {
+            if (CRACKED.isEmpty()) return;
+            it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap cracked = CRACKED.get(level.dimension());
+            if (cracked == null || !cracked.containsKey(key)) return;
+            boolean live = cracked.remove(key) >= level.getGameTime();
+            if (cracked.isEmpty()) CRACKED.remove(level.dimension());
+            if (!live) return; // an overlay that had faded already
+        }
+        BlockPos at = pos.immutable();
+        CrackData data = CrackData.get(level);
+        if (data.cracks.remove(at) != null) data.setDirty();
+        level.destroyBlockProgress(crackOverlayId(at), at, -1);
+        Iterator<Map.Entry<Integer, CrackEntry>> entries = LAST_CRACK.entrySet().iterator();
+        while (entries.hasNext()) {
+            Map.Entry<Integer, CrackEntry> entry = entries.next();
+            if (entry.getValue().dimension() == level.dimension() && entry.getValue().pos().equals(at)) {
+                level.destroyBlockProgress(entry.getKey(), at, -1);
+                entries.remove();
+            }
+        }
+        for (CrackOwner owner : CRACK_OWNERS) owner.forget(level, at);
+    }
+
+    /**
      * What a crater pass did (see {@link #craterPass}): how many blocks and layers it broke, the
      * footprint it worked from (blocks), the impact energy it left and the graze damage it earned.
      * Kept per entity id for the impact accounting's dedup and for the game tests.
@@ -272,6 +332,7 @@ public class KineticBlockInteractions {
             } else {
                 level.destroyBlockProgress(crackOverlayId(pos), pos,
                         Mth.clamp((int) (crack.fraction() * 9.0f), 1, 9));
+                noteCrack(level, pos, true); // (a crack loaded with the level is known from its first sweep)
             }
         }
     }
@@ -559,6 +620,7 @@ public class KineticBlockInteractions {
                         level.destroyBlockProgress(entity.getId(), crackPosThisPass, -1);
                     }
                     level.destroyBlockProgress(entity.getId(), pos, crackStage);
+                    noteCrack(level, pos, false);
                     crackPosThisPass = pos;
                 }
             }
@@ -630,6 +692,7 @@ public class KineticBlockInteractions {
         crack.data().setDirty();
         level.destroyBlockProgress(crackOverlayId(pos), pos,
                 Mth.clamp((int) (accumulated * 9.0f), 1, 9));
+        noteCrack(level, pos, true);
         level.playSound(null, pos, state.getSoundType().getHitSound(), SoundSource.BLOCKS,
                 1.0f, 0.8f + level.random.nextFloat() * 0.3f);
     }
@@ -679,6 +742,7 @@ public class KineticBlockInteractions {
                 // fades on its own on the client once nothing refreshes it.
                 int crackStage = (int) (((damageRatio - 0.15) / (1.0 - 0.15)) * 9);
                 level.destroyBlockProgress(crackOverlayId(pos), pos, Mth.clamp(crackStage, 0, 9));
+                noteCrack(level, pos, false);
             }
             return new SmashOutcome(false, 0, true);
         }

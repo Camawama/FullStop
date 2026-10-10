@@ -72,6 +72,11 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue impactCraterMaxDepth;
         public final ForgeConfigSpec.EnumValue<RaycastMode> raycastMode;
         public final ForgeConfigSpec.BooleanValue playerSlimeLandingsOnClient;
+        // speed blows fire out (server/physics/interaction/WindOnFire)
+        public final ForgeConfigSpec.BooleanValue windPutsOutFire;
+        public final ForgeConfigSpec.DoubleValue fireWindMinSpeed;
+        public final ForgeConfigSpec.DoubleValue fireWindDrain;
+        public final ForgeConfigSpec.DoubleValue fireWindMaxDrain;
         public final ForgeConfigSpec.BooleanValue debugImpactLog;
         public final ForgeConfigSpec.BooleanValue enableGForceEffects;
         public final ForgeConfigSpec.DoubleValue minGForceThreshold;
@@ -127,6 +132,12 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue softStrikeDamage;
         public final ForgeConfigSpec.BooleanValue punchShips;
         public final ForgeConfigSpec.DoubleValue punchShipImpulse;
+        public final ForgeConfigSpec.BooleanValue punchShipsAnyItem;
+        public final ForgeConfigSpec.DoubleValue punchShipEnchantBonus;
+        public final ForgeConfigSpec.BooleanValue tntImpacts;
+        public final ForgeConfigSpec.DoubleValue tntImpactMinSpeed;
+        public final ForgeConfigSpec.DoubleValue tntImpactInstantSpeed;
+        public final ForgeConfigSpec.IntValue tntImpactFuseTicks;
         public final ForgeConfigSpec.DoubleValue pinnedDamageMultiplier;
         public final ForgeConfigSpec.BooleanValue creditPilot;
         public final ForgeConfigSpec.BooleanValue reactionImpulses;
@@ -143,6 +154,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue unpilotedFollowsMobGriefing;
         public final ForgeConfigSpec.EnumValue<ShipVsShipBreaking> shipVsShipBreaking;
         public final ForgeConfigSpec.DoubleValue mutualBreakRatio;
+        public final ForgeConfigSpec.BooleanValue crushPinnedShips;
+        public final ForgeConfigSpec.DoubleValue shipShoveLimit;
         public final ForgeConfigSpec.BooleanValue shipClashSweep;
         public final ForgeConfigSpec.IntValue shipClashMaxBlocksPerTick;
         public final ForgeConfigSpec.BooleanValue slimeBounce;
@@ -210,6 +223,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue gearMinRpm;
         public final ForgeConfigSpec.DoubleValue gearJamStress;
         public final ForgeConfigSpec.DoubleValue gearFlingSpeed;
+        public final ForgeConfigSpec.BooleanValue gearsPushShips;
+        public final ForgeConfigSpec.BooleanValue gearsPushVehicles;
+        public final ForgeConfigSpec.DoubleValue gearShipMass;
         public final ForgeConfigSpec.BooleanValue waterWheelHazards;
         public final ForgeConfigSpec.DoubleValue waterWheelGrip;
         public final ForgeConfigSpec.DoubleValue waterWheelHoldSeconds;
@@ -504,6 +520,36 @@ public class FullStopConfig {
                     .translation(key("playerSlimeLandingsOnClient"))
                     .define("playerSlimeLandingsOnClient", true);
 
+            this.windPutsOutFire = builder
+                    .comment("Speed blows a fire out: a burning entity moving through the air loses its fire time faster the faster it",
+                            "goes (running, falling, flying, riding), on top of the tick vanilla takes each tick. The flames die down",
+                            "sooner, never at once. Not in lava or while standing in fire. A burning Valkyrien Skies ship (Camafy's",
+                            "ship fire) under way goes out sooner the same way.")
+                    .translation(key("windPutsOutFire"))
+                    .comment("Default: true")
+                    .define("windPutsOutFire", true);
+
+            this.fireWindMinSpeed = builder
+                    .comment("Slowest speed (m/s) at which the air takes anything off a fire. A walk is 4.3, a sprint 5.6, a sprint",
+                            "with jumps about 7, a horse up to 14, a long fall up to 78.")
+                    .translation(key("fireWindMinSpeed"))
+                    .comment("Default: 4.5")
+                    .defineInRange("fireWindMinSpeed", 4.5, 0.0, 1000.0);
+
+            this.fireWindDrain = builder
+                    .comment("Extra fire ticks taken per tick for every m/s over fireWindMinSpeed. At 0.5 a sprint burns out about",
+                            "1.5 times as fast as standing still, a sprint with jumps 2.3 times, a gallop at 14 m/s 5.7 times.")
+                    .translation(key("fireWindDrain"))
+                    .comment("Default: 0.5")
+                    .defineInRange("fireWindDrain", 0.5, 0.0, 100.0);
+
+            this.fireWindMaxDrain = builder
+                    .comment("Most extra fire ticks the air takes per tick, however fast. At 10 the 8 seconds of fire a body carries",
+                            "out of a blaze still last three quarters of a second in a long fall, lava's 15 seconds a second and a half.")
+                    .translation(key("fireWindMaxDrain"))
+                    .comment("Default: 10.0")
+                    .defineInRange("fireWindMaxDrain", 10.0, 0.0, 1000.0);
+
             this.raycastMode = builder
                     .comment("Experimental: Choose the raycast mode for collision detection. FULL_SWEEP may have significant performance impact.")
                     .translation(key("raycastMode"))
@@ -746,9 +792,9 @@ public class FullStopConfig {
                     .defineInRange("softStrikeDamage", 0.1, 0.0, 1.0);
 
             this.punchShips = builder
-                    .comment("A player's fist (or sword) hitting a block of a ship gives the ship a small push at the point hit, along",
-                            "the punch: a one-block ship drifts off, a raft barely moves, a big ship not at all. Not while sneaking, not",
-                            "with a tool in hand, not in creative, not on the ship you stand on.")
+                    .comment("A player hitting a block of a ship (the start of a click, with a fist or whatever is in hand: see",
+                            "punchShipsAnyItem) gives the ship a small push at the point hit, along the hit: a one-block ship drifts off,",
+                            "a raft barely moves, a big ship not at all. Not while sneaking, not in creative, not on the ship you stand on.")
                     .translation(key("punchShips"))
                     .comment("Default: true")
                     .define("punchShips", true);
@@ -760,6 +806,50 @@ public class FullStopConfig {
                     .translation(key("punchShipImpulse"))
                     .comment("Default: 250.0")
                     .defineInRange("punchShipImpulse", 250.0, 0.0, 100000.0);
+
+            this.punchShipsAnyItem = builder
+                    .comment("On: a hit pushes the ship whatever the player holds (a pickaxe's first hit on a block shoves the ship;",
+                            "holding the button to mine doesn't push again; sneak to hit a ship without moving it).",
+                            "Off: only an empty hand and swords push, as before.")
+                    .translation(key("punchShipsAnyItem"))
+                    .comment("Default: true")
+                    .define("punchShipsAnyItem", true);
+
+            this.punchShipEnchantBonus = builder
+                    .comment("What each level of Knockback on the item in hand adds to its push on a ship, in pushes (1 = Knockback I",
+                            "doubles it, Knockback II triples it). Full Stop's Pullback counts the same the other way: the ship is",
+                            "pulled toward the player, a plain push's worth per level. With both on one item their levels subtract.")
+                    .translation(key("punchShipEnchantBonus"))
+                    .comment("Default: 1.0")
+                    .defineInRange("punchShipEnchantBonus", 1.0, 0.0, 100.0);
+
+            this.tntImpacts = builder
+                    .comment("TNT goes off when it is hit: a TNT block of a ship that strikes the terrain or another ship (or is the",
+                            "ship), TNT in the terrain or on a ship that a hull strikes, and with Create a contraption's TNT block or",
+                            "TNT a contraption runs into. Hit at tntImpactMinSpeed or faster it is lit with a short fuse",
+                            "(tntImpactFuseTicks), at tntImpactInstantSpeed or faster it explodes on the spot. Minigame protection",
+                            "is respected; like any TNT it doesn't follow mobGriefing.")
+                    .translation(key("tntImpacts"))
+                    .comment("Default: true")
+                    .define("tntImpacts", true);
+
+            this.tntImpactMinSpeed = builder
+                    .comment("The slowest hit (m/s) that lights TNT. A ship settling onto TNT, or a TNT ship set down gently, is slower.")
+                    .translation(key("tntImpactMinSpeed"))
+                    .comment("Default: 5.0")
+                    .defineInRange("tntImpactMinSpeed", 5.0, 0.0, 1000.0);
+
+            this.tntImpactInstantSpeed = builder
+                    .comment("A hit at this speed (m/s) or faster sets TNT off at once (12 m/s: a fall of about seven blocks).")
+                    .translation(key("tntImpactInstantSpeed"))
+                    .comment("Default: 12.0")
+                    .defineInRange("tntImpactInstantSpeed", 12.0, 0.0, 1000.0);
+
+            this.tntImpactFuseTicks = builder
+                    .comment("The fuse (ticks) of TNT lit by a hit too slow to set it off at once.")
+                    .translation(key("tntImpactFuseTicks"))
+                    .comment("Default: 10")
+                    .defineInRange("tntImpactFuseTicks", 10, 1, 80);
 
             this.hullFriction = builder
                     .comment("Friction between a hull and an entity it strikes: a hull sliding past (a spinning paddle's sweep, a",
@@ -944,6 +1034,27 @@ public class FullStopConfig {
                     .translation(key("mutualBreakRatio"))
                     .comment("Default: 1.25")
                     .defineInRange("mutualBreakRatio", 1.25, 1.0, 100.0);
+
+            this.crushPinnedShips = builder
+                    .comment("Ships hitting ships: a ship with terrain, a static ship or another ship right behind it along the push",
+                            "(lying on the ground under a hull coming down on it, pinned against a wall) has nowhere to go, and the",
+                            "crash has the striker's whole mass behind it, as a crash into terrain has: a heavy obsidian ship dropped",
+                            "on a one-plank ship lying on the ground breaks it. Off: two ships always crash with their reduced mass,",
+                            "which for a one-block ship is next to nothing (it took 55 m/s to break that plank).")
+                    .translation(key("crushPinnedShips"))
+                    .comment("Default: true")
+                    .define("crushPinnedShips", true);
+
+            this.shipShoveLimit = builder
+                    .comment("Ships hitting ships: the most a crash can change a ship's speed by at once (m/s) and still just shove it",
+                            "aside. A ship the crash would have to throw aside faster than this has no time to get out of the way and",
+                            "is hit as if it stood still, as terrain is: a heavy ship swung into a free one-block ship at this speed",
+                            "breaks it instead of batting it away. From half of it the ship already counts as partly held. The crash",
+                            "never has more behind it than the heavier ship's whole mass, and what breaks is still decided block",
+                            "against block (the weaker gives). 0 turns the rule off.")
+                    .translation(key("shipShoveLimit"))
+                    .comment("Default: 15.0")
+                    .defineInRange("shipShoveLimit", 15.0, 0.0, 1000.0);
 
             this.shipClashSweep = builder
                     .comment("Fast hulls meeting hulls. A block moving tens of blocks a tick (the tips of a 256 RPM rotor) passes clean",
@@ -1520,6 +1631,32 @@ public class FullStopConfig {
                     .comment("Default: 10.0")
                     .defineInRange("gearFlingSpeed", 10.0, 0.0, 1000.0);
 
+            this.gearsPushShips = builder
+                    .comment("Gears act on Valkyrien Skies ships as on bodies: a single gear's teeth push a hull that touches them",
+                            "(fling it at gearFlingSpeed), applied where they touch, so a hull caught off its middle turns; the less",
+                            "the heavier the ship (gearShipMass). A hull in the in-running nip of two meshing gears is drawn in and",
+                            "jams them with gearJamStress for its mass: any ship of size stops the gears. Gears on a ship act on",
+                            "other ships, never on their own.")
+                    .translation(key("gearsPushShips"))
+                    .comment("Default: true")
+                    .define("gearsPushShips", true);
+
+            this.gearsPushVehicles = builder
+                    .comment("Gears act on vehicles (entity types in #fullstop:gear_pushed: Automobility's and RIAutomobility's cars)",
+                            "as on bodies: pushed, flung, drawn into a nip and jamming it, by their weight (a car is 1000 kg: pushed",
+                            "about a quarter as hard as a player, and it stops most gears it is wedged in). Applied on the side that",
+                            "drives the vehicle, through Camafy's impulses.")
+                    .translation(key("gearsPushVehicles"))
+                    .comment("Default: true")
+                    .define("gearsPushVehicles", true);
+
+            this.gearShipMass = builder
+                    .comment("The mass (kg) of ship a gear moves as it moves a body: a ship this heavy or lighter takes the whole",
+                            "push or fling, a heavier one that share of it (a 10 t ship at 1000: a tenth).")
+                    .translation(key("gearShipMass"))
+                    .comment("Default: 1000.0")
+                    .defineInRange("gearShipMass", 1000.0, 1.0, 1.0E9);
+
             this.waterWheelHazards = builder
                     .comment("Turning water wheels (both sizes) drag bodies under: above the axle the paddles sweep a body off the",
                             "wheel and down into the water; on the downstroke and below the axle every paddle presses it under, so it",
@@ -1555,6 +1692,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue rotateCamera;
         public final ForgeConfigSpec.BooleanValue rotateCameraOnlyWhenFlying;
         public final ForgeConfigSpec.DoubleValue shockTrainVolume;
+        public final ForgeConfigSpec.BooleanValue blackoutOnlyWithoutAir;
 
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
@@ -1577,6 +1715,15 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.shockTrainVolume")
                     .comment("Default: 0.63")
                     .defineInRange("shockTrainVolume", 0.63, 0.0, 1.0);
+
+            this.blackoutOnlyWithoutAir = builder
+                    .comment("When true, running out of air dims the screen and muffles sound only near the end of the air bar:",
+                            "it begins gently over the last two bubbles, fades faster once the bar is empty (out cold about",
+                            "5 seconds later) and comes back over 1.5 seconds after a breath. When false, the old curve:",
+                            "darker as the bubbles go, black at the last.")
+                    .translation("config.fullstop.client.blackoutOnlyWithoutAir")
+                    .comment("Default: true")
+                    .define("blackoutOnlyWithoutAir", true);
 
             // The g-force thresholds used to live here. They gate a gameplay
             // mechanic (blackouts, nausea, the potions that shift them), so a

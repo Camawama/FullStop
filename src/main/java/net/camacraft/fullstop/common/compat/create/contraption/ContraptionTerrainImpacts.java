@@ -14,6 +14,7 @@ import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.interaction.BlockAlterRules;
 import net.camacraft.fullstop.server.physics.interaction.KineticBlockInteractions;
+import net.camacraft.fullstop.server.physics.ship.ImpactExplosives;
 import net.camacraft.fullstop.server.physics.ship.ShipImpactSounds;
 import net.camacraft.fullstop.server.physics.ship.ShipImpulses;
 import net.camacraft.fullstop.server.physics.ship.ShipInertia;
@@ -115,6 +116,15 @@ public final class ContraptionTerrainImpacts {
     private static final Map<Level, Long2LongOpenHashMap> CONTACTS = new WeakHashMap<>();
     /** Per level: grinding damage on world and ship blocks that don't keep cracks themselves. */
     private static final Map<Level, Long2ObjectOpenHashMap<Grind>> GRIND = new WeakHashMap<>();
+
+    static {
+        // a ground block that is broken, replaced or moved takes its grinding damage and its overlay with it
+        KineticBlockInteractions.registerCrackOwner((level, pos) -> {
+            Long2ObjectOpenHashMap<Grind> grind = GRIND.get(level);
+            if (grind != null) grind.remove(pos.asLong());
+            level.destroyBlockProgress(overlayId(pos), pos, -1);
+        });
+    }
     /** Per contraption: grinding damage on its own blocks. */
     private static final Map<AbstractContraptionEntity, Map<BlockPos, Grind>> OWN_GRIND = new WeakHashMap<>();
     /** Per contraption: the tick a held jam let go of it (contacts judged before then are forgotten). */
@@ -421,6 +431,8 @@ public final class ContraptionTerrainImpacts {
         ctx.budget.contacts++;
         ShipImpactSounds.play(level, soundKey(ctx.c), ctx.shape.massKg(), true, List.of(new ShipImpactSounds.Hit(at, speed, state, striker)), ctx.now);
 
+        Outcome bang = explosives(ctx, local, info, cell, null, state, at, velocity, speed);
+        if (bang != null) return bang;
         double energy = hitEnergy(ctx, local, speed);
         if (state.isStickyBlock()) {
             // slime and honey give: they soak the hit up and let the contraption through
@@ -493,6 +505,35 @@ public final class ContraptionTerrainImpacts {
         }
     }
 
+    /**
+     * TNT goes off when it is hit ({@code tntImpacts}, {@link ImpactExplosives}): TNT in the terrain or on a ship that
+     * the contraption runs into, or the contraption's own TNT block that runs into something (taken off it, on every
+     * client too). Returns the contact's outcome when something went off, null when nothing here is TNT or the hit is
+     * too slow.
+     */
+    @Nullable
+    private static Outcome explosives(Context ctx, BlockPos local, StructureBlockInfo info, BlockPos cell, @Nullable ShipRef ship,
+                                      BlockState state, Vec3 at, Vec3 velocity, double speed) {
+        ImpactExplosives.Goes goes = ImpactExplosives.at(speed);
+        if (goes == ImpactExplosives.Goes.NOT) return null;
+        Long shipId = ship == null ? null : ship.id();
+        if (ImpactExplosives.explosive(state)) {
+            Vec3 carry = ship == null ? null : ship.velocityAt(at);
+            if (ImpactExplosives.strike(ctx.level, cell, ship, speed, ctx.cause(), carry == null ? Vec3.ZERO : carry) != ImpactExplosives.Goes.NOT) {
+                ctx.budget.brokenTotal++;
+                return record(ctx, local, cell, shipId, state, info.state(), speed, 0.0, Outcome.BROKE, 0.0);
+            }
+        }
+        if (ImpactExplosives.explosive(info.state()) && ContraptionBlocks.canKnockOff(ctx.contraption, local, info)
+                && BlockAlterRules.mayAlter(ctx.level, BlockPos.containing(at), ctx.cause())
+                && ContraptionBlocks.takeOff(ctx.c, ctx.contraption, local)) {
+            ImpactExplosives.detonate(ctx.level, at, goes, ctx.cause(), velocity);
+            ctx.budget.brokenTotal++;
+            return record(ctx, local, cell, shipId, state, info.state(), speed, 0.0, Outcome.KNOCKED_OFF, 0.0);
+        }
+        return null;
+    }
+
     // ---- against a ship --------------------------------------------------------------------------------------
 
     private static Outcome shipContact(Context ctx, BlockPos local, StructureBlockInfo info, ShipRef ship, BlockPos shipCell,
@@ -503,6 +544,8 @@ public final class ContraptionTerrainImpacts {
         ctx.budget.contacts++;
         ShipImpactSounds.play(level, soundKey(ctx.c), ctx.shape.massKg(), true, List.of(new ShipImpactSounds.Hit(at, closing, state, striker)), ctx.now);
 
+        Outcome bang = explosives(ctx, local, info, shipCell, ship, state, at, velocity, closing);
+        if (bang != null) return bang;
         Vec3 dir = relative.scale(1.0 / closing);
         double shipMass = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         double effective = Double.isFinite(shipMass) && shipMass > 0.0
@@ -655,6 +698,7 @@ public final class ContraptionTerrainImpacts {
         double after = Math.min(0.95, before + share);
         grind.put(key, new Grind(after, now, state.getBlock()));
         level.destroyBlockProgress(overlayId(pos), pos, Mth.clamp((int) (after * 10.0), 1, 9));
+        KineticBlockInteractions.noteCrack(level, pos, false);
         level.playSound(null, pos, state.getSoundType().getHitSound(), net.minecraft.sounds.SoundSource.BLOCKS, 1.0f,
                 0.8f + level.random.nextFloat() * 0.3f);
         return new Smash(false, 0.0);

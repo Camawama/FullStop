@@ -60,6 +60,13 @@ final class ContraptionBlocks {
      */
     static boolean knockOff(ServerLevel level, AbstractContraptionEntity c, Contraption contraption, BlockPos local,
                             StructureBlockInfo info, Vec3 worldCenter, Vec3 velocityMps) {
+        if (!takeOff(c, contraption, local)) return false;
+        drop(level, info.state(), worldCenter, velocityMps);
+        return true;
+    }
+
+    /** Takes the block at {@code local} off the contraption, on every client too, and leaves nothing of it (TNT gone off). */
+    static boolean takeOff(AbstractContraptionEntity c, Contraption contraption, BlockPos local) {
         if (contraption.getBlocks().remove(local) == null) return false;
         try {
             AllPackets.getChannel().send(PacketDistributor.TRACKING_ENTITY.with(() -> c),
@@ -68,7 +75,6 @@ final class ContraptionBlocks {
             LOGGER.warn("[FullStop] couldn't tell the clients contraption {} lost a block: {}", c.getId(), e.toString());
         }
         contraption.invalidateColliders();
-        drop(level, info.state(), worldCenter, velocityMps);
         return true;
     }
 

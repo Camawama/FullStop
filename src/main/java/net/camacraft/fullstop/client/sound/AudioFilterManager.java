@@ -4,6 +4,7 @@ import net.camacraft.camafy.client.sound.AudioEffects;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.FullStopConfig;
+import net.camacraft.fullstop.client.render.OxygenBlackout;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.physics.rules.GForceThresholds;
 import net.minecraft.client.Minecraft;
@@ -64,11 +65,8 @@ public class AudioFilterManager {
         }
 
         float drowningCutoff = 1.0f;
-        int airSupply = minecraft.player.getAirSupply();
-        int maxAir = minecraft.player.getMaxAirSupply();
-        if (airSupply < maxAir && !PhysicsAspect.ENVIRONMENT.in(claims)) {
-            float intensity = 1.0f - ((float)airSupply / (float)maxAir);
-            float curve = intensity * intensity * intensity;
+        if (!PhysicsAspect.ENVIRONMENT.in(claims)) {
+            float curve = OxygenBlackout.intensity(minecraft.player);
             drowningCutoff = 1.0f - (curve * 0.98f);
         }
 

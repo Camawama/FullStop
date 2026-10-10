@@ -25,7 +25,8 @@ public class PacketHandler {
     // 7: ShipReleasePacket (the client let go of a ship's deck until it lands).
     // 8: ShockTrainPacket (the continuous shock train of a supersonic rotor, to its listeners).
     // 9: ShockTrainPacket carries the tips' Mach number too (the cracks' pitch and loudness).
-    private static final String PROTOCOL_VERSION = "9";
+    // 10: ShipHoldPacket (Valkyrien Skies' server put the player back: a hold, not a stop).
+    private static final String PROTOCOL_VERSION = "10";
     private static int messageID = 0;
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
@@ -70,6 +71,12 @@ public class PacketHandler {
                 .encoder(ShockTrainPacket::encode)
                 .decoder(ShockTrainPacket::new)
                 .consumerMainThread(ShockTrainPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(net.camacraft.fullstop.common.network.ShipHoldPacket.class, messageID++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(net.camacraft.fullstop.common.network.ShipHoldPacket::encode)
+                .decoder(net.camacraft.fullstop.common.network.ShipHoldPacket::new)
+                .consumerMainThread(net.camacraft.fullstop.common.network.ShipHoldPacket::handle)
                 .add();
     }
 
