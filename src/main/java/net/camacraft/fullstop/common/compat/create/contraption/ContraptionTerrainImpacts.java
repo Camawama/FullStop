@@ -60,8 +60,13 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * and the coming one in Create's own pose (the same interpolation and look-ahead as its hits on bodies,
  * {@link ContraptionImpacts}: Create stops a sliding contraption before it enters a solid block, so what it is
  * about to run into is the contact), in steps of under half a block. A block whose centre enters a solid world cell, or a cell of a ship's block, at
- * {@code contraptionTerrainMinSpeed} or faster has met it. Slower contraptions pass through blocks as they do
- * in Create. Rails and Create's tracks are never hit (trains and carts ride them), nor a block a contraption
+ * {@code contraptionTerrainMinSpeed} or faster has met it. Slower, a block doesn't strike but <b>presses</b>
+ * ({@link #press}): a block of a contraption turned by a bearing or carried by a minecart (which Create lets pass
+ * through the terrain) whose cube is about to enter a solid cell jams the contraption there, overstressing its network,
+ * at any speed (an arm at 1 RPM stops against stone, it never phases through); it pushes natural vegetation over (it
+ * breaks), passes a player's leaves as before, and leaves to Create what its own drills, saws and harvesters work
+ * through. Sliding contraptions (pistons, pulleys, gantries) are stopped by Create itself before a solid block, and a
+ * slow train is left to Create. Rails and Create's tracks are never hit (trains and carts ride them), nor a block a contraption
  * block already met within {@value #CONTACT_COOLDOWN_TICKS} ticks, nor the block the contraption is driven from (a
  * retracting piston's poles slide back into the piston).
  *
@@ -84,6 +89,13 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * driven body would ({@code m_eff (1 + e) v}, the ship's effective mass at the point; capped as every FullStop
  * push on a ship), and the weaker block breaks as above (the ship's by the {@code hullDamage} rules). A
  * contraption on a ship is left to the ship.
+ *
+ * <p><b>Other contraptions</b> ({@code contraptionsMeet}): a contraption block running into another contraption's block
+ * (two arms on bearings side by side whose sweeps cross) is met by the same rules, both sides driven: the weaker block is
+ * knocked off its contraption (both within {@code mutualBreakRatio}), and when neither gives, or they press slowly, both
+ * are jammed against each other, each network overstressed until either drive stops or turns away. A pair is judged once
+ * per contact, whichever of the two finds it. A train's carriages (Create judges trains itself) and coupled minecarts'
+ * loads are never met against each other.
  *
  * <p>Who answers for the breaking: the player driving the contraption (a train's conductor), otherwise
  * FullStop's own fake player, so protection mods can refuse it ({@code BreakEvent}); minigame hosts are asked
@@ -109,6 +121,10 @@ public final class ContraptionTerrainImpacts {
     private static final double SHIP_RESTITUTION = 0.2;
     /** A hit cracks a block it can't break only from this share of the cost (as an entity's impact does). */
     private static final double CRACK_SHARE = 0.15;
+    /** A contraption block moving less than this (blocks a tick) is at rest: nothing to judge. */
+    private static final double AT_REST = 1.0E-5;
+    /** Half a contraption block's cube where it presses (blocks): a hair under half, as {@link #overlaps} takes it. */
+    private static final double PRESS_HALF = 0.48;
 
     /** Each contraption's outer blocks and mass, rebuilt when its block count changes. */
     private static final Map<Contraption, Shape> SHAPES = Collections.synchronizedMap(new WeakHashMap<>());
@@ -249,10 +265,20 @@ public final class ContraptionTerrainImpacts {
         Budget budget = new Budget(SERVER.maxContraptionTerrainChecksPerTick.get(), SERVER.terrainMaxBlocksPerTick.get());
         long now = level.getGameTime();
         int fast = 0;
+        // where each contraption sweeps this tick, for contraptions meeting each other (none on a ship: the ship's)
+        List<Moving> moving = new ArrayList<>(contraptions.size());
+        if (SERVER.contraptionsMeet.get() && contraptions.size() > 1) {
+            for (AbstractContraptionEntity c : contraptions) {
+                if (c.getContraption() == null || c.getContraption().bounds == null) continue;
+                if (Ships.available() && Ships.managing(c) != null) continue;
+                AABB box = sweptBox(c);
+                if (box != null) moving.add(new Moving(c, box));
+            }
+        }
         for (AbstractContraptionEntity c : contraptions) {
             if (budget.checks <= 0) break;
             try {
-                if (process(level, c, budget, now)) fast++;
+                if (process(level, c, budget, now, moving)) fast++;
             } catch (RuntimeException e) {
                 LOGGER.warn("[FullStop] contraption {} terrain check failed: {}", c.getId(), e.toString());
             }
@@ -276,8 +302,51 @@ public final class ContraptionTerrainImpacts {
         }
     }
 
+    /** A contraption and the box its blocks sweep over this tick and the coming one. */
+    private record Moving(AbstractContraptionEntity c, AABB swept) {}
+
+    /**
+     * Contraptions never met against each other here: a train's carriages (Create judges trains against each other
+     * itself, and a train's own carriages can brush on a tight curve) and the loads of two coupled minecarts.
+     */
+    private static boolean linked(AbstractContraptionEntity a, AbstractContraptionEntity b) {
+        if (a instanceof com.simibubi.create.content.trains.entity.CarriageContraptionEntity
+                || b instanceof com.simibubi.create.content.trains.entity.CarriageContraptionEntity) return true;
+        if (a.getVehicle() instanceof net.minecraft.world.entity.vehicle.AbstractMinecart ca
+                && b.getVehicle() instanceof net.minecraft.world.entity.vehicle.AbstractMinecart cb) {
+            return coupled(ca, cb) || coupled(cb, ca);
+        }
+        return false;
+    }
+
+    /** Whether {@code from} is coupled to {@code to} (Create's minecart coupling). */
+    private static boolean coupled(net.minecraft.world.entity.vehicle.AbstractMinecart from, net.minecraft.world.entity.vehicle.AbstractMinecart to) {
+        Optional<com.simibubi.create.content.contraptions.minecart.capability.MinecartController> controller = from
+                .getCapability(com.simibubi.create.content.contraptions.minecart.capability.CapabilityMinecartController.MINECART_CONTROLLER_CAPABILITY)
+                .resolve();
+        if (controller.isEmpty()) return false;
+        UUID id = to.getUUID();
+        return id.equals(controller.get().getCoupledCart(true)) || id.equals(controller.get().getCoupledCart(false));
+    }
+
+    /** The box {@code c}'s bounds' corners sweep over this tick and the coming one (the look-ahead), or null. */
+    @Nullable
+    private static AABB sweptBox(AbstractContraptionEntity c) {
+        AABB bounds = c.getContraption().bounds;
+        AABB swept = null;
+        double span = 1.0 + ContraptionImpacts.LOOKAHEAD;
+        for (int corner = 0; corner < 8; corner++) {
+            Vec3 p = corner(bounds, corner);
+            for (double f : new double[]{0.0, 0.5, 1.0, span}) {
+                Vec3 at = ContraptionImpacts.toGlobal(c, p, f);
+                swept = swept == null ? new AABB(at, at) : swept.minmax(new AABB(at, at));
+            }
+        }
+        return swept;
+    }
+
     /** One contraption's tick. Returns whether it was fast enough to check. */
-    private static boolean process(ServerLevel level, AbstractContraptionEntity c, Budget budget, long now) {
+    private static boolean process(ServerLevel level, AbstractContraptionEntity c, Budget budget, long now, List<Moving> moving) {
         Contraption contraption = c.getContraption();
         if (contraption == null || contraption.bounds == null) return false;
         if (Ships.available() && Ships.managing(c) != null) return false; // a ship's contraption: the ship's hits
@@ -300,14 +369,24 @@ public final class ContraptionTerrainImpacts {
                     net.minecraftforge.registries.ForgeRegistries.ENTITY_TYPES.getKey(c.getType()), fmt(reach * 20.0),
                     contraption.getBlocks().size(), c.getAnchorVec(), c.getPrevAnchorVec());
         }
-        if (swept == null || reach * 20.0 < min) return false;
+        // too slow to strike anywhere: only a turning or cart-borne contraption, which Create lets pass through, presses
+        boolean presses = SERVER.contraptionSlowJams.get() && pressesWhenSlow(c);
+        if (swept == null || reach < AT_REST || reach * 20.0 < min && !presses) return false;
 
         boolean terrain = SERVER.contraptionTerrainImpacts.get();
         List<ShipRef> ships = List.of();
         if (SERVER.contraptionShipImpacts.get() && Ships.available()) {
             ships = Ships.intersecting(level, swept.inflate(1.0 + reach * 0.25));
         }
-        if (!terrain && ships.isEmpty()) return true;
+        // the other contraptions whose sweep this one's may cross
+        List<AbstractContraptionEntity> others = new ArrayList<>(0);
+        if (!moving.isEmpty()) {
+            AABB near = swept.inflate(1.0);
+            for (Moving m : moving) {
+                if (m.c() != c && m.swept().intersects(near) && !linked(c, m.c())) others.add(m.c());
+            }
+        }
+        if (!terrain && ships.isEmpty() && others.isEmpty()) return true;
 
         Shape shape = shape(contraption);
         Context ctx = new Context(level, c, contraption, shape, now, budget);
@@ -321,7 +400,10 @@ public final class ContraptionTerrainImpacts {
             Vec3 from = ContraptionImpacts.toGlobal(c, centre, 0.0);
             Vec3 to = ContraptionImpacts.toGlobal(c, centre, 1.0);
             double dist = from.distanceTo(to);
-            if (dist * 20.0 < min) continue;
+            if (dist * 20.0 < min) {
+                if (presses && dist >= AT_REST) press(ctx, local, info, centre, controller, terrain, ships, others);
+                continue;
+            }
             // this tick and the coming one: Create stops a sliding contraption (a gantry, piston or pulley) before it
             // enters a solid block, so it never overlaps one; what it is about to run into is the contact, broken
             // now so Create finds the way clear (a bearing's arm, which Create lets pass through, is met a tick early)
@@ -329,6 +411,7 @@ public final class ContraptionTerrainImpacts {
             int steps = Mth.clamp((int) Math.ceil(span * dist / MAX_STEP), 1, MAX_STEPS);
             BlockPos lastCell = BlockPos.containing(from);
             BlockPos lastShipCell = null;
+            BlockPos[] lastOtherCell = new BlockPos[others.size()];
             sweep:
             for (int s = 1; s <= steps; s++) {
                 if (budget.checks-- <= 0) break;
@@ -366,9 +449,275 @@ public final class ContraptionTerrainImpacts {
                     Outcome outcome = shipContact(ctx, local, info, ship, shipCell, state, at, v, relative, closing, new Sweep(centre, f));
                     if (outcome == Outcome.KNOCKED_OFF || outcome == Outcome.BOTH_GAVE || outcome == Outcome.JAMMED) break sweep;
                 }
+                for (int i = 0; i < others.size(); i++) {
+                    AbstractContraptionEntity other = others.get(i);
+                    Contraption theirs = other.getContraption();
+                    if (theirs == null || !other.isAlive()) continue;
+                    BlockPos theirCell = BlockPos.containing(ContraptionImpacts.toLocal(other, at, f));
+                    if (theirCell.equals(lastOtherCell[i])) continue;
+                    lastOtherCell[i] = theirCell;
+                    StructureBlockInfo theirInfo = theirs.getBlocks().get(theirCell);
+                    if (!solidIn(theirs, theirCell, theirInfo)) continue;
+                    Outcome outcome = meetContraption(ctx, local, info, centre, f, other, theirCell, theirInfo, min);
+                    if (outcome == Outcome.KNOCKED_OFF || outcome == Outcome.BOTH_GAVE || outcome == Outcome.JAMMED) break sweep;
+                }
             }
         }
         return true;
+    }
+
+    /**
+     * Whether a contraption's slow blocks press on what they run into ({@link #press}): one turned by a bearing (a
+     * mechanical, windmill or clockwork bearing) or carried by a minecart, whose blocks Create lets pass through the
+     * terrain. Pistons, pulleys and gantries Create stops itself before a solid block; a train is left to Create.
+     */
+    private static boolean pressesWhenSlow(AbstractContraptionEntity c) {
+        if (c instanceof com.simibubi.create.content.contraptions.ControlledContraptionEntity) {
+            return ContraptionStress.rotationAxis(c) != null;
+        }
+        return c instanceof com.simibubi.create.content.contraptions.OrientedContraptionEntity
+                && !(c instanceof com.simibubi.create.content.trains.entity.CarriageContraptionEntity)
+                && c.getVehicle() instanceof net.minecraft.world.entity.vehicle.AbstractMinecart;
+    }
+
+    /**
+     * A block moving slower than {@code contraptionTerrainMinSpeed} pressing on what is in its way: its cube (a hair under
+     * a block, axis-aligned in the cell's frame, as {@link #contactFraction} takes it) at the end of this tick and the coming
+     * one, against the solid cells it doesn't already overlap as the tick begins. Natural vegetation is pushed over (broken,
+     * as a hull sweeps it); leaves a player placed are passed, as at speed; what a drill, saw or harvester on that block
+     * works through is Create's ({@link #actorWorks}); slime and honey hold it; anything else jams the contraption against
+     * it (stalled with its face against the cell, its network overstressed until its drive stops or turns away or the
+     * block goes: {@link ContraptionStress#jam}). A ship's block is met as at speed ({@link #shipContact}): a light ship is
+     * pushed out of the way, a heavy one jams it.
+     */
+    private static void press(Context ctx, BlockPos local, StructureBlockInfo info, Vec3 centre, @Nullable BlockPos controller,
+                              boolean terrain, List<ShipRef> ships, List<AbstractContraptionEntity> others) {
+        AbstractContraptionEntity c = ctx.c;
+        double span = 1.0 + ContraptionImpacts.LOOKAHEAD;
+        Vec3 start = ContraptionImpacts.toGlobal(c, centre, 0.0);
+        Vec3 end = ContraptionImpacts.toGlobal(c, centre, span);
+        Sweep sweep = new Sweep(centre, span);
+        if (terrain) {
+            for (BlockPos cell : newlyOverlapped(start, end)) {
+                if (ctx.budget.checks-- <= 0) return;
+                ctx.budget.checked++;
+                if (cell.equals(controller)) continue;
+                BlockState state = loadedState(ctx.level, cell);
+                if (state == null || !solid(ctx.level, cell, state) || state.canBeReplaced()
+                        || state.getBlock() instanceof net.minecraft.world.level.block.CocoaBlock) continue;
+                if (actorWorks(info.state(), ctx.level, cell, state)) continue;
+                if (!fresh(ctx.level, c, local, cell, null, ctx.now)) continue;
+                double f = contactFraction(c, sweep, cell, null);
+                Vec3 at = ContraptionImpacts.toGlobal(c, centre, f);
+                Vec3 v = ContraptionImpacts.velocityAt(c, centre, f);
+                double speed = v.length();
+                if (ShipMaterials.sweepCandidate(state)) {
+                    if (!ShipMaterials.sweepableAt(state, speed)) {
+                        record(ctx, local, cell, null, state, info.state(), speed, 0.0, Outcome.CUSHIONED, 0.0);
+                        continue;
+                    }
+                    // pushed over: the drive is far stronger than a plant; what breaking it costs loads the network
+                    double cost = ShipMaterials.toughness(ctx.level, cell, state) * SERVER.breakCostMultiplier.get();
+                    if (SERVER.kineticBlockBreaking.get() && breakable(ctx.level, cell, state) && ctx.budget.breaks > 0
+                            && BlockAlterRules.mayAlter(ctx.level, cell, ctx.cause())) {
+                        Smash smash = smash(ctx.level, cell, state, cost, Math.max(cost, 0.0), ctx.cause(), ctx.now);
+                        if (smash.broken()) {
+                            ctx.budget.breaks--;
+                            ctx.budget.brokenTotal++;
+                            ctx.load(smash.spent());
+                            record(ctx, local, cell, null, state, info.state(), speed, smash.spent(), Outcome.BROKE, smash.spent());
+                            continue;
+                        }
+                    }
+                }
+                ctx.contacts++;
+                ctx.budget.contacts++;
+                jammed(ctx, local, cell, null, state, info.state(), speed, 0.0, sweep, null);
+                return;
+            }
+        }
+        for (ShipRef ship : ships) {
+            Vec3 inStart = ship.toShip(start);
+            Vec3 inEnd = ship.toShip(end);
+            if (inStart == null || inEnd == null) continue;
+            for (BlockPos shipCell : newlyOverlapped(inStart, inEnd)) {
+                if (ctx.budget.checks-- <= 0) return;
+                ctx.budget.checked++;
+                BlockState state = loadedState(ctx.level, shipCell);
+                if (state == null || !solid(ctx.level, shipCell, state) || state.canBeReplaced()) continue;
+                if (!fresh(ctx.level, c, local, shipCell, ship.id(), ctx.now)) continue;
+                double f = contactFraction(c, sweep, shipCell, ship);
+                Vec3 at = ContraptionImpacts.toGlobal(c, centre, f);
+                Vec3 v = ContraptionImpacts.velocityAt(c, centre, f);
+                Vec3 shipV = ship.velocityAt(at);
+                Vec3 relative = shipV == null ? v : v.subtract(shipV);
+                double closing = relative.length();
+                Outcome outcome;
+                if (closing < 1.0E-4) {
+                    // the ship moves with it: nothing presses
+                    continue;
+                }
+                outcome = shipContact(ctx, local, info, ship, shipCell, state, at, v, relative, closing, new Sweep(centre, f));
+                if (outcome == Outcome.JAMMED || outcome == Outcome.KNOCKED_OFF || outcome == Outcome.BOTH_GAVE) return;
+            }
+        }
+        for (AbstractContraptionEntity other : others) {
+            Contraption theirs = other.getContraption();
+            if (theirs == null || !other.isAlive()) continue;
+            Vec3 inStart = ContraptionImpacts.toLocal(other, start, 0.0);
+            Vec3 inEnd = ContraptionImpacts.toLocal(other, end, span);
+            for (BlockPos theirCell : newlyOverlapped(inStart, inEnd)) {
+                if (ctx.budget.checks-- <= 0) return;
+                ctx.budget.checked++;
+                StructureBlockInfo theirInfo = theirs.getBlocks().get(theirCell);
+                if (!solidIn(theirs, theirCell, theirInfo)) continue;
+                double f = contactFraction(c, sweep, theirCell, null, other);
+                Outcome outcome = meetContraption(ctx, local, info, centre, f, other, theirCell, theirInfo, SERVER.contraptionTerrainMinSpeed.get());
+                if (outcome == Outcome.JAMMED || outcome == Outcome.KNOCKED_OFF || outcome == Outcome.BOTH_GAVE) return;
+            }
+        }
+    }
+
+    /** Whether {@code contraption}'s block at {@code local} is something another contraption's block meets: solid there. */
+    private static boolean solidIn(Contraption contraption, BlockPos local, @Nullable StructureBlockInfo info) {
+        if (info == null || info.state().isAir() || contraption.isHiddenInPortal(local)) return false;
+        return !info.state().getCollisionShape(contraption.getContraptionWorld(), local, CollisionContext.empty()).isEmpty();
+    }
+
+    /**
+     * {@code ctx}'s block at {@code local} (its centre {@code centre}, at fraction {@code f} of the tick's motion) meeting
+     * {@code other}'s block at {@code theirLocal}: judged once per pair of blocks ({@link #freshPair}). Both are driven, so
+     * the hit's energy is both blocks' (each contraption's effective mass behind its block, at their closing speed); the
+     * weaker block is knocked off its contraption, both within {@code mutualBreakRatio}; when neither gives, or they meet
+     * slower than {@code min} (pressing), both are jammed against each other at the pose where their faces meet. Returns
+     * what happened, or null when the pair was judged lately or the blocks don't close.
+     */
+    @Nullable
+    private static Outcome meetContraption(Context ctx, BlockPos local, StructureBlockInfo info, Vec3 centre, double f,
+                                           AbstractContraptionEntity other, BlockPos theirLocal, StructureBlockInfo theirInfo, double min) {
+        AbstractContraptionEntity c = ctx.c;
+        Vec3 at = ContraptionImpacts.toGlobal(c, centre, f);
+        Vec3 v = ContraptionImpacts.velocityAt(c, centre, f);
+        Vec3 theirs = ContraptionImpacts.velocityAt(other, ContraptionImpacts.toLocal(other, at, f), f);
+        Vec3 relative = v.subtract(theirs);
+        double closing = relative.length();
+        if (closing < AT_REST * 20.0) return null;
+        if (!freshPair(ctx.level, c, local, other, theirLocal, ctx.now)) return null;
+        Contraption theirContraption = other.getContraption();
+        Context them = new Context(ctx.level, other, theirContraption, shape(theirContraption), ctx.now, ctx.budget);
+        BlockState striker = info.state();
+        BlockState struck = theirInfo.state();
+        ctx.contacts++;
+        ctx.budget.contacts++;
+        Sweep sweep = new Sweep(centre, f);
+        ShipImpactSounds.play(ctx.level, soundKey(c), ctx.shape.massKg(), true,
+                List.of(new ShipImpactSounds.Hit(at, closing, struck, striker)), ctx.now);
+        double energy = hitEnergy(ctx, local, closing) + hitEnergy(them, theirLocal, closing);
+        if (closing < min) {
+            // pressing on each other: neither strikes, both stop
+            return jamPair(ctx, local, striker, them, theirLocal, struck, sweep, closing, energy);
+        }
+        double ours = ShipMaterials.toughness(ctx.contraption.getContraptionWorld(), local, striker);
+        double theirsTough = ShipMaterials.toughness(theirContraption.getContraptionWorld(), theirLocal, struck);
+        boolean oursMay = SERVER.contraptionBlocksBreak.get() && ContraptionBlocks.canKnockOff(ctx.contraption, local, info)
+                && Double.isFinite(ours);
+        boolean theirsMay = SERVER.contraptionBlocksBreak.get() && ContraptionBlocks.canKnockOff(theirContraption, theirLocal, theirInfo)
+                && Double.isFinite(theirsTough);
+        double multiplier = SERVER.breakCostMultiplier.get();
+        double ratio = SERVER.mutualBreakRatio.get();
+        double spent = 0.0;
+        boolean oursOff = false;
+        boolean theirsOff = false;
+        switch (ShipMaterials.whichGives(theirsTough, ours, ratio)) {
+            case FIRST -> {
+                double knocked = theirsMay ? knock(them, theirLocal, theirInfo, ShipMaterials.breakCost(theirsTough, ours, multiplier),
+                        energy, at, theirs) : -1.0;
+                if (knocked >= 0.0) {
+                    theirsOff = true;
+                    spent += knocked;
+                }
+            }
+            case SECOND -> {
+                double knocked = oursMay ? knock(ctx, local, info, ShipMaterials.breakCost(ours, theirsTough, multiplier), energy, at, v) : -1.0;
+                if (knocked >= 0.0) {
+                    oursOff = true;
+                    spent += knocked;
+                }
+            }
+            case BOTH -> {
+                double knocked = theirsMay ? knock(them, theirLocal, theirInfo, ShipMaterials.mutualCost(theirsTough, multiplier, ratio),
+                        energy, at, theirs) : -1.0;
+                if (knocked >= 0.0) {
+                    theirsOff = true;
+                    spent += knocked;
+                }
+                knocked = oursMay ? knock(ctx, local, info, ShipMaterials.mutualCost(ours, multiplier, ratio), energy, at, v) : -1.0;
+                if (knocked >= 0.0) {
+                    oursOff = true;
+                    spent += knocked;
+                }
+            }
+            default -> {
+            }
+        }
+        if (!oursOff && !theirsOff) return jamPair(ctx, local, striker, them, theirLocal, struck, sweep, closing, energy);
+        // both motors drove the hit: both networks feel it
+        ctx.load(spent);
+        them.load(spent);
+        Outcome outcome = oursOff ? (theirsOff ? Outcome.BOTH_GAVE : Outcome.KNOCKED_OFF) : Outcome.BROKE;
+        record(them, theirLocal, local, null, striker, struck, closing, energy,
+                theirsOff ? (oursOff ? Outcome.BOTH_GAVE : Outcome.KNOCKED_OFF) : Outcome.BROKE, spent);
+        return record(ctx, local, theirLocal, null, struck, striker, closing, energy, outcome, spent);
+    }
+
+    /** Two contraptions that met and neither gave: both stalled against each other, where their blocks' faces meet. */
+    private static Outcome jamPair(Context ctx, BlockPos local, BlockState striker, Context them, BlockPos theirLocal, BlockState struck,
+                                   Sweep sweep, double closing, double energy) {
+        double f = contactFraction(ctx.c, sweep, theirLocal, null, them.c);
+        Vec3 ourWorld = ContraptionImpacts.toGlobal(ctx.c, sweep.centre(), f);
+        Vec3 theirWorld = ContraptionImpacts.toGlobal(them.c, Vec3.atCenterOf(theirLocal), f);
+        ctx.jam(ContraptionStress.Obstacle.contraption(them.c, theirLocal, struck.getBlock(), theirWorld), f);
+        them.jam(ContraptionStress.Obstacle.contraption(ctx.c, local, striker.getBlock(), ourWorld), f);
+        record(them, theirLocal, local, null, striker, struck, closing, energy, Outcome.JAMMED, Double.NaN);
+        return record(ctx, local, theirLocal, null, struck, striker, closing, energy, Outcome.JAMMED, Double.NaN);
+    }
+
+    /**
+     * The cells a contraption block's cube ({@value #PRESS_HALF} from its centre each way, in the cells' own frame)
+     * overlaps with its centre at {@code end} and didn't with its centre at {@code start}.
+     */
+    private static List<BlockPos> newlyOverlapped(Vec3 start, Vec3 end) {
+        List<BlockPos> out = new ArrayList<>(4);
+        int x0 = Mth.floor(end.x - PRESS_HALF), x1 = Mth.floor(end.x + PRESS_HALF);
+        int y0 = Mth.floor(end.y - PRESS_HALF), y1 = Mth.floor(end.y + PRESS_HALF);
+        int z0 = Mth.floor(end.z - PRESS_HALF), z1 = Mth.floor(end.z + PRESS_HALF);
+        for (int x = x0; x <= x1; x++) {
+            for (int y = y0; y <= y1; y++) {
+                for (int z = z0; z <= z1; z++) {
+                    boolean before = Math.abs(start.x - (x + 0.5)) < 0.5 + PRESS_HALF && Math.abs(start.y - (y + 0.5)) < 0.5 + PRESS_HALF
+                            && Math.abs(start.z - (z + 0.5)) < 0.5 + PRESS_HALF;
+                    if (!before) out.add(new BlockPos(x, y, z));
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Whether Create's own actor on the contraption block {@code striker} works through {@code state} at {@code cell}
+     * (Create's rule for its pistons: a drill or saw that can break it, a harvester that can harvest it), so the block
+     * isn't an obstacle to it: Create stalls the contraption itself while it works.
+     */
+    private static boolean actorWorks(BlockState striker, ServerLevel level, BlockPos cell, BlockState state) {
+        com.simibubi.create.api.behaviour.movement.MovementBehaviour behaviour =
+                com.simibubi.create.api.behaviour.movement.MovementBehaviour.REGISTRY.get(striker);
+        if (behaviour instanceof com.simibubi.create.content.kinetics.base.BlockBreakingMovementBehaviour breaker) {
+            return breaker.canBreak(level, cell, state);
+        }
+        if (behaviour instanceof com.simibubi.create.content.contraptions.actors.harvester.HarvesterMovementBehaviour harvester) {
+            return harvester.isValidCrop(level, cell, state) || harvester.isValidOther(level, cell, state);
+        }
+        return false;
     }
 
     /** One contraption's tick in progress. */
@@ -746,20 +1095,28 @@ public final class ContraptionTerrainImpacts {
      * by at most a fifth of a block.
      */
     private static double contactFraction(AbstractContraptionEntity c, Sweep sweep, BlockPos cell, @Nullable ShipRef ship) {
+        return contactFraction(c, sweep, cell, ship, null);
+    }
+
+    /** As above, {@code cell} being a block of the contraption {@code other} when it is set (in its own frame). */
+    private static double contactFraction(AbstractContraptionEntity c, Sweep sweep, BlockPos cell, @Nullable ShipRef ship,
+                                          @Nullable AbstractContraptionEntity other) {
         double lo = 0.0;
         double hi = sweep.at();
-        if (overlaps(c, sweep.centre(), lo, cell, ship)) return lo;
+        if (overlaps(c, sweep.centre(), lo, cell, ship, other)) return lo;
         for (int i = 0; i < 16; i++) {
             double mid = 0.5 * (lo + hi);
-            if (overlaps(c, sweep.centre(), mid, cell, ship)) hi = mid;
+            if (overlaps(c, sweep.centre(), mid, cell, ship, other)) hi = mid;
             else lo = mid;
         }
         return lo;
     }
 
     /** Whether the contraption block with centre {@code centre} overlaps {@code cell} (a world cell, or {@code ship}'s) at fraction {@code f}. */
-    private static boolean overlaps(AbstractContraptionEntity c, Vec3 centre, double f, BlockPos cell, @Nullable ShipRef ship) {
+    private static boolean overlaps(AbstractContraptionEntity c, Vec3 centre, double f, BlockPos cell, @Nullable ShipRef ship,
+                                    @Nullable AbstractContraptionEntity other) {
         Vec3 p = ContraptionImpacts.toGlobal(c, centre, f);
+        if (other != null) p = ContraptionImpacts.toLocal(other, p, f);
         if (ship != null) {
             p = ship.toShip(p);
             if (p == null) return false;
@@ -797,6 +1154,16 @@ public final class ContraptionTerrainImpacts {
         if (!forgotten && last != Long.MIN_VALUE && now - last < CONTACT_COOLDOWN_TICKS && now >= last) return false;
         map.put(key, now);
         return true;
+    }
+
+    /**
+     * Whether two contraptions' blocks meet for the first time in {@value #CONTACT_COOLDOWN_TICKS} ticks (and marks it),
+     * the same whichever of the two asks.
+     */
+    private static boolean freshPair(ServerLevel level, AbstractContraptionEntity a, BlockPos aLocal, AbstractContraptionEntity b,
+                                     BlockPos bLocal, long now) {
+        if (a.getId() > b.getId()) return freshPair(level, b, bLocal, a, aLocal, now);
+        return fresh(level, a, aLocal, bLocal, (long) b.getId() ^ 0x5DEECE66DL, now);
     }
 
     /**

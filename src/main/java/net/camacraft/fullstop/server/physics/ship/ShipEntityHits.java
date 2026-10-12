@@ -86,6 +86,13 @@ public final class ShipEntityHits {
     static final int RIDER_TICKS = 5;
     /** Ticks of standing still after which a contact from below is standing, not landing. */
     private static final int LANDING_TICKS = 2;
+    /**
+     * A body a ship struck ({@link ShipEntityImpacts}) is that ship's to strike again for this long: a contact with it
+     * meanwhile is the hull catching the body up, never the body ramming the hull.
+     */
+    static final int STRUCK_TICKS = Integer.getInteger("fullstop.struckShipTicks", 40);
+    /** A body that has been aboard a ship for fewer ticks than this when it meets that ship's hull arrived at it. */
+    static final int ARRIVAL_TICKS = Integer.getInteger("fullstop.riderArrivalTicks", 4);
 
     /** The last collision of each entity with a ship, for the debug log and the game tests. */
     private static final Map<Entity, Hit> LAST_HIT = Collections.synchronizedMap(new WeakHashMap<>());
@@ -166,6 +173,15 @@ public final class ShipEntityHits {
         if (closingNow > 0.5 * contact.approach()) return Outcome.PASS; // next tick, once it has stopped
         // Already exchanged (the second tick of a two-tick impact), or the ship just hit it.
         if (cap.isShipHitOnCooldown(ship.id(), now)) return Outcome.silent(struck);
+        // This ship struck the body just now: meeting it again is the hull catching it up (ShipEntityImpacts' business),
+        // whatever the body's measured motion says. A car a ship had shoved along read, on a tick its driver's client
+        // and the server disagreed about where it was, as ramming that ship at up to 18 m/s, and pushed the ship back
+        // and itself ahead again (harness carhit_roll, 2026-10-10: "it keeps rolling into me and pushing me which
+        // pushes the ship which pushes me").
+        ShipEntityImpacts.Struck byShip = ShipEntityImpacts.lastStruck(entity);
+        if (byShip != null && byShip.shipId() == ship.id() && now - byShip.tick() < STRUCK_TICKS) {
+            return Outcome.silent(struck);
+        }
         // The hull brings most of the closing speed: the ship is hitting the entity, and
         // ShipEntityImpacts deals with that (at the end of this tick).
         double hullIn = contact.hullVelocity().dot(normal);
@@ -180,7 +196,19 @@ public final class ShipEntityHits {
         // VS takes a body touching a ship's side for one standing on it (a car driven into a ship's side was its "rider"
         // from the first touch on, and never pushed it)
         boolean rider = !fromBelow && (cap.stoodOnBefore(ship.id(), now, RIDER_TICKS) || ShipCompat.carriedBy(entity, ship))
-                && onDeck(level, entity, ship, frame);
+                && onDeck(level, entity, ship, frame)
+                // aboard before it met this hull: a car driven at a raft whose deck lies about as high as the road gets its
+                // wheels over the raft's edge as it hits it, and VS records it standing there from that tick on; taken for
+                // the raft's rider, it pushed nothing and the raft tipped toward it under its weight (harness carhit_ship,
+                // 2026-10-10: the raft drifted back toward the car and the car sank with its edge into the pier)
+                && (ARRIVAL_TICKS <= 0 || cap.aboardSince(ship.id(), now, ARRIVAL_TICKS));
+        // A rider its own ship's gravity field holds (Gravity Unbound's plating on that ship) is moved by the field, not
+        // carried by Valkyrien Skies, so nothing of the ship's motion is taken out of what is measured of it: its world
+        // velocity, read from its client's positions on a fast deck (packets doubled one tick, none the next), swung
+        // between 0 and the deck's 35 m/s, and a car driven on its own plated deck spinning at 60 RPM read as hitting
+        // that deck at 19 to 44 m/s (16 to 63 damage, harness car_spin60, on and off since 10-02). Its own deck's
+        // structure is no hit for it.
+        if (rider && heldByShipField(entity)) return Outcome.silent(struck);
         double entityKg = fromBelow ? deckKg(entity) : ShipContactPhysics.bodyKg(entity);
         double shipKg = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(shipKg > 0.0)) shipKg = Double.POSITIVE_INFINITY;
@@ -257,6 +285,14 @@ public final class ShipEntityHits {
             if (local == null) continue;
             BlockState state = ShipTerrainImpacts.loadedState(level, BlockPos.containing(local));
             if (state != null && !state.isAir()) return true;
+        }
+        return false;
+    }
+
+    /** Whether the gravity mod holds the body, or anyone riding it, in a field mounted on a ship. */
+    private static boolean heldByShipField(Entity root) {
+        for (Entity member : EntityStack.selfAndPassengers(root)) {
+            if (Gravity.ridesShipField(member)) return true;
         }
         return false;
     }

@@ -55,14 +55,17 @@ public final class KineticHazardTests {
     // ------------------------------------------------------------------ gears
 
     /**
-     * A single spinning cogwheel never hurts and never pulls: a pig pressed against its teeth at 4, 16 and 64 RPM for five
-     * seconds loses nothing and is never flung (its teeth move slower than gearFlingSpeed: they only push).
+     * A single spinning cogwheel never pulls, and bites in proportion to its teeth's speed: a pig pressed against its teeth
+     * at 4 and 16 RPM (teeth under 1 m/s) for five seconds loses nothing, at 64 RPM (3.75 m/s) it is bitten about 1 a bite
+     * (gearTouchDamage 2 at 7.5 m/s), never more than gearMaxDamage; none is flung (slower than gearFlingSpeed: they push).
      */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 400)
-    public static void aSingleCogwheelOnlyPushesAndNeverHurts(GameTestHelper helper) {
+    public static void aSingleCogwheelBitesByItsSpeedAndNeverPulls(GameTestHelper helper) {
         int[] rpms = {4, 16, 64};
         Pig[] pigs = new Pig[rpms.length];
         double[] start = new double[rpms.length];
+        double[] biggest = new double[rpms.length];
+        listenToBites(pigs, biggest);
         for (int i = 0; i < rpms.length; i++) gearRig(helper, 4 + i * 10, 6, rpms[i], false);
         helper.startSequence()
                 .thenExecuteAfter(5, () -> {
@@ -79,14 +82,18 @@ public final class KineticHazardTests {
                 .thenExecuteAfter(100, () -> {
                     StringBuilder out = new StringBuilder();
                     for (int i = 0; i < rpms.length; i++) {
-                        out.append(String.format(Locale.ROOT, "%d RPM: %.1f lost, gap to the teeth %.2f -> %.2f; ", rpms[i], lost(pigs[i]),
-                                start[i], gap(helper, pigs[i], 4 + i * 10 + 1)));
+                        out.append(String.format(Locale.ROOT, "%d RPM: %.1f lost (largest bite %.2f), gap to the teeth %.2f -> %.2f; ", rpms[i],
+                                lost(pigs[i]), biggest[i], start[i], gap(helper, pigs[i], 4 + i * 10 + 1)));
                     }
                     report("a single cogwheel's teeth", out.toString());
+                    double cap = FullStopConfig.SERVER.gearMaxDamage.get();
                     for (int i = 0; i < rpms.length; i++) {
-                        helper.assertTrue(lost(pigs[i]) == 0.0, "a pig against a single " + rpms[i] + " RPM cogwheel was hurt: " + out);
                         helper.assertTrue(KineticHazards.lastFlingMps(pigs[i]) == 0.0, "a single " + rpms[i] + " RPM cogwheel flung the pig: " + out);
+                        helper.assertTrue(biggest[i] <= cap + 1.0E-3, "a single " + rpms[i] + " RPM cogwheel bit more than gearMaxDamage: " + out);
                     }
+                    helper.assertTrue(lost(pigs[0]) == 0.0 && lost(pigs[1]) == 0.0, "a crawling single cogwheel hurt the pig: " + out);
+                    helper.assertTrue(lost(pigs[2]) > 0.0 && biggest[2] > 0.5 && biggest[2] < 1.5,
+                            "a single 64 RPM cogwheel didn't bite the pig about 1 a bite: " + out);
                     for (Pig pig : pigs) pig.discard();
                 })
                 .thenSucceed();
@@ -95,8 +102,8 @@ public final class KineticHazardTests {
     /**
      * A very fast single gear flings what touches it (its teeth past gearFlingSpeed): a pig touching a cogwheel on the side
      * where its teeth run up, at 16, 64 and 256 RPM, and a large cogwheel at 256. At 16 it is nudged, at 64 pushed, at 256
-     * thrown up and out (a large cogwheel's rim, twice as fast, throws it twice as hard); the gear itself never hurts it
-     * (a landing may: Full Stop's, not the gear's).
+     * thrown up and out (a large cogwheel's rim, twice as fast, throws it twice as hard); the gear bites it (from 64 RPM)
+     * but never more than gearMaxDamage a bite (a landing may hurt too: Full Stop's, not the gear's).
      */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 300)
     public static void aVeryFastSingleGearFlingsWhatTouchesIt(GameTestHelper helper) {
@@ -111,6 +118,8 @@ public final class KineticHazardTests {
         java.util.Map<String, Double>[] hurts = new java.util.Map[]{new java.util.TreeMap<>(), new java.util.TreeMap<>(),
                 new java.util.TreeMap<>(), new java.util.TreeMap<>()};
         listenToHurts(pigs, hurts);
+        double[] biggest = new double[4];
+        listenToBites(pigs, biggest);
         for (int i = 0; i < 4; i++) {
             if (large[i]) largeGearRig(helper, xs[i], 6);
             else gearRig(helper, xs[i], 6, rpms[i], false);
@@ -145,16 +154,17 @@ public final class KineticHazardTests {
                 .thenExecute(() -> {
                     StringBuilder out = new StringBuilder();
                     for (int i = 0; i < 4; i++) {
-                        out.append(String.format(Locale.ROOT, "%s at %d RPM: flung at %.1f m/s, fastest %.1f m/s, rose %.1f, %.1f away, hurt %s; ",
+                        out.append(String.format(Locale.ROOT, "%s at %d RPM: flung at %.1f m/s, fastest %.1f m/s, rose %.1f, %.1f away, hurt %s, largest bite %.2f; ",
                                 large[i] ? "large cogwheel" : "cogwheel", rpms[i], KineticHazards.lastFlingMps(pigs[i]), fastest[i], highest[i],
-                                Math.hypot(pigs[i].getX() - startAt[i].x, pigs[i].getZ() - startAt[i].z), hurts[i]));
+                                Math.hypot(pigs[i].getX() - startAt[i].x, pigs[i].getZ() - startAt[i].z), hurts[i], biggest[i]));
                     }
                     report("a single gear's teeth, by speed", out.toString());
+                    double cap = FullStopConfig.SERVER.gearMaxDamage.get();
                     for (int i = 0; i < 4; i++) {
-                        for (String type : hurts[i].keySet()) {
-                            helper.assertTrue(!type.contains("gear"), "a single gear hurt the pig (" + type + "): " + out);
-                        }
+                        helper.assertTrue(biggest[i] <= cap + 1.0E-3, "a single gear bit the pig more than gearMaxDamage: " + out);
                     }
+                    helper.assertTrue(hurts[0].keySet().stream().noneMatch(t -> t.contains("gear")), "a 16 RPM cogwheel bit the pig: " + out);
+                    helper.assertTrue(biggest[2] > 2.0, "a 256 RPM cogwheel didn't bite the pig: " + out);
                     helper.assertTrue(KineticHazards.lastFlingMps(pigs[0]) == 0.0 && fastest[0] < 3.0, "a 16 RPM cogwheel threw the pig: " + out);
                     helper.assertTrue(KineticHazards.lastFlingMps(pigs[1]) == 0.0, "a 64 RPM cogwheel threw the pig: " + out);
                     helper.assertTrue(KineticHazards.lastFlingMps(pigs[2]) > 15.0 && highest[2] > 2.0, "a 256 RPM cogwheel didn't fling the pig: " + out);
@@ -167,8 +177,8 @@ public final class KineticHazardTests {
 
     /**
      * A pig a large cogwheel at 256 RPM flings into a stone wall 1.65 blocks away is hurt by the wall (Full Stop's impact),
-     * never by the gear. It touches the side where the teeth run down: they never throw it down into the floor (no slam),
-     * they squeeze it out along it.
+     * and by the gear no more than gearMaxDamage. It touches the side where the teeth run down: they never throw it down
+     * into the floor (no slam), they squeeze it out along it.
      */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 200)
     public static void aPigFlungIntoAWallIsHurtByTheWall(GameTestHelper helper) {
@@ -183,6 +193,8 @@ public final class KineticHazardTests {
         Pig[] pigs = new Pig[1];
         java.util.Map<String, Double>[] hurts = new java.util.Map[]{new java.util.TreeMap<>()};
         listenToHurts(pigs, hurts);
+        double[] biggest = new double[1];
+        listenToBites(pigs, biggest);
         int[] side = {0};
         helper.startSequence()
                 .thenExecuteAfter(5, () -> motor(helper, new BlockPos(4, 3, 6), 256))
@@ -200,11 +212,24 @@ public final class KineticHazardTests {
                     report("flung into a wall by a large cogwheel at 256 RPM", String.format(Locale.ROOT, "flung at %.1f m/s toward %s z, hurt %s",
                             flung, side[0] > 0 ? "+" : "-", hurts[0]));
                     helper.assertTrue(flung > 15.0, "the large cogwheel didn't fling the pig (" + flung + " m/s)");
-                    for (String type : hurts[0].keySet()) helper.assertTrue(!type.contains("gear"), "the gear hurt the pig: " + hurts[0]);
-                    helper.assertTrue(wall > 0.0, "the pig flung into the wall wasn't hurt by it: " + hurts[0]);
+                    helper.assertTrue(biggest[0] <= FullStopConfig.SERVER.gearMaxDamage.get() + 1.0E-3,
+                            "the gear bit the pig more than gearMaxDamage (" + biggest[0] + "): " + hurts[0]);
+                    // the wall's hit comes within the bite's damage cooldown: vanilla takes only what it adds over the bite
+                    double total = hurts[0].values().stream().mapToDouble(Double::doubleValue).sum();
+                    helper.assertTrue(total > 0.0, "the pig flung into the wall wasn't hurt: " + hurts[0]);
                     pigs[0].discard();
                 })
                 .thenSucceed();
+    }
+
+    /** Records the largest single gear bite (a hurt whose message id names a gear) each of {@code pigs} took into {@code biggest}. */
+    private static void listenToBites(Pig[] pigs, double[] biggest) {
+        net.minecraftforge.common.MinecraftForge.EVENT_BUS.addListener((net.minecraftforge.event.entity.living.LivingHurtEvent e) -> {
+            if (!e.getSource().getMsgId().contains("gear")) return;
+            for (int i = 0; i < pigs.length; i++) {
+                if (pigs[i] != null && e.getEntity() == pigs[i]) biggest[i] = Math.max(biggest[i], e.getAmount());
+            }
+        });
     }
 
     /** Records every hurt of {@code pigs} by damage type (message id) into {@code hurts}. */
@@ -291,12 +316,17 @@ public final class KineticHazardTests {
                 .thenSucceed();
     }
 
-    /** The same pair turned the other way: on top is now the out-running side, which pushes out and never hurts. */
+    /**
+     * The same pair turned the other way: on top is now the out-running side, which pushes out and never catches (no
+     * jam, no crushing): at most the touch of a single gear's teeth (about 1 a bite at 64 RPM, against the nip's 3).
+     */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 300)
-    public static void theOutRunningSideOfANipNeverHurts(GameTestHelper helper) {
+    public static void theOutRunningSideOfANipNeverCatches(GameTestHelper helper) {
         gearRig(helper, 4, 6, 64, false);
         Pig[] pig = new Pig[1];
         int[] jammed = {0};
+        double[] biggest = new double[1];
+        listenToBites(pig, biggest);
         helper.startSequence()
                 .thenExecuteAfter(5, () -> motor(helper, new BlockPos(4, 2, 6), 64))
                 .thenExecuteAfter(10, () -> partnerOnTheMouthUp(helper, 5, 2, 6))
@@ -306,9 +336,10 @@ public final class KineticHazardTests {
                     if (pairImpact(helper, 5, 2, 6) > 0.0) jammed[0]++;
                 })
                 .thenExecute(() -> {
-                    report("on the out-running side of a 64 RPM nip", String.format(Locale.ROOT, "%.1f lost, jammed %d ticks", lost(pig[0]), jammed[0]));
-                    helper.assertTrue(lost(pig[0]) == 0.0 && jammed[0] == 0, "a pig on the out-running side of a nip was caught: "
-                            + lost(pig[0]) + " lost, jammed " + jammed[0] + " ticks");
+                    report("on the out-running side of a 64 RPM nip", String.format(Locale.ROOT, "%.1f lost (largest bite %.2f), jammed %d ticks",
+                            lost(pig[0]), biggest[0], jammed[0]));
+                    helper.assertTrue(biggest[0] < 1.5 && jammed[0] == 0, "a pig on the out-running side of a nip was caught: "
+                            + lost(pig[0]) + " lost, largest bite " + biggest[0] + ", jammed " + jammed[0] + " ticks");
                     pig[0].discard();
                 })
                 .thenSucceed();

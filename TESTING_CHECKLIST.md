@@ -37,8 +37,12 @@
 
 - [ ] **Stand in the sweep of a mechanical bearing's arm (a few planks glued to it) at 64 RPM.** *Expect:* the arm knocks you away and hurts you (about 13 damage at 3.5 blocks from the axis), dust and the planks' sound where it hit; at 256 RPM it never passes through you, it launches you hard.
 - [ ] **Slow it to 8 RPM.** *Expect:* the arm only shoves you along, as Create does: no damage, no fling.
+- [ ] **Turn an iron arm on a bearing at 1 RPM into a stone block in its circle.** *Expect:* it stops with its tip against the stone (not inside it), the network overstressed (goggles) while the motor drives it; stop the motor and it is set down short of the stone. Through a tree's leaves at 1 RPM: the leaves break, it never stops `[NEW 2026-10-10]`.
+- [ ] **Two bearing arms side by side whose circles cross (one wool-tipped), both turning.** *Expect:* they hit: the wool tip is knocked off and drops, the other arm turns on; two iron arms turning slowly into each other both stop, overstressed, until a motor stops `[NEW 2026-10-10]`.
+- [ ] **A wool-tipped arm on a weak network (a water wheel or two) into stone at speed.** *Expect:* the tip comes off and the arm keeps turning without a pause (the stressometer peaks); it never freezes for a second `[FIX 2026-10-10]`.
 - [ ] **Stand on a plate the bearing turns, and ride a fast piston or pulley elevator.** *Expect:* carried, never struck, never hurt.
 - [ ] **Get rammed by a mechanical piston at full speed, then with a wall behind you.** *Expect:* knocked ahead of the ram; against the wall, crushed (no knock-away).
+- [ ] **A 14-block or longer arm at 256 RPM; stand just outside the tips' circle at the far end from the bearing.** *Expect:* the shock train's cracks come from the tips going by next to you (loud), not from the bearing `[FIX 2026-10-10]`.
 - [ ] **Stand in front of a train.** *Expect:* one hit, judged like a ship's ("was struck by a contraption"), not Create's run-over on top of it.
 - [ ] **Turn `contraptionImpacts` off.** *Expect:* Create's own behaviour: contraptions shove, trains deal their run-over damage.
 - [ ] **Remove Create.** *Expect:* FullStop loads and plays exactly as before; no errors about Create in the log.
@@ -48,9 +52,9 @@
 
 ## Create Catastrophes: gears and water wheels `[NEW]` (needs Create)
 
-- [ ] **Walk into the teeth of a single cogwheel turning at 4, 16 and 64 RPM.** *Expect:* never hurt, never pulled in; pushed off along the way the teeth move (barely at 4 RPM). Standing half a block away nothing happens at all `[FIX]`.
+- [ ] **Walk into the teeth of a single cogwheel turning at 4, 16 and 64 RPM.** *Expect:* never pulled in; pushed off along the way the teeth move (barely at 4 RPM); at 4 and 16 RPM never hurt, at 64 RPM bitten about half a heart a bite ("was caught in the gears") `[CHANGED 2026-10-10]`. Standing half a block away nothing happens at all.
 - [ ] **Walk into a single cogwheel at 256 RPM, and a large cogwheel at 128 and 256.** *Expect:* flung, a whack sound: up and out where the teeth run up (about 20 m/s from a cogwheel, about twice that from a large one at 256), squeezed out along the floor where they run down; the gear itself never hurts you, the landing or a wall you hit may. Once per half second per gear `[NEW]`.
-- [ ] **Stand between a large cogwheel at 256 RPM and a wall two blocks away.** *Expect:* thrown into the wall and hurt by it (Full Stop's impact), not by the gear `[NEW]`.
+- [ ] **Stand between a large cogwheel at 256 RPM and a wall two blocks away.** *Expect:* bitten (4 hearts at most) and thrown into the wall; at full health you survive (no single gear bite is more than `gearMaxDamage`, 8) `[CHANGED 2026-10-10]`.
 - [ ] **F3+V by a single gear at 256 RPM.** *Expect:* its ring and arrows red (it flings), yellow at 64; red line out from you while you touch it `[NEW]`.
 - [ ] **Two cogwheels side by side on one axis (or a large and a small one diagonally), spinning; step into the V where both gears' teeth run into the mesh.** *Expect:* drawn in and crushed (about 3 a bite at 64 RPM, "was caught in the gears"; with a large cog "was ground up by a large cogwheel"); on the other side of the pair (where the teeth come out of the mesh) you're only pushed away `[NEW]`.
 - [ ] **The same pair driven by a single water wheel or a hand crank.** *Expect:* the moment you're caught the network overstresses (goggles say so) and the gears stop with you wedged in them; step out and they turn again. Driven by a creative motor they keep crushing `[NEW]`.
@@ -78,6 +82,22 @@
 - [ ] F3+V on a train, a minecart contraption, a gantry, a piston and a pulley: every line starts on the contraption's blocks; nothing is drawn from far outside it `[FIX]`.
 - [ ] A bearing arm at least 13 blocks long at 256 RPM, heard from 20-30 blocks away: one sonic boom as it goes supersonic, then a buzzing train of cracks (about 4 a second) while it spins; riding it you hear no boom. A shorter arm never booms `[NEW]`.
 - [ ] Death messages: kill a mob (or yourself in survival) with a cogwheel, a large cogwheel, a fast water wheel's paddles, by drowning under a water wheel, and with a windmill, a piston, a gantry, a pulley, a train: each has its own message; pinned against a wall / a ship, the crushed variants.
+
+## Mass breaking, 2026-10-10 `[PERF]` (perf)
+
+- [ ] **Push a heavy ship through a big field of tall grass and flowers (F3 open).** *Expect:* the plants still break and drop as before, a few break sounds and dust puffs instead of a roar, FPS steady; the drops lie in a few stacks along the path, not one per plant.
+- [ ] **A fast netherite arm on a Create bearing carving through stone and dirt.** *Expect:* blocks break as before, no half-second freezes while they do.
+- [ ] **Mine a block by hand, and run into a glass pane at speed.** *Expect:* the normal break sound and particles (only mass breaking is rationed).
+
+## Cars and ships, 2026-10-10 `[FIX]` (vehicles; with MKW Mobility)
+
+- [ ] **Drive an Automobility car at full speed into the side of a floating raft whose deck is about road height, and into a 2-high ship resting on the ground.** *Expect:* the ship is pushed the way the car was going (never toward the car), the car stops and comes back only a little (1-2 m/s), not flung back.
+- [ ] **Sit in a parked car and let a moving ship roll into it (shove a raft on ice, or fly a ship into it).** *Expect:* the car is shoved ahead of the ship; it never ends up inside the hull or under the ground, the ship never lurches back toward you, no "moved wrongly" spam in the server log.
+
+## Leaving ships, 2026-10-10 `[FIX]` (vsengine; needs Camafy 0.1.36)
+
+- [ ] **Walk off the edge of a ship spinning fast (45+ RPM), and of one cruising.** *Expect:* you fly off straight along the edge with the deck's speed, not swung round with it; stand still on the same deck: you stay put.
+- [ ] **Jump on a cruising deck.** *Expect:* you land where you took off (in the deck's frame), as before.
 
 ## Bodies, 2026-10-04 `[FIX]` `[NEW]` (fs-bodies)
 
@@ -721,3 +741,11 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Fly a ship with TNT on its bow into a wall and into another ship; fly a ship into TNT standing on the ground; with Create, swing a bearing's arm into TNT, and an arm with a TNT tip into a wall.** *Expect:* the TNT goes off each time, at once at 12 m/s or more, lit from 5 m/s. TNT elsewhere on the ship, away from the hit, stays. `tntImpacts` off: TNT is a block like any other.
 - [ ] **A one-block plank ship floating in water: click its side with an empty hand, a pickaxe, a stick with Knockback II, a sword with Full Stop's Pullback II.** *Expect:* the fist pushes it slowly away, the pickaxe about twice as fast (an item's attack damage counts, at most double), the Knockback II stick three times as fast as a fist; Pullback II pulls it toward you (harder still: the sword's damage counts too).
 - [ ] **Hold the button on it with a pickaxe; sneak and click with anything.** *Expect:* holding pushes once, then mines without pushing; sneaking never pushes. `punchShipsAnyItem` off: only the empty hand and swords push.
+
+## 48. Projectiles and items on slime, foliage, slime-bounce flight, far booms, shock cones (round 13, 2026-10-10) `[VS]` `[NEW]`
+- [ ] **Shoot arrows at a slime floor from a few blocks off, low (under ~30 degrees) and then steeply; shoot one straight at a slime wall.** *Expect:* the low ones skip off, each skip lower and slower, and stick after at most six; the steep ones and the one straight into the wall stick as in any block. Same on a ship's slime deck. A trident thrown low skips too.
+- [ ] **Fire a firework rocket from a crossbow at a slime wall; launch one straight up under a slime ceiling.** *Expect:* both bounce back off the slime (a stone wall or ceiling: no bounce, no explosion on contact).
+- [ ] **Drop a slime ball and a slime block from a tower onto stone; drop cobblestone beside them.** *Expect:* the slime items bounce a few times, each lower, then lie still; the cobblestone just lands.
+- [ ] **Sprint (or get thrown) into Biomes o' Plenty's huge clover petals, a moss wall, azalea leaves; then into stone at the same speed.** *Expect:* no damage from the plants; the stone hurts as before. Falling onto a petal from high up still hurts, a little less (a soft landing).
+- [ ] **Fall onto a ship's slime deck tilted 30 degrees (or onto a slime wall at an angle).** *Expect:* you fly off sideways along the tilt and keep that speed through the air, landing well away from where you hit; `slimeBounceKeepsMomentum` off: the old drop back near the spot.
+- [ ] **Get something supersonic (a rotor ship's tips, a Create arm, a ship flying fast) while standing 300-700 blocks away, then close by.** *Expect:* far off a deep, muffled but still loud boom when the shock reaches you; close by a sharp crack. Standing by the tip end of a long rotor ship, its cracks come from the tips beside you. A faint foggy cone trails each supersonic tip (or the whole ship or entity), narrower the faster it goes; client `machCones` off hides them.

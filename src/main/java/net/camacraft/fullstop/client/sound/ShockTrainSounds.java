@@ -169,6 +169,8 @@ public final class ShockTrainSounds {
         private double mach = 1.0;
         private float loudness;
         private Vec3 at = Vec3.ZERO;
+        /** For a ship's train: where the server places it against where this client has the ship (null: at the ship). */
+        private Vec3 offset;
         /** Shocks due so far: a crack plays each time it passes one. Starts at one so the first crack is immediate. */
         private double due = 1.0;
         private long lastCrackMillis = -1L;
@@ -186,6 +188,12 @@ public final class ShockTrainSounds {
             mach = Math.max(0.0, packet.mach());
             loudness = Mth.clamp(packet.loudness(), 0.0f, 1.0f);
             at = new Vec3(packet.x(), packet.y(), packet.z());
+            if (ship) {
+                // the server places a rotor's cracks on its tips' ring, nearest this listener: kept against the ship
+                ShipRef ref = ShipRef.of(Minecraft.getInstance().level, id);
+                Vec3 centre = ref == null ? null : ref.position();
+                offset = centre == null ? null : at.subtract(centre);
+            }
         }
 
         boolean lost(long now) {
@@ -197,7 +205,7 @@ public final class ShockTrainSounds {
                 // where this client has the ship: the cracks come from it between the server's words
                 ShipRef ref = ShipRef.of(mc.level, id);
                 Vec3 centre = ref == null ? null : ref.position();
-                if (centre != null) at = centre;
+                if (centre != null) at = offset != null ? centre.add(offset) : centre;
             }
             // the cadence played: the rotor's own, or one a tick past the blur (the pitch carries the rest)
             double played = rate > BLUR_RATE ? MAX_RATE : rate;

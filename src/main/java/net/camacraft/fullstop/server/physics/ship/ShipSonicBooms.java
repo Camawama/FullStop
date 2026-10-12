@@ -82,7 +82,21 @@ final class ShipSonicBooms {
         double spin = state.angularVelocity().length();
         double rate = followed && tips > 0 ? spin / (2.0 * Math.PI) * tips : 0.0;
         boolean ridersHear = state.velocity().length() < SonicBooms.SOUND_MPS;
-        if (followed) SonicBooms.train(level, key, state.position(), rate, fastest[1].length(), ridersHear);
+        if (followed && rate > 0.0 && spin > 1.0E-6) {
+            // the ring its supersonic tips sweep, round the spin axis through the centre of mass: each listener hears
+            // the cracks from the point of it nearest them (a long rotor's tips, not its middle)
+            Vec3 axis = state.angularVelocity().scale(1.0 / spin);
+            Vec3 d = fastest[0].subtract(state.position());
+            double along = d.dot(axis);
+            double outer = d.subtract(axis.scale(along)).length();
+            double threshold = SonicBooms.isLive(level, key) ? SonicBooms.SUBSONIC_SHARE * SonicBooms.SOUND_MPS : SonicBooms.SOUND_MPS;
+            double inner = Math.min(outer, threshold / spin);
+            SonicBooms.train(level, key, state.position(), rate, fastest[1].length(), ridersHear,
+                    state.position().add(axis.scale(along)), axis, inner, outer);
+        } else if (followed) {
+            SonicBooms.train(level, key, state.position(), rate, fastest[1].length(), ridersHear);
+        }
+        if (followed) SonicBooms.coneTips(level, key, tips > 0 ? coneTips(ship, state, extremes(level, ship, now)) : List.of());
         if (SERVER.debugShipCollisionLog.get()) {
             debug(level, ship, key, now, fastest[1].length(), spin, tips, rate, followed);
         }
@@ -199,6 +213,19 @@ final class ShipSonicBooms {
             if (world != null) points.add(new Vec3[]{world, state.velocityAt(world)});
         }
         return SonicBooms.supersonicTips(points, state.position(), state.angularVelocity(), threshold);
+    }
+
+    /** The supersonic tips its shock cones are drawn at (ship space; {@link SonicBooms#coneTipsOf}). */
+    private static List<Vec3> coneTips(ShipRef ship, ShipTracker.State state, Extremes extremes) {
+        List<Vec3> locals = new ArrayList<>(extremes.points().size());
+        List<Vec3[]> points = new ArrayList<>(extremes.points().size());
+        for (Vec3 local : extremes.points()) {
+            Vec3 world = ship.toWorld(local);
+            if (world == null) continue;
+            locals.add(local);
+            points.add(new Vec3[]{world, state.velocityAt(world)});
+        }
+        return SonicBooms.coneTipsOf(locals, points, SonicBooms.SUBSONIC_SHARE * SonicBooms.SOUND_MPS);
     }
 
     /**

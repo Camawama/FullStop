@@ -155,7 +155,7 @@ public final class BodyCollisions {
     }
 
     private static final class State {
-        /** Where each body was at the end of the last pass (world), by entity id. */
+        /** Where each ride stack that could be a body was at the end of the last pass (world), by entity id. */
         Int2ObjectOpenHashMap<Vec3> ends = new Int2ObjectOpenHashMap<>();
         long tick = Long.MIN_VALUE;
         /** Pairs that just collided, and the game time until which they can't again. */
@@ -236,30 +236,37 @@ public final class BodyCollisions {
         long now = level.getGameTime();
         Int2ObjectOpenHashMap<Vec3> before = state.tick == now - 1 ? state.ends : new Int2ObjectOpenHashMap<>();
         Int2ObjectOpenHashMap<Vec3> ends = new Int2ObjectOpenHashMap<>();
-        Int2ObjectOpenHashMap<Body> bodies = new Int2ObjectOpenHashMap<>();
-        double longestMove = 0.0;
+        double minSpeed = SERVER.entityCollisionMinSpeed.get();
+        // a pair closes at most as fast as its two speeds together: one of them brings at least half
+        double moverSpeed = minSpeed * 0.5;
+        // Bodies are worked out only for the stacks that move fast enough to start a collision (the movers) and for
+        // those a mover comes near: every stack's body every tick was most of this pass's cost among many mobs (the
+        // owner's main pack, 1,479 entities: 3.5% of the server thread), nearly all of it for mobs strolling about.
+        Bodies bodies = new Bodies(before);
+        List<Body> movers = new ArrayList<>();
+        // a stack that isn't a mover moved less than this in the tick (its speed, and so its move, is under moverSpeed)
+        double longestMove = moverSpeed / 20.0;
         for (Entity entity : level.getAllEntities()) {
-            if (entity.isPassenger()) continue;
-            Body body = body(entity, before);
-            if (body == null) continue;
-            bodies.put(entity.getId(), body);
+            if (entity.isPassenger() || !mayBeBody(entity)) continue;
             ends.put(entity.getId(), entity.position());
+            if (!net.camacraft.fullstop.common.physics.PerfSwitches.eagerBodies() && quickSpeed(entity, before) < moverSpeed) continue;
+            Body body = bodies.of(entity);
+            if (body == null) continue;
+            movers.add(body);
             longestMove = Math.max(longestMove, body.move.length());
         }
         state.ends = ends;
         state.tick = now;
         if (now % 100L == 0L) state.cooling.long2LongEntrySet().removeIf(e -> e.getLongValue() <= now);
-        if (bodies.size() < 2) return;
+        if (movers.isEmpty()) return;
 
-        double minSpeed = SERVER.entityCollisionMinSpeed.get();
         List<Contact> contacts = new ArrayList<>();
         LongOpenHashSet seen = new LongOpenHashSet();
-        for (Body a : bodies.values()) {
-            // a pair closes at most as fast as its two speeds together: one of them brings at least half
-            if (Math.max(a.velocity.length(), a.move.length() * 20.0) < minSpeed * 0.5) continue;
+        for (Body a : movers) {
+            if (Math.max(a.velocity.length(), a.move.length() * 20.0) < moverSpeed) continue;
             AABB path = a.box.minmax(a.startBox()).inflate(longestMove + 0.1);
-            for (Entity near : level.getEntities(a.root, path, e -> bodies.containsKey(e.getRootVehicle().getId()))) {
-                Body b = bodies.get(near.getRootVehicle().getId());
+            for (Entity near : level.getEntities(a.root, path, e -> bodies.of(e.getRootVehicle()) != null)) {
+                Body b = bodies.of(near.getRootVehicle());
                 if (b == null || b == a) continue;
                 long key = pair(a.root.getId(), b.root.getId());
                 if (!seen.add(key) || state.cooling.get(key) > now) continue;
@@ -287,19 +294,67 @@ public final class BodyCollisions {
     // Who is a body, and how it moved
     // ------------------------------------------------------------------
 
-    @Nullable
-    private static Body body(Entity root, Int2ObjectOpenHashMap<Vec3> before) {
-        if (root instanceof Projectile) return null; // ProjectileCollisions
-        boolean fallingBlock = root instanceof FallingBlockEntity;
-        if (!(root instanceof LivingEntity || root instanceof Boat || root instanceof AbstractMinecart || fallingBlock
-                || carriesLiving(root))) {
-            return null;
+    /** This tick's bodies, each worked out the first time it's asked for (null ones remembered too). */
+    private static final class Bodies {
+        private final Int2ObjectOpenHashMap<Vec3> before;
+        private final Int2ObjectOpenHashMap<Body> known = new Int2ObjectOpenHashMap<>();
+        private final it.unimi.dsi.fastutil.ints.IntOpenHashSet none = new it.unimi.dsi.fastutil.ints.IntOpenHashSet();
+
+        Bodies(Int2ObjectOpenHashMap<Vec3> before) {
+            this.before = before;
+        }
+
+        /** The body of the ride stack whose root is {@code root} this tick, or null when it isn't one. */
+        @Nullable
+        Body of(Entity root) {
+            int id = root.getId();
+            Body body = known.get(id);
+            if (body != null || none.contains(id)) return body;
+            body = root.isPassenger() ? null : body(root, before);
+            if (body == null) none.add(id);
+            else known.put(id, body);
+            return body;
+        }
+    }
+
+    /** Where a stack was at the end of the last pass, or where it started this tick when the pass didn't see it. */
+    private static Vec3 then(Entity root, Int2ObjectOpenHashMap<Vec3> before) {
+        Vec3 then = before.get(root.getId());
+        return then != null ? then : new Vec3(root.xOld, root.yOld, root.zOld);
+    }
+
+    /**
+     * The speed a stack's body would have (m/s), from what costs nothing: its move this tick, and for one a player's
+     * client moves, FullStop's measure of it. The speed {@link #tick} picks its movers by, without the body.
+     */
+    private static double quickSpeed(Entity root, Int2ObjectOpenHashMap<Vec3> before) {
+        double speed = root.position().subtract(then(root, before)).length() * 20.0;
+        // only a player, or a vehicle with a rider, can be moved by a client (no rider: no controlling passenger)
+        if ((root instanceof ServerPlayer || root.isVehicle()) && clientMoved(root)) {
+            FullStopCapability cap = FullStopCapability.grabCapability(root);
+            if (cap != null) speed = Math.max(speed, cap.getCurrentWorldVelocity().length());
+        }
+        return speed;
+    }
+
+    /** The checks of {@link #body} that cost next to nothing: what kind of thing it is. */
+    private static boolean mayBeBody(Entity root) {
+        if (root instanceof Projectile) return false; // ProjectileCollisions
+        if (!(root instanceof LivingEntity || root instanceof Boat || root instanceof AbstractMinecart
+                || root instanceof FallingBlockEntity || carriesLiving(root))) {
+            return false;
         }
         // not ticked yet: where it was before its first move isn't known
-        if (root.tickCount < 1) return null;
+        if (root.tickCount < 1) return false;
         // the ender dragon: its parts are what things hit, its flight is its phases', and vanilla
         // already knocks away what its wings strike
-        if (root.isMultipartEntity()) return null;
+        return !root.isMultipartEntity();
+    }
+
+    @Nullable
+    private static Body body(Entity root, Int2ObjectOpenHashMap<Vec3> before) {
+        if (!mayBeBody(root)) return null;
+        boolean fallingBlock = root instanceof FallingBlockEntity;
         if (DamageImmunityRules.unphysableIgnoringAi(root) || root.isSpectator()) return null;
         // what vanilla never pushes isn't knocked about here either: armour stands, bats, anything on a ladder
         // (a falling block is never pushable, and is a body all the same: a block in flight)
@@ -315,10 +370,7 @@ public final class BodyCollisions {
         // Just teleported, respawned, boarded or left a ship: its move this tick is no motion.
         if (cap != null && cap.getIsDamageImmune()) return null;
 
-        Vec3 now = root.position();
-        Vec3 then = before.get(root.getId());
-        if (then == null) then = new Vec3(root.xOld, root.yOld, root.zOld);
-        Vec3 move = now.subtract(then);
+        Vec3 move = root.position().subtract(then(root, before));
         double lastSpeed = cap != null ? cap.getCurrentWorldVelocity().length() : root.getDeltaMovement().length() * 20.0;
         if (move.length() * 20.0 > lastSpeed * 3.0 + JUMP_MPS) return null;
 

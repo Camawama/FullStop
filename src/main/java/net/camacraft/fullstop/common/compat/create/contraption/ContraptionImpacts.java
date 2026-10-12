@@ -611,6 +611,11 @@ public final class ContraptionImpacts {
         return c.applyRotation(local.subtract(CENTER), (float) f).add(CENTER).add(anchor(c, f));
     }
 
+    /** {@link #toGlobal} for the client's shock cones (fsentity, 2026-10-10): a local point where it is drawn at {@code f}. */
+    public static Vec3 worldPoint(AbstractContraptionEntity c, Vec3 local, double f) {
+        return toGlobal(c, local, f);
+    }
+
     /** A world point in the contraption's local frame at fraction {@code f} of this tick's motion. */
     static Vec3 toLocal(AbstractContraptionEntity c, Vec3 world, double f) {
         return c.reverseRotation(world.subtract(anchor(c, f)).subtract(CENTER), (float) f).add(CENTER);

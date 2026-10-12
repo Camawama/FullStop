@@ -8,6 +8,7 @@ import net.camacraft.camafy.compat.vs.ShipRef;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.FullStopConfig;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
+import net.camacraft.fullstop.common.compat.ShipCarryCompat;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.network.ShipReleasePacket;
@@ -127,7 +128,9 @@ public final class ClientShipRelease {
                 sampleDeck(carrying, player.position());
                 return;
             }
-            if (!jumpedNow && ++offDeck < OFF_DECK_TICKS) return;
+            // with Camafy's ship-carry rules on (ShipCarryCompat), Camafy lets go of a player that left the deck (no block
+            // of the ship under it any more) and a player still over it is carried on: only a jump lets go here
+            if (!jumpedNow && (ShipCarryCompat.camafyDecides() || ++offDeck < OFF_DECK_TICKS)) return;
             // In zero gravity nothing brings a player floating over a deck back down to it: VS
             // carrying it with the ship is what keeps it there (and near Gravity Unbound's plating,
             // until the plating's field takes it). Only a jump leaves the deck there.
@@ -147,6 +150,18 @@ public final class ClientShipRelease {
             }
             resetDeck();
             return;
+        }
+        if (deckCount > 0 && deckShip != ShipRef.NO_ID && kept.lengthSqr() < 1.0e-12 && releasedFrom == ShipRef.NO_ID
+                && !player.onGround() && ShipCarryCompat.camafyDecides() && nearDeck(player, deckShip)) {
+            // Camafy let go of the player as it left the deck, VS handing it the deck's motion: keep that motion as
+            // after a release of our own
+            kept = deckMomentum(ShipRef.of(player.level(), deckShip));
+            handoffChecked = false;
+            setReleased(deckShip);
+            if (SERVER.debugShipContactLog.get()) {
+                LOGGER.info("[FullStop] client: you left ship {}'s deck; Camafy let go, you keep its motion ({}) m/s", deckShip,
+                        fmt(kept.scale(20.0)));
+            }
         }
         resetDeck();
         if (kept.lengthSqr() < 1.0e-12) return;
@@ -173,6 +188,12 @@ public final class ClientShipRelease {
         // put back the drag this tick's move took off the deck's motion
         player.setDeltaMovement(player.getDeltaMovement().add(kept.x * (1.0 - AIR_FRICTION), kept.y * (1.0 - AIR_DRAG_Y),
                 kept.z * (1.0 - AIR_FRICTION)));
+    }
+
+    /** Whether the player is still by the ship whose deck it was on (not teleported away from it). */
+    private static boolean nearDeck(LocalPlayer player, long shipId) {
+        net.minecraft.world.phys.AABB bounds = ShipRef.of(player.level(), shipId).worldAabb();
+        return bounds != null && bounds.inflate(6.0).intersects(player.getBoundingBox());
     }
 
     private static void sampleDeck(ShipRef ship, Vec3 feet) {

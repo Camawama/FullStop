@@ -26,7 +26,8 @@ public class PacketHandler {
     // 8: ShockTrainPacket (the continuous shock train of a supersonic rotor, to its listeners).
     // 9: ShockTrainPacket carries the tips' Mach number too (the cracks' pitch and loudness).
     // 10: ShipHoldPacket (Valkyrien Skies' server put the player back: a hold, not a stop).
-    private static final String PROTOCOL_VERSION = "10";
+    // 11: SonicBoomPacket (a boom heard far off, low-passed by distance) and MachConePacket (a supersonic shock cone).
+    private static final String PROTOCOL_VERSION = "11";
     private static int messageID = 0;
 
     private static final SimpleChannel INSTANCE = NetworkRegistry.ChannelBuilder.named(
@@ -77,6 +78,18 @@ public class PacketHandler {
                 .encoder(net.camacraft.fullstop.common.network.ShipHoldPacket::encode)
                 .decoder(net.camacraft.fullstop.common.network.ShipHoldPacket::new)
                 .consumerMainThread(net.camacraft.fullstop.common.network.ShipHoldPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(net.camacraft.fullstop.common.network.SonicBoomPacket.class, messageID++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(net.camacraft.fullstop.common.network.SonicBoomPacket::encode)
+                .decoder(net.camacraft.fullstop.common.network.SonicBoomPacket::new)
+                .consumerMainThread(net.camacraft.fullstop.common.network.SonicBoomPacket::handle)
+                .add();
+
+        INSTANCE.messageBuilder(net.camacraft.fullstop.common.network.MachConePacket.class, messageID++, NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(net.camacraft.fullstop.common.network.MachConePacket::encode)
+                .decoder(net.camacraft.fullstop.common.network.MachConePacket::new)
+                .consumerMainThread(net.camacraft.fullstop.common.network.MachConePacket::handle)
                 .add();
     }
 

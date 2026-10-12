@@ -156,6 +156,8 @@ public final class PlayerLandingBounce {
         Vec3 out = BounceMath.bounceVelocity(relative.scale(20.0), surface.normal(), Collision.CollisionType.SLIME);
         if (out == null) return false;
         Gravity.setWorldVelocity(entity, surface.motion().add(out.scale(0.05)), frame);
+        // off a face that leans, part of the rebound is sideways: carried through the air (SlimeFlight)
+        SlimeFlight.start(entity, out.scale(0.05));
         return true;
     }
 }

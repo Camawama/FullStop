@@ -29,7 +29,12 @@
     "ShipPressurePlateMixin",
     "ShipWeightedPlateMixin",
     "PistonHeadWaitsForShipMixin",
-    "EntityTeleportMixin"
+    "EntityTeleportMixin",
+    "LevelDestroyBlockEffectMixin",
+    "ArrowSlimeSkipMixin",
+    "ItemEntityBounceMixin",
+    "LivingEntitySlimeFlightMixin",
+    "EntityMovementBlockInvoker"
   ],
   "injectors": {
     "defaultRequire": 1

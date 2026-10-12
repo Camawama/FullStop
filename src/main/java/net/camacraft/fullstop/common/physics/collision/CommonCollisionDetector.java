@@ -90,6 +90,42 @@ public class CommonCollisionDetector {
         return true;
     }
 
+    /** {@link #scanSwept}: some cell of the volume isn't air. */
+    private static final int SWEPT_BLOCKS = 1;
+    /** {@link #scanSwept}: some cell holds a liquid that acts solid at the speed given. */
+    private static final int SWEPT_SOLID_LIQUID = 2;
+    /** Above this many cells the scan gives up and answers "maybe" for both (as FastRaycast.mayHitAnything does). */
+    private static final int MAX_SWEPT_CELLS = 128;
+
+    /**
+     * What the cells of {@code swept} hold, in one pass: {@link #SWEPT_BLOCKS} when any isn't air (FastRaycast's
+     * all-air test), {@link #SWEPT_SOLID_LIQUID} when any holds a liquid that acts solid at {@code solidLiquidMps}
+     * (negative: not looked for). Conservative: both when the volume is too big to scan.
+     */
+    private static int scanSwept(Level level, AABB swept, double solidLiquidMps) {
+        int minX = net.minecraft.util.Mth.floor(swept.minX), maxX = net.minecraft.util.Mth.floor(swept.maxX);
+        int minY = net.minecraft.util.Mth.floor(swept.minY), maxY = net.minecraft.util.Mth.floor(swept.maxY);
+        int minZ = net.minecraft.util.Mth.floor(swept.minZ), maxZ = net.minecraft.util.Mth.floor(swept.maxZ);
+        long cells = (long) (maxX - minX + 1) * (maxY - minY + 1) * (maxZ - minZ + 1);
+        if (cells > MAX_SWEPT_CELLS) return SWEPT_BLOCKS | SWEPT_SOLID_LIQUID;
+        boolean liquids = solidLiquidMps >= 0.0;
+        int found = 0;
+        BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+        for (int x = minX; x <= maxX; x++) {
+            for (int y = minY; y <= maxY; y++) {
+                for (int z = minZ; z <= maxZ; z++) {
+                    BlockState state = level.getBlockState(pos.set(x, y, z));
+                    if (state.isAir()) continue;
+                    found |= SWEPT_BLOCKS;
+                    if (!liquids) return found;
+                    FluidState fluid = state.getFluidState();
+                    if (!fluid.isEmpty() && Liquids.actsSolid(fluid, solidLiquidMps)) return found | SWEPT_SOLID_LIQUID;
+                }
+            }
+        }
+        return found;
+    }
+
     public static Collision detectBlocks(Entity entity, FullStopCapability fullstop) {
         // Pre-impact velocity (faster of the last two ticks): the damage tick of a
         // two-tick impact must still see the block, even though last tick's travel
@@ -105,7 +141,12 @@ public class CommonCollisionDetector {
         }
 
         Level level = entity.level();
-        double rayLength = RaycastUtil.getRayLength(entity, fullstop);
+        if (!RaycastUtil.raysFor(entity)) {
+            return Collision.NONE;
+        }
+        // read once: a size mod's dimensions aren't free, and both the reach and the starts scale with it
+        double size = RaycastUtil.sizeFactor(entity);
+        double rayLength = RaycastUtil.getRayLength(entity, fullstop, size);
         if (rayLength <= 0) {
             return Collision.NONE;
         }
@@ -135,14 +176,25 @@ public class CommonCollisionDetector {
                         box.maxX, box.maxY, box.maxZ)
                 : box;
         AABB swept = rayEnvelope.expandTowards(direction.scale(rayLength)).inflate(0.001);
-        boolean worldBlocksNearby = FastRaycast.mayHitAnything(level, swept);
+        // A liquid that turns solid under a sudden blow (Flow Fun's oobleck, Camafy's
+        // LiquidProperties.solidAboveMps) is met as a block by a body moving into it fast enough:
+        // looked for only when this body is that fast, so nothing changes for anyone else.
+        double speedMps = velocity.length() * 20.0;
+        boolean solidLiquidsPossible = speedMps >= minSolidLiquidMps();
+        int nearby = scanSwept(level, swept, solidLiquidsPossible ? speedMps : -1.0);
+        boolean worldBlocksNearby = (nearby & SWEPT_BLOCKS) != 0;
         boolean shipsNearby = ShipCompat.anyShipsNearby(level, swept);
         if (!worldBlocksNearby && !shipsNearby) {
             return Collision.NONE;
         }
+        // every cell a ray crosses lies in the swept volume: no liquid there that a blow this fast makes solid, no
+        // second traversal per ray looking for one
+        if (!net.camacraft.fullstop.common.physics.PerfSwitches.alwaysClipLiquids()) {
+            solidLiquidsPossible &= (nearby & SWEPT_SOLID_LIQUID) != 0;
+        }
 
         FullStopConfig.RaycastMode mode = FullStopConfig.SERVER.raycastMode.get();
-        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode, frame);
+        List<Vec3> rayStarts = RaycastUtil.getRayStarts(entity, mode, frame, size);
         // Full entity box swept along the travel direction, for the seam-graze
         // cross-section test (unlike rayEnvelope, this one keeps the true floor).
         AABB sweptBox = box.expandTowards(direction.scale(rayLength));
@@ -164,11 +216,6 @@ public class CommonCollisionDetector {
         java.util.Map<Long, Boolean> shipContacts = null;
         // A body plunging down through water looks THROUGH it (see looksThroughWater).
         boolean throughWater = looksThroughWater(entity, frame, velocity);
-        // A liquid that turns solid under a sudden blow (Flow Fun's oobleck, Camafy's
-        // LiquidProperties.solidAboveMps) is met as a block by a body moving into it fast enough:
-        // looked for only when this body is that fast, so nothing changes for anyone else.
-        double speedMps = velocity.length() * 20.0;
-        boolean solidLiquidsPossible = speedMps >= minSolidLiquidMps();
 
         for (Vec3 start : rayStarts) {
             Vec3 end = start.add(direction.scale(rayLength));

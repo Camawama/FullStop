@@ -35,7 +35,10 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * for everyone its shock reaches, when it reaches them; its riders, seated on it or standing on it, hear none. A
  * bearing's contraption whose tips stay supersonic also makes a supersonic rotor's shock train: one shock per supersonic
  * tip per turn, its tips counted as the separate directions round the bearing's axis in which its outermost blocks are
- * past the barrier ({@link SonicBooms#supersonicTips}), heard by its riders too (they are at the hub). At Create's top
+ * past the barrier ({@link SonicBooms#supersonicTips}), heard by its riders too (they are at the hub). Each listener hears
+ * the train from where the arm's supersonic part sweeps nearest them (the ring between the radius where the blades pass
+ * the barrier and the tips): standing by the far end of a long arm, the cracks come from the tips going by, not from the
+ * bearing. At Create's top
  * speed (256 RPM, 26.8 rad/s) an arm's tip passes 343 m/s from 12.8 blocks out.
  *
  * <p>The fastest point is judged at the corners of the box its blocks fill (a cheap upper bound) and, once that nears
@@ -113,10 +116,25 @@ public final class ContraptionSonicBooms {
                 points.add(new Vec3[]{ContraptionImpacts.toGlobal(c, local, 1.0), ContraptionImpacts.velocityAt(c, local, 1.0)});
             }
             tips = SonicBooms.supersonicTips(points, hub(c), spin, threshold);
+            // where its shock cones are drawn: its supersonic tips (MachCones on the client)
+            SonicBooms.coneTips(level, key, SonicBooms.coneTipsOf(outer, points, threshold));
         }
         double rate = spin != null && tips > 0 ? spin.length() / (2.0 * Math.PI) * tips : 0.0;
         // the hub of a bearing stays put: its riders are swept by the tips' shocks like anyone near
-        SonicBooms.train(level, key, hub(c), rate, fastest[1].length(), true);
+        Vec3 hub = hub(c);
+        if (spin != null && spin.lengthSqr() > 1.0E-12) {
+            // the ring its supersonic blades sweep: in the plane of its fastest point, from where the blades pass the
+            // barrier out to that point; each listener hears the shocks from where it sweeps nearest them
+            Vec3 axis = spin.normalize();
+            Vec3 d = fastest[0].subtract(hub);
+            double along = d.dot(axis);
+            double tipRadius = d.subtract(axis.scale(along)).length();
+            double threshold = SonicBooms.isLive(level, key) ? SonicBooms.SUBSONIC_SHARE * SonicBooms.SOUND_MPS : SonicBooms.SOUND_MPS;
+            double inner = threshold / spin.length();
+            SonicBooms.train(level, key, hub, rate, fastest[1].length(), true, hub.add(axis.scale(along)), axis, inner, tipRadius);
+        } else {
+            SonicBooms.train(level, key, hub, rate, fastest[1].length(), true);
+        }
         if (SERVER.debugContraptionLog.get()) debug(level, c, key, fastest[1].length(), tips, rate);
     }
 

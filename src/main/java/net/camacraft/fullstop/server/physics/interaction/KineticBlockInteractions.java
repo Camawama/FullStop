@@ -407,6 +407,8 @@ public class KineticBlockInteractions {
         Boolean mayGrief = null;
         FakePlayer fakePlayer = null;
         boolean blockBroken = false;
+        // a body smashing through foliage only (rules/Foliage) is never hurt by it
+        boolean hardBroken = false;
         double smashDamage = 0;
         double remainingVelocityMag = velocityMag;
         BlockPos crackPosThisPass = null;
@@ -571,7 +573,10 @@ public class KineticBlockInteractions {
                     if (kineticEnergy < 0) kineticEnergy = 0;
                     double newVelocityMag = Math.sqrt(2 * kineticEnergy / totalMass);
                     remainingVelocityMag = newVelocityMag;
-                    smashDamage += Math.max(velocityMag * 20 - GRAZE_MIN_SPEED_MPS, 0) * GRAZE_DAMAGE_FACTOR;
+                    if (!net.camacraft.fullstop.common.physics.rules.Foliage.harmless(state)) {
+                        hardBroken = true;
+                        smashDamage += Math.max(velocityMag * 20 - GRAZE_MIN_SPEED_MPS, 0) * GRAZE_DAMAGE_FACTOR;
+                    }
 
                     // Ship blocks: punching through one slows the entity like any
                     // block, and the ship takes the momentum it lost there - except
@@ -628,7 +633,7 @@ public class KineticBlockInteractions {
 
         updateCrack(entity, level, crackPosThisPass);
 
-        if (blockBroken) {
+        if (blockBroken && hardBroken) {
             // Speed actually lost punching through counts like any other stopping force.
             double speedLostMps = (velocityMag - remainingVelocityMag) * 20;
             // In zero gravity nothing is a fall: every direction takes the horizontal threshold.
@@ -726,7 +731,8 @@ public class KineticBlockInteractions {
         double effectiveCost = cost * (1.0 - priorFraction);
 
         if (energy >= effectiveCost) {
-            if (BlockAlterRules.breakEventAllows(level, pos, state, cause) && level.destroyBlock(pos, drops, cause)) {
+            // ships and contraptions smash many blocks a tick: their dust and sound are rationed (BreakEffects)
+            if (BlockAlterRules.breakEventAllows(level, pos, state, cause) && BreakEffects.destroy(level, pos, drops, cause)) {
                 forgetCrack(level, pos, crack);
                 return new SmashOutcome(true, effectiveCost, false);
             }

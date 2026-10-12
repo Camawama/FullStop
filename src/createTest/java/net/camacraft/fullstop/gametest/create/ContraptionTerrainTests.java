@@ -165,24 +165,145 @@ public final class ContraptionTerrainTests {
                 .thenSucceed();
     }
 
-    /** A slow arm (8 RPM: its tip about 3.4 m/s, under contraptionTerrainMinSpeed) passes through the stone as in Create. */
+    /**
+     * A slow arm presses instead of passing through (the owner: "if a create contraption is moving slow enough (tested with 1
+     * rpm) it can still phase through blocks instead of becoming overstressed"): an iron arm at 1 RPM (its tip 0.4 m/s, far
+     * under contraptionTerrainMinSpeed) comes round to stone (on both sides of its circle, whichever way it turns): the stone
+     * stands, the arm stops with its tip's face against it (not into it), its network overstressed while the motor drives it,
+     * and lets go when the motor stops.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 900)
+    public static void anArmAt1RpmJamsOnStoneInsteadOfPassingThrough(GameTestHelper helper) {
+        slowJam(helper, 80, 1);
+    }
+
+    /** The same at 8 RPM (its tip 3.4 m/s, still under contraptionTerrainMinSpeed). */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
-    public static void aSlowArmPassesThroughStone(GameTestHelper helper) {
-        Rig rig = rig(helper, 33, Blocks.IRON_BLOCK.defaultBlockState());
-        BlockPos target = rig.armBase().offset(0, 0, ARM);
+    public static void anArmAt8RpmJamsOnStoneInsteadOfPassingThrough(GameTestHelper helper) {
+        slowJam(helper, 33, 8);
+    }
+
+    private static void slowJam(GameTestHelper helper, int laneIndex, int rpm) {
+        Rig rig = rig(helper, laneIndex, Blocks.IRON_BLOCK.defaultBlockState());
+        BlockPos[] targets = {rig.armBase().offset(0, 0, ARM), rig.armBase().offset(0, 0, -ARM)};
         ServerLevel level = helper.getLevel();
+        AbstractContraptionEntity[] arm = new AbstractContraptionEntity[1];
+        float[] heldAngle = new float[1];
+        long[] started = new long[1];
         whenTicking(helper, rig.motor())
-                .thenExecute(() -> level.setBlock(target, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL))
+                .thenExecute(() -> {
+                    for (BlockPos t : targets) level.setBlock(t, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+                })
                 .thenIdle(5)
-                .thenExecute(() -> speed(level, rig.motor(), 8))
-                .thenIdle(200) // 8 RPM: a turn in 150 ticks
+                .thenExecute(() -> {
+                    speed(level, rig.motor(), rpm);
+                    started[0] = level.getGameTime();
+                })
+                .thenWaitUntil(() -> helper.assertTrue(bearing(level, rig).isOverStressed(), "the network isn't overstressed yet ("
+                        + contacts(level, rig) + ")"))
+                .thenExecute(() -> {
+                    arm[0] = contraption(level, rig.armBase());
+                    heldAngle[0] = ((com.simibubi.create.content.contraptions.ControlledContraptionEntity) arm[0]).getAngle(1.0f);
+                })
+                .thenIdle(40)
                 .thenExecute(() -> {
                     KineticBlockEntity bearing = bearing(level, rig);
                     List<Contact> contacts = contacts(level, rig);
-                    report("iron arm into stone at 8 RPM", contacts + "; overstressed " + bearing.isOverStressed());
-                    helper.assertTrue(level.getBlockState(target).is(Blocks.STONE), "the stone broke");
-                    helper.assertTrue(contacts.isEmpty(), "a slow arm made contacts: " + contacts);
-                    helper.assertTrue(!bearing.isOverStressed(), "the slow arm's network is overstressed");
+                    float angle = ((com.simibubi.create.content.contraptions.ControlledContraptionEntity) arm[0]).getAngle(1.0f);
+                    // how deep the tip's cube is in the nearest stone cell (0: face to face)
+                    Vec3 tip = arm[0].applyRotation(Vec3.atCenterOf(new BlockPos(ARM, 0, 0)).subtract(0.5, 0.5, 0.5), 1.0f)
+                            .add(0.5, 0.5, 0.5).add(arm[0].getAnchorVec());
+                    double depth = 0.0;
+                    for (BlockPos t : targets) {
+                        Vec3 c = Vec3.atCenterOf(t);
+                        double dx = 1.0 - Math.abs(tip.x - c.x), dz = 1.0 - Math.abs(tip.z - c.z);
+                        if (dx > 0 && dz > 0) depth = Math.max(depth, Math.min(dx, dz));
+                    }
+                    report("iron arm into stone at " + rpm + " RPM", contacts + "; jammed after " + (level.getGameTime() - 40 - started[0])
+                            + " ticks at " + fmt(angle) + " deg (held " + fmt(heldAngle[0]) + "), tip " + String.format(Locale.ROOT, "%.3f", depth)
+                            + " into the stone; overstressed " + bearing.isOverStressed());
+                    for (BlockPos t : targets) helper.assertTrue(level.getBlockState(t).is(Blocks.STONE), "the stone broke");
+                    helper.assertTrue(contacts.stream().anyMatch(c -> c.outcome() == Outcome.JAMMED), "no jam recorded: " + contacts);
+                    helper.assertTrue(Math.abs(net.minecraft.util.Mth.wrapDegrees(angle - heldAngle[0])) < 0.5f, "the jammed arm moved on: "
+                            + heldAngle[0] + " -> " + angle);
+                    helper.assertTrue(depth < 0.3, "the arm's tip went " + depth + " into the stone");
+                    speed(level, rig.motor(), 0);
+                })
+                .thenWaitUntil(() -> helper.assertTrue(!ContraptionStress.jammed(bearing(level, rig)), "the jam didn't let go of the stopped motor"))
+                .thenSucceed();
+    }
+
+    /**
+     * Pressing on natural leaves at 1 RPM pushes them over: the arm sweeps through a tree's leaves (broken), its network
+     * never overstressed. Leaves a player placed (persistent) it passes, as at speed.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = 900)
+    public static void anArmAt1RpmPushesThroughNaturalLeaves(GameTestHelper helper) {
+        Rig rig = rig(helper, 81, Blocks.IRON_BLOCK.defaultBlockState());
+        BlockPos[] targets = {rig.armBase().offset(0, 0, ARM), rig.armBase().offset(0, 0, -ARM)};
+        ServerLevel level = helper.getLevel();
+        BlockState leaves = Blocks.OAK_LEAVES.defaultBlockState()
+                .setValue(net.minecraft.world.level.block.LeavesBlock.PERSISTENT, false)
+                .setValue(net.minecraft.world.level.block.LeavesBlock.DISTANCE, 1);
+        boolean[] overstressed = {false};
+        whenTicking(helper, rig.motor())
+                .thenExecute(() -> {
+                    // a log under each so they don't decay meanwhile
+                    for (BlockPos t : targets) {
+                        level.setBlock(t.below(), Blocks.OAK_LOG.defaultBlockState(), Block.UPDATE_ALL);
+                        level.setBlock(t, leaves, Block.UPDATE_ALL);
+                    }
+                })
+                .thenIdle(5)
+                .thenExecute(() -> speed(level, rig.motor(), 1))
+                .thenWaitUntil(() -> {
+                    overstressed[0] |= bearing(level, rig).isOverStressed();
+                    helper.assertTrue(level.getBlockState(targets[0]).isAir() || level.getBlockState(targets[1]).isAir(),
+                            "the leaves still stand (" + contacts(level, rig) + ")");
+                })
+                .thenExecute(() -> {
+                    List<Contact> contacts = contacts(level, rig);
+                    report("iron arm into natural leaves at 1 RPM", contacts + "; overstressed meanwhile " + overstressed[0]);
+                    helper.assertTrue(!overstressed[0] && contacts.stream().noneMatch(c -> c.outcome() == Outcome.JAMMED),
+                            "the arm jammed on leaves: " + contacts);
+                    speed(level, rig.motor(), 0);
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * A drill at the arm's tip, slow (8 RPM), is Create's to work with: whatever it may break, Full Stop doesn't jam it on
+     * (Create stalls a bearing whose drill is mining by itself), its network is never overstressed.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void aSlowDrillArmIsLeftToCreate(GameTestHelper helper) {
+        Rig rig = rig(helper, 82, Blocks.IRON_BLOCK.defaultBlockState());
+        ServerLevel level = helper.getLevel();
+        BlockPos tip = rig.armBase().offset(ARM, 0, 0);
+        BlockPos[] targets = {rig.armBase().offset(0, 0, ARM), rig.armBase().offset(0, 0, -ARM)};
+        boolean[] overstressed = {false};
+        long[] started = new long[1];
+        whenTicking(helper, rig.motor())
+                .thenExecute(() -> {
+                    level.setBlock(tip, AllBlocks.MECHANICAL_DRILL.getDefaultState().setValue(BlockStateProperties.FACING, Direction.SOUTH),
+                            Block.UPDATE_ALL);
+                    for (BlockPos t : targets) level.setBlock(t, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
+                })
+                .thenIdle(5)
+                .thenExecute(() -> {
+                    speed(level, rig.motor(), 8);
+                    started[0] = level.getGameTime();
+                })
+                .thenWaitUntil(() -> {
+                    overstressed[0] |= bearing(level, rig).isOverStressed();
+                    helper.assertTrue(level.getGameTime() - started[0] > 300, "still watching");
+                })
+                .thenExecute(() -> {
+                    List<Contact> contacts = contacts(level, rig);
+                    report("a drill arm at 8 RPM into stone", contacts + "; overstressed meanwhile " + overstressed[0] + "; stone "
+                            + level.getBlockState(targets[0]).getBlock() + " / " + level.getBlockState(targets[1]).getBlock());
+                    helper.assertTrue(!overstressed[0] && contacts.stream().noneMatch(c -> c.outcome() == Outcome.JAMMED),
+                            "Full Stop jammed a slow drill arm: " + contacts);
                     speed(level, rig.motor(), 0);
                 })
                 .thenSucceed();

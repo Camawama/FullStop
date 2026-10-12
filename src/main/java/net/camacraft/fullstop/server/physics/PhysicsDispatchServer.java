@@ -73,6 +73,7 @@ public class PhysicsDispatchServer {
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
         if (event.phase == TickEvent.Phase.END && event.level instanceof ServerLevel level) {
+            net.camacraft.fullstop.common.physics.PerfSwitches.refresh();
             // Keeps persistent ice-crack overlays alive (clients purge unrefreshed
             // destruction progress) and heals expired ones.
             KineticBlockInteractions.tickCracks(level);

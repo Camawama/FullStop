@@ -45,10 +45,13 @@ import java.util.Map;
  * overstressed state), so a player feels exactly the pull the server judges by.
  *
  * <p><b>Gears</b> (cogwheels and large cogwheels; never encased ones, gearboxes or shafts). A single
- * gear never pulls and never hurts: a body touching its teeth is pushed off, out from the gear and along
- * the way the teeth move, a nudge from a crawling gear ({@link KineticGrip#push}); teeth hitting it at
+ * gear never pulls: a body touching its teeth is pushed off, out from the gear and along the way the teeth
+ * move, a nudge from a crawling gear ({@link KineticGrip#push}), and bitten when they hit it at
+ * {@value #TOUCH_BITE_MPS} m/s or faster ({@code gearTouchDamage} at 7.5 m/s, in proportion to their speed
+ * against it, {@link #touchBite}: a gear hurts, but no bite of one deals more than {@code gearMaxDamage}, so it never
+ * kills a healthy player outright); teeth hitting it at
  * {@code gearFlingSpeed} or faster (a cogwheel at 256 RPM, a large one from about 128) fling it like a
- * hull's strike instead ({@link KineticGrip#fling}): the throw hurts nothing, what it is thrown into does.
+ * hull's strike instead ({@link KineticGrip#fling}): the throw itself hurts nothing, what it is thrown into does.
  * Bodies are caught only in the <em>nip</em> of two meshing gears (two cogwheels side by side on one
  * axis, a large and a small one diagonally: Create's own rule, {@link KineticGrip#meshes}), on its
  * in-running side, where both gears' teeth run into the mesh: a body at the mouth (its nearest point
@@ -90,6 +93,10 @@ public final class KineticHazards {
     private static final int RELEASE_IMMUNITY = 100;
     /** Ticks after a single gear flung a body before that gear flings it again (it pushes meanwhile). */
     static final int FLING_COOLDOWN = 10;
+    /** A single gear's teeth hitting a body slower than this (m/s) don't bite it (a crawling gear only nudges). */
+    static final double TOUCH_BITE_MPS = 1.0;
+    /** The teeth speed (m/s) at which a single gear bites {@code gearTouchDamage}: a cogwheel's rim at 128 RPM. */
+    static final double TOUCH_BITE_REFERENCE_MPS = 7.5;
 
     private static final Map<LivingEntity, State> STATES = new MapMaker().weakKeys().makeMap();
 
@@ -216,7 +223,7 @@ public final class KineticHazards {
             return;
         }
 
-        // a single gear's teeth: pushed off (flung by a very fast one), never pulled in, never hurt
+        // a single gear's teeth: pushed off (flung by a very fast one) and bitten, never pulled in
         KineticGrip.Catch touched = null;
         if (gears) {
             for (Hazard.Live live : cogs) {
@@ -226,6 +233,8 @@ public final class KineticHazards {
             }
         }
         if (touched != null) {
+            // judged before the push or throw changes the body's motion: how fast the teeth hit it as it was
+            if (!client) touchBite((ServerLevel) level, body, touched);
             if (mayPull) {
                 if (!fling(body, state, touched, v, now, cfg)) {
                     Impulses.add(body, KineticGrip.push(touched, v, up(body), resistance(body) * cfg.gearPullStrength.get()));
@@ -332,20 +341,51 @@ public final class KineticHazards {
         return !wet && k.inTeeth() && Math.abs(k.part().rpm()) >= PADDLE_BITE_RPM;
     }
 
+    /**
+     * A single gear's teeth biting a body that touches them (server): {@code gearTouchDamage} when they hit it at
+     * {@value #TOUCH_BITE_REFERENCE_MPS} m/s, in proportion to how fast they hit it (their speed along the way they move
+     * against the body's own, never more than the teeth's own speed: a body running into slow teeth is the body's impact,
+     * not their bite), nothing from teeth slower than {@value #TOUCH_BITE_MPS} m/s, at most {@code gearMaxDamage}; whenever
+     * vanilla's damage cooldown allows. Returns the damage dealt (0 for none), for the game tests.
+     */
+    static double touchBite(ServerLevel level, LivingEntity body, KineticGrip.Catch k) {
+        FullStopConfig.ServerConfigValues cfg = FullStopConfig.SERVER;
+        double perBite = cfg.gearTouchDamage.get();
+        if (!(perBite > 0.0)) return 0.0;
+        Hazard.Live part = k.part();
+        // the body's own motion: a player's from where its client moved it (the server doesn't keep its velocity)
+        Vec3 own = body instanceof Player
+                ? body.position().subtract(body.xo, body.yo, body.zo).scale(20.0)
+                : Gravity.getWorldVelocity(body).scale(20.0);
+        Vec3 t = k.tangent();
+        double teeth = KineticGrip.teethMps(part);
+        if (!(teeth >= TOUCH_BITE_MPS)) return 0.0;
+        double closing = Math.min(teeth, teeth + part.base().scale(20.0).dot(t) - own.dot(t));
+        if (!(closing > 0.0)) return 0.0;
+        double damage = perBite * closing / TOUCH_BITE_REFERENCE_MPS;
+        return hurt(level, body, part.hazard().kind(), Math.min(damage, cfg.gearMaxDamage.get()), Math.abs(part.rpm())) ? damage : 0.0;
+    }
+
     /** One bite (server): the nip of two gears crushing a body, or a fast water wheel's paddles out of the water. */
     private static void bite(ServerLevel level, LivingEntity body, Hazard.Kind kind, double rpm, FullStopConfig.ServerConfigValues cfg) {
         double damage = cfg.gearDamage.get() * Math.pow(rpm / 64.0, 0.75);
         if (kind.large()) damage *= 1.25;
         if (kind.wheel) damage *= 0.5;
-        if (damage <= 0.0) return;
+        hurt(level, body, kind, Math.min(damage, cfg.gearMaxDamage.get()), rpm);
+    }
+
+    /** Deals a gear's bite of {@code damage} with its grinding sound and sparks; whether it took. */
+    private static boolean hurt(ServerLevel level, LivingEntity body, Hazard.Kind kind, double damage, double rpm) {
+        if (!(damage > 0.0)) return false;
         // within the first half of vanilla's damage cooldown a bite is refused anyway (and would post the attack events for nothing)
-        if (body.invulnerableTime > 10) return;
-        if (DamageImmunityRules.isDamageImmune(body)) return;
-        if (!body.hurt(GearDamage.source(body, kind), (float) Math.min(damage, 1000.0))) return;
+        if (body.invulnerableTime > 10) return false;
+        if (DamageImmunityRules.isDamageImmune(body)) return false;
+        if (!body.hurt(GearDamage.source(body, kind), (float) Math.min(damage, 1000.0))) return false;
         Vec3 at = body.getBoundingBox().getCenter();
         float pitch = (float) Math.max(0.6, Math.min(1.6, 0.6 + rpm / 128.0));
         level.playSound(null, at.x, at.y, at.z, SoundEvents.GRINDSTONE_USE, SoundSource.BLOCKS, 0.7F, pitch);
         level.sendParticles(ParticleTypes.CRIT, at.x, at.y, at.z, 6, 0.2, 0.2, 0.2, 0.15);
+        return true;
     }
 
     /** How hard a nip draws this body in: the speed's square root, a player's weight, standing. */

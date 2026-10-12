@@ -46,8 +46,9 @@ public class CancelEvents {
 
     @SubscribeEvent
     public static void onProjectileImpact(ProjectileImpactEvent event) {
-        // Prevent fireworks from exploding on block impact (FullStop lets them skim)
-        if (event.getProjectile() instanceof FireworkRocketEntity && event.getRayTraceResult() instanceof BlockHitResult) {
+        // Prevent fireworks from exploding on block impact (FullStop lets them skim), and bounce them off slime
+        if (event.getProjectile() instanceof FireworkRocketEntity && event.getRayTraceResult() instanceof BlockHitResult hit) {
+            net.camacraft.fullstop.common.physics.SlimeProjectiles.bounceFirework(event.getProjectile(), hit);
             event.setCanceled(true);
         }
     }

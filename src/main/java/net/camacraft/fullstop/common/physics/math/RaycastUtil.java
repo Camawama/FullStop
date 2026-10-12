@@ -51,6 +51,17 @@ public class RaycastUtil {
 
     /** Ray length in blocks: how far the entity travelled going into the impact, plus a contact margin. */
     public static double getRayLength(Entity entity, FullStopCapability fullstop) {
+        return raysFor(entity) ? getRayLength(entity, fullstop, sizeFactor(entity)) : 0;
+    }
+
+    /** {@link #getRayLength(Entity, FullStopCapability)} with the entity's {@link #sizeFactor} already worked out. */
+    public static double getRayLength(Entity entity, FullStopCapability fullstop, double size) {
+        if (!raysFor(entity)) return 0;
+        return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH * size) + 0.01 * size;
+    }
+
+    /** Whether FullStop casts rays for this entity at all (not for a projectile, see below). */
+    public static boolean raysFor(Entity entity) {
         // Projectiles own their impacts (arrows stick, tridents return), so
         // FullStop does not raycast for them — unless a pack opts one in via
         // fullstop:physics_projectiles (modded grappling hooks and the like).
@@ -58,12 +69,8 @@ public class RaycastUtil {
         // projectiles: with rays enabled, bouncing, water skips, block
         // breaking and entity-collision damage all apply, and the pre-contact
         // reactions fire before the projectile's own onHit does.
-        if (entity instanceof Projectile
-                && !entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_PROJECTILES)) {
-            return 0;
-        }
-        double size = sizeFactor(entity);
-        return Math.max(fullstop.getPreImpactNativeVelocity().length(), MIN_RAY_LENGTH * size) + 0.01 * size;
+        return !(entity instanceof Projectile)
+                || entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_PROJECTILES);
     }
 
     /**
@@ -110,10 +117,14 @@ public class RaycastUtil {
      * about the feet point.
      */
     public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame) {
+        return getRayStarts(entity, mode, frame, sizeFactor(entity));
+    }
+
+    /** {@link #getRayStarts(Entity, FullStopConfig.RaycastMode, GravityFrame)} with the entity's {@link #sizeFactor} already worked out. */
+    public static List<Vec3> getRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame, double size) {
         if (!frame.isDefault()) {
-            return getRotatedRayStarts(entity, mode, frame);
+            return getRotatedRayStarts(entity, mode, frame, size);
         }
-        double size = sizeFactor(entity);
         AABB box = entity.getBoundingBox().inflate(RAY_START_MARGIN * size);
         double minX = box.minX;
         double minY = Math.min(effectiveFloorY(entity) + 0.1 * size, box.maxY);
@@ -178,11 +189,10 @@ public class RaycastUtil {
         return points;
     }
 
-    private static List<Vec3> getRotatedRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame) {
+    private static List<Vec3> getRotatedRayStarts(Entity entity, FullStopConfig.RaycastMode mode, GravityFrame frame, double size) {
         // The entity's box in its own frame, feet at the origin, inflated by
         // the same margin as the vanilla path; bottom row raised 0.1 like the
         // vanilla minY so the rays never start inside the surface stood on.
-        double size = sizeFactor(entity);
         double half = entity.getBbWidth() / 2.0 + RAY_START_MARGIN * size;
         double top = entity.getBbHeight() + RAY_START_MARGIN * size;
         double bottom = Math.min(0.1 * size, top);

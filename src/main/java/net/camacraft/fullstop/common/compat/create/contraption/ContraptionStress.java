@@ -55,7 +55,11 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * It is added where Create sums a network's stress, {@code KineticBlockEntity.calculateStressApplied}
  * ({@code KineticStressMixin}), so Create's own accounting carries it: the network's stress rises on a
  * stressometer, and a load past the network's capacity overstresses it, which stops everything on it exactly as
- * Create stops any overstressed network (and shows it so in the goggles).
+ * Create stops any overstressed network (and shows it so in the goggles). A hit that got through (it broke or knocked
+ * something off) never overstresses the network by itself ({@code contraptionHitsOverstress} off, the default): its load
+ * is held to what the network can still carry, so the stressometer peaks and the machine runs on; before, a hit on a
+ * network near its capacity stopped everything on it until the load faded (the owner's "the entire contraption would
+ * visually freeze its motion for a second after the block on the contraption is broken").
  *
  * <p>A <b>jam</b> - a hit nothing gave way to: bedrock, a block too tough to break this hit (it may crack), a ship far
  * heavier than the contraption - <b>stalls</b> it where it met the obstacle, held: the contraption is set back (or on)
@@ -107,6 +111,10 @@ public final class ContraptionStress {
 
     private static final class Load {
         double su;
+        /** The most of {@link #su} a hit may put on the network: what it can carry beside everything else (SU). */
+        double capSu = Double.POSITIVE_INFINITY;
+        /** What of the load the network was last told (SU). */
+        double appliedSu;
         /** The jam this drive is held in, or null. */
         @Nullable
         Stall stall;
@@ -119,7 +127,23 @@ public final class ContraptionStress {
      * {@code retry}: it held only because the level had broken all the blocks it may in one tick
      * ({@code terrainMaxBlocksPerTick}); such a jam lets go after {@value #RETRY_TICKS} ticks so the hit is judged again.
      */
-    public record Obstacle(BlockPos cell, @Nullable Long shipId, Block block, @Nullable Vec3 shipCellWorld, boolean retry) {}
+    public record Obstacle(BlockPos cell, @Nullable Long shipId, Block block, @Nullable Vec3 shipCellWorld, boolean retry, int contraptionId) {
+
+        /** No other contraption: the obstacle is a world or ship cell. */
+        public static final int NO_CONTRAPTION = Integer.MIN_VALUE;
+
+        public Obstacle(BlockPos cell, @Nullable Long shipId, Block block, @Nullable Vec3 shipCellWorld, boolean retry) {
+            this(cell, shipId, block, shipCellWorld, retry, NO_CONTRAPTION);
+        }
+
+        /**
+         * Another contraption's block: {@code local} in its own frame, {@code block} there, and where that block's centre was in
+         * the world when they jammed (held while it is still there and hasn't moved off).
+         */
+        public static Obstacle contraption(AbstractContraptionEntity other, BlockPos local, Block block, Vec3 worldNow) {
+            return new Obstacle(local.immutable(), null, block, worldNow, false, other.getId());
+        }
+    }
 
     /** Ticks a jam held only by the break budget waits before the hit is judged again. */
     static final int RETRY_TICKS = 2;
@@ -163,8 +187,31 @@ public final class ContraptionStress {
         if (level == null || level.isClientSide || (LOADS.isEmpty() && HELD_IMPACTS.isEmpty())) return 0.0f;
         double perRpm = heldImpact(be);
         Load load = LOADS.get(be);
-        if (load != null && load.su > 0.0) perRpm += load.su / Math.max(1.0, Math.abs(be.getTheoreticalSpeed()));
+        if (load != null && load.su > 0.0) {
+            // a hit that got through never stops the network by itself; a jam does (contraptionHitsOverstress: any hit may)
+            double su = load.stall == null && !SERVER.contraptionHitsOverstress.get() ? Math.min(load.su, load.capSu) : load.su;
+            load.appliedSu = su;
+            perRpm += su / Math.max(1.0, Math.abs(be.getTheoreticalSpeed()));
+        } else if (load != null) {
+            load.appliedSu = 0.0;
+        }
         return (float) perRpm;
+    }
+
+    /**
+     * How much hit load (SU) {@code be}'s network can carry beside everything else on it without overstressing (a hair
+     * under, so rounding never tips it): its capacity less its stress without this load.
+     */
+    private static double spareFor(KineticBlockEntity be, Load load) {
+        try {
+            if (!be.hasNetwork()) return 0.0;
+            KineticNetwork network = be.getOrCreateNetwork();
+            if (network == null) return 0.0;
+            double others = network.calculateStress() - load.appliedSu;
+            return Math.max(0.0, (network.calculateCapacity() - others) * 0.98);
+        } catch (RuntimeException e) {
+            return 0.0;
+        }
     }
 
     /**
@@ -335,6 +382,7 @@ public final class ContraptionStress {
         if (!(su > 0.0) || be.isRemoved() || !be.hasNetwork()) return;
         Load load = LOADS.computeIfAbsent(be, k -> new Load());
         load.su += su;
+        load.capSu = spareFor(be, load);
         peak(be, load.su);
         push(be);
     }
@@ -426,6 +474,7 @@ public final class ContraptionStress {
                 }
             } else {
                 load.su *= DECAY;
+                load.capSu = spareFor(be, load);
             }
             if (load.stall == null && load.su < FORGET_SU) {
                 it.remove();
@@ -473,6 +522,21 @@ public final class ContraptionStress {
         if (c == null || !c.isAlive()) return "the contraption is gone";
         Obstacle obstacle = stall.obstacle();
         if (obstacle.retry() && level.getGameTime() - stall.since() >= RETRY_TICKS) return "the level may break blocks again";
+        if (obstacle.contraptionId() != Obstacle.NO_CONTRAPTION) {
+            // another contraption's block: held while it is there, where it was
+            if (!(level.getEntity(obstacle.contraptionId()) instanceof AbstractContraptionEntity other) || !other.isAlive()
+                    || other.getContraption() == null) {
+                return "the other contraption is gone";
+            }
+            net.minecraft.world.level.levelgen.structure.templatesystem.StructureTemplate.StructureBlockInfo info =
+                    other.getContraption().getBlocks().get(obstacle.cell());
+            if (info == null || info.state().getBlock() != obstacle.block()) return "the other contraption's block is gone";
+            Vec3 now = ContraptionImpacts.toGlobal(other, Vec3.atCenterOf(obstacle.cell()), 1.0);
+            if (obstacle.shipCellWorld() == null || now.distanceTo(obstacle.shipCellWorld()) > SHIP_MOVED_OFF) {
+                return "the other contraption moved off";
+            }
+            return null;
+        }
         if (obstacle.shipId() == null) {
             BlockState state = loadedState(level, obstacle.cell());
             if (state == null) return null; // its chunk unloaded: hold until it's back

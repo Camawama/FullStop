@@ -67,17 +67,29 @@ public final class SonicBooms {
     public static final int SUBSONIC_TICKS = 20;
     /** Over the barrier this many ticks running before a stretch begins: a one-tick spike booms nothing. */
     private static final int SUSTAIN_TICKS = 2;
-    /** A listener this far (blocks) from where the shock came from still hears it. */
-    public static final double HEARING_RANGE = 192.0;
+    /**
+     * A listener this far (blocks) from where the shock came from still hears it: the server's {@code sonicBoomRange}
+     * (768 by default; it was 192, the owner: "the sound should be heard from even further away but low passed the
+     * further away it is. It should still be loud from further away though"). The client plays it loud far off, deeper
+     * and low-passed with the distance it travelled ({@code client.sound.SonicBoomSounds}).
+     */
+    public static double hearingRange() {
+        return net.camacraft.fullstop.FullStopConfig.SERVER_SPEC.isLoaded()
+                ? net.camacraft.fullstop.FullStopConfig.SERVER.sonicBoomRange.get() : 768.0;
+    }
+
     /** How long (ticks) a wave sent out while supersonic is followed: long enough to cross the hearing range. */
-    private static final int WAVE_TICKS = (int) Math.ceil(HEARING_RANGE / SOUND_BPT) + 2;
+    private static int waveTicks() {
+        return (int) Math.ceil(hearingRange() / SOUND_BPT) + 2;
+    }
+
     /** A source not heard from for this long (ticks) is forgotten, its stretch ended. */
     private static final int FORGET_TICKS = 40;
-    /** The boom carries twice the hearing range (vanilla's linear falloff): full near its source, half at the range's edge. */
-    private static final float VOLUME = (float) (2.0 * HEARING_RANGE / 16.0);
     private static final double VAPOUR_RANGE = 128.0;
-    /** The shock train is heard this far (blocks) from the source. */
-    public static final double TRAIN_RANGE = HEARING_RANGE;
+    /** The shock train is heard this far (blocks) from the source (the cracks' own range in sounds.json). */
+    public static final double TRAIN_RANGE = 192.0;
+    /** A source's shock cone is drawn for listeners this close (blocks) to it. */
+    public static final double CONE_RANGE = 320.0;
     /** A listener is told the train's rate and place again every so many ticks. */
     private static final int TRAIN_RESEND_TICKS = 10;
     /**
@@ -119,6 +131,28 @@ public final class SonicBooms {
         double mach = 1.0;
         Vec3 at = Vec3.ZERO;
         boolean ridersHear;
+        /**
+         * The ring its supersonic tips sweep, when known ({@link #train(ServerLevel, Key, Vec3, double, double, boolean, Vec3, Vec3, double, double)}):
+         * its centre on the axis, the axis (unit), and the radii between which the blades are past the barrier. Each
+         * listener hears the train from the point of that ring nearest them; null: from {@code at}.
+         */
+        @Nullable
+        Vec3 ringCentre;
+        @Nullable
+        Vec3 ringAxis;
+        double ringInner;
+        double ringOuter;
+
+        /** Where {@code listener} hears this train from: the nearest point of the tips' ring, or {@code at}. */
+        Vec3 heardFrom(Vec3 ears) {
+            if (ringCentre == null || ringAxis == null) return at;
+            Vec3 d = ears.subtract(ringCentre);
+            Vec3 radial = d.subtract(ringAxis.scale(d.dot(ringAxis)));
+            double r = radial.length();
+            if (r < 1.0E-6) return ringCentre;
+            double onRing = Math.max(ringInner, Math.min(ringOuter, r));
+            return ringCentre.add(radial.scale(onRing / r));
+        }
     }
 
     private static final class Source {
@@ -137,6 +171,14 @@ public final class SonicBooms {
         /** The rate and Mach number the listeners were last told. */
         double sentRate = -1.0;
         double sentMach = -1.0;
+        /** Its fastest point's speed over the speed of sound, and where that point was (world), as last observed. */
+        double mach;
+        Vec3 lastAt = Vec3.ZERO;
+        /** Its supersonic tips in its own frame (a ship's shipyard, a contraption's local space); empty: the whole body. */
+        List<Vec3> coneTips = List.of();
+        /** Who is drawing its shock cone, and the tick each was last told; the Mach number they were told. */
+        final Map<UUID, Long> coneWatching = new HashMap<>();
+        double sentConeMach = -1.0;
     }
 
     private static final Map<ServerLevel, Map<Key, Source>> SOURCES = new WeakHashMap<>();
@@ -157,6 +199,8 @@ public final class SonicBooms {
         }
         long now = level.getGameTime();
         source.seen = now;
+        source.mach = speed / SOUND_MPS;
+        source.lastAt = at;
         if (speed >= SOUND_MPS) {
             source.overTicks++;
             source.underTicks = 0;
@@ -229,6 +273,36 @@ public final class SonicBooms {
         source.train.mach = Math.max(0.0, tipSpeed / SOUND_MPS);
         source.train.at = at;
         source.train.ridersHear = ridersHear;
+        source.train.ringCentre = null;
+        source.train.ringAxis = null;
+    }
+
+    /**
+     * As {@link #train(ServerLevel, Key, Vec3, double, double, boolean)} for a rotor whose sweep is known: its supersonic
+     * blades sweep the ring about {@code axis} (unit) through {@code ringCentre}, from {@code inner} to {@code outer}
+     * blocks out, and each listener hears the shocks from the point of that ring nearest them (a listener by the tips of a
+     * long arm hears them there, loud, not from its far-off hub). {@code at} (the hub) still decides who is near it.
+     */
+    public static void train(ServerLevel level, Key key, Vec3 at, double pulsesPerSecond, double tipSpeed, boolean ridersHear,
+                             Vec3 ringCentre, Vec3 axis, double inner, double outer) {
+        train(level, key, at, pulsesPerSecond, tipSpeed, ridersHear);
+        Map<Key, Source> sources = SOURCES.get(level);
+        Source source = sources == null ? null : sources.get(key);
+        if (source == null || source.train == null || !(axis.lengthSqr() > 1.0E-12) || !(outer > 0.0)) return;
+        source.train.ringCentre = ringCentre;
+        source.train.ringAxis = axis.normalize();
+        source.train.ringInner = Math.max(0.0, Math.min(inner, outer));
+        source.train.ringOuter = outer;
+    }
+
+    /**
+     * The supersonic tips of a source's shock cone this tick, in its own frame ({@link MachConePacket}): a ship's tips in
+     * its shipyard, a contraption's in its local space; empty for a body flying supersonic as a whole.
+     */
+    public static void coneTips(ServerLevel level, Key key, List<Vec3> localTips) {
+        Map<Key, Source> sources = SOURCES.get(level);
+        Source source = sources == null ? null : sources.get(key);
+        if (source != null) source.coneTips = localTips;
     }
 
     /** No air, no sound: nothing booms where there is no gravity (VS Genesis's space, an orbit). */
@@ -262,15 +336,18 @@ public final class SonicBooms {
                 return stretch.waves.isEmpty();
             });
             serveTrain(level, entry.getKey(), source, now);
+            serveCone(level, entry.getKey(), source, now);
             if (source.live == null && source.ending.isEmpty() && now - source.seen > FORGET_TICKS) {
                 stopTrain(entry.getKey(), source, level);
+                stopCone(entry.getKey(), source, level);
                 it.remove();
             }
         }
     }
 
     private static void expire(Stretch stretch, long now) {
-        while (!stretch.waves.isEmpty() && now - stretch.waves.peekFirst().tick() > WAVE_TICKS) stretch.waves.removeFirst();
+        int waveTicks = waveTicks();
+        while (!stretch.waves.isEmpty() && now - stretch.waves.peekFirst().tick() > waveTicks) stretch.waves.removeFirst();
     }
 
     /**
@@ -279,6 +356,7 @@ public final class SonicBooms {
      */
     private static void arrive(ServerLevel level, Stretch stretch, long now) {
         if (stretch.waves.isEmpty()) return;
+        double range = hearingRange();
         for (ServerPlayer listener : level.players()) {
             // spectators hear booms too (they watch; only the advancement is for players in the game)
             if (stretch.heard.contains(listener.getUUID()) || stretch.aboard.test(listener)) continue;
@@ -287,7 +365,7 @@ public final class SonicBooms {
             double firstArrival = Double.POSITIVE_INFINITY, firstDistance = 0.0;
             for (Wave wave : stretch.waves) {
                 double distance = wave.from().distanceTo(ear);
-                if (distance > HEARING_RANGE) continue;
+                if (distance > range) continue;
                 double arrival = wave.tick() + distance / SOUND_BPT;
                 if (arrival < firstArrival) {
                     firstArrival = arrival;
@@ -297,7 +375,7 @@ public final class SonicBooms {
             }
             if (first == null || firstArrival > now) continue;
             stretch.heard.add(listener.getUUID());
-            boom(level, listener, first.from(), firstDistance);
+            boom(level, listener, first.from(), firstDistance, range);
         }
     }
 
@@ -316,7 +394,9 @@ public final class SonicBooms {
         for (ServerPlayer listener : level.players()) {
             UUID id = listener.getUUID();
             Long last = source.listening.get(id);
-            boolean should = on && listener.getEyePosition().distanceToSqr(train.at) <= TRAIN_RANGE * TRAIN_RANGE
+            // where this listener hears it from: the nearest point of the tips' ring when known, else the source's place
+            Vec3 from = on ? train.heardFrom(listener.getEyePosition()) : Vec3.ZERO;
+            boolean should = on && listener.getEyePosition().distanceToSqr(from) <= TRAIN_RANGE * TRAIN_RANGE
                     && (train.ridersHear || !live.aboard.test(listener));
             if (on && !listener.isSpectator() && listener.getEyePosition().distanceToSqr(train.at)
                     <= net.camacraft.fullstop.advancement.FullStopTriggers.THUNDERSCREECH_RANGE_SQ) {
@@ -325,7 +405,7 @@ public final class SonicBooms {
             if (should) {
                 if (last == null || rateChanged || now - last >= TRAIN_RESEND_TICKS) {
                     PacketHandler.sendToPlayer(listener, new ShockTrainPacket(key.id(), key.ship(), true, (float) train.rate,
-                            train.at.x, train.at.y, train.at.z, TRAIN_LOUDNESS, (float) train.mach));
+                            from.x, from.y, from.z, TRAIN_LOUDNESS, (float) train.mach));
                     source.listening.put(id, now);
                 }
             } else if (last != null) {
@@ -351,18 +431,82 @@ public final class SonicBooms {
         source.listening.clear();
     }
 
-    private static void boom(ServerLevel level, ServerPlayer listener, Vec3 from, double distance) {
-        // a little deeper the farther it travelled
-        float far = (float) (distance / HEARING_RANGE);
+    private static void boom(ServerLevel level, ServerPlayer listener, Vec3 from, double distance, double range) {
+        // a little deeper the farther it travelled (the client also low-passes it by the distance)
+        float far = (float) Math.min(1.0, distance / range);
         float crack = (0.72f + (level.random.nextFloat() - level.random.nextFloat()) * 0.06f) * (1.0f - 0.15f * far);
-        send(listener, SoundEvents.GENERIC_EXPLODE, from, crack, level.random.nextLong());
-        send(listener, SoundEvents.WARDEN_SONIC_BOOM, from, 2.0f - 0.4f * far, level.random.nextLong());
+        PacketHandler.sendToPlayer(listener, new net.camacraft.fullstop.common.network.SonicBoomPacket(from.x, from.y, from.z,
+                (float) distance, (float) range, crack, level.random.nextLong()));
         if (!listener.isSpectator()) net.camacraft.fullstop.advancement.FullStopTriggers.BOOM.trigger(listener);
     }
 
-    private static void send(ServerPlayer listener, SoundEvent sound, Vec3 at, float pitch, long seed) {
-        listener.connection.send(new ClientboundSoundPacket(BuiltInRegistries.SOUND_EVENT.wrapAsHolder(sound), SoundSource.NEUTRAL,
-                at.x, at.y, at.z, VOLUME, pitch, seed));
+    /**
+     * Who draws the source's shock cone this tick: every player within {@link #CONE_RANGE} of it while its stretch is
+     * live (riders too: it is outside them), told at first, every ten ticks and when its Mach number changes; the rest
+     * who were drawing it are told to stop.
+     */
+    private static void serveCone(ServerLevel level, Key key, Source source, long now) {
+        boolean on = source.live != null && source.mach >= 1.0;
+        if (!on && source.coneWatching.isEmpty()) return;
+        boolean changed = on && Math.abs(source.mach - source.sentConeMach) > 0.05 * Math.max(source.sentConeMach, 0.1);
+        for (ServerPlayer listener : level.players()) {
+            UUID id = listener.getUUID();
+            Long last = source.coneWatching.get(id);
+            boolean should = on && listener.getEyePosition().distanceToSqr(source.lastAt) <= CONE_RANGE * CONE_RANGE;
+            if (should) {
+                if (last == null || changed || now - last >= TRAIN_RESEND_TICKS) {
+                    PacketHandler.sendToPlayer(listener, new net.camacraft.fullstop.common.network.MachConePacket(key.id(), key.ship(), true,
+                            (float) source.mach, source.coneTips));
+                    source.coneWatching.put(id, now);
+                }
+            } else if (last != null) {
+                source.coneWatching.remove(id);
+                PacketHandler.sendToPlayer(listener, new net.camacraft.fullstop.common.network.MachConePacket(key.id(), key.ship(), false, 0.0f, List.of()));
+            }
+        }
+        if (on) source.sentConeMach = source.mach;
+        source.coneWatching.keySet().removeIf(id -> level.getServer().getPlayerList().getPlayer(id) == null);
+    }
+
+    private static void stopCone(Key key, Source source, ServerLevel level) {
+        for (UUID id : source.coneWatching.keySet()) {
+            ServerPlayer listener = level.getServer().getPlayerList().getPlayer(id);
+            if (listener != null) {
+                PacketHandler.sendToPlayer(listener, new net.camacraft.fullstop.common.network.MachConePacket(key.id(), key.ship(), false, 0.0f, List.of()));
+            }
+        }
+        source.coneWatching.clear();
+    }
+
+    /**
+     * The tips a shock cone is drawn at: of a body's {@code locals} (its own frame) with their world
+     * {@code pointsWorldVelocity} ({@code {world point, velocity m/s}}, same order), those moving at {@code threshold}
+     * or faster, fastest first, each at least three blocks from the ones already taken; at most
+     * {@link net.camacraft.fullstop.common.network.MachConePacket#MAX_TIPS}.
+     */
+    public static List<Vec3> coneTipsOf(List<Vec3> locals, List<Vec3[]> pointsWorldVelocity, double threshold) {
+        List<Integer> fast = new ArrayList<>();
+        for (int i = 0; i < Math.min(locals.size(), pointsWorldVelocity.size()); i++) {
+            if (pointsWorldVelocity.get(i)[1].lengthSqr() >= threshold * threshold) fast.add(i);
+        }
+        fast.sort((a, b) -> Double.compare(pointsWorldVelocity.get(b)[1].lengthSqr(), pointsWorldVelocity.get(a)[1].lengthSqr()));
+        List<Vec3> taken = new ArrayList<>();
+        List<Vec3> takenWorld = new ArrayList<>();
+        for (int i : fast) {
+            Vec3 world = pointsWorldVelocity.get(i)[0];
+            boolean near = false;
+            for (Vec3 w : takenWorld) {
+                if (w.distanceToSqr(world) < 9.0) {
+                    near = true;
+                    break;
+                }
+            }
+            if (near) continue;
+            taken.add(locals.get(i));
+            takenWorld.add(world);
+            if (taken.size() >= net.camacraft.fullstop.common.network.MachConePacket.MAX_TIPS) break;
+        }
+        return taken;
     }
 
     /** Two supersonic tips within this angle of each other round the spin axis are one tip. */

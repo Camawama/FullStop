@@ -8,6 +8,7 @@ import net.camacraft.camafy.compat.vs.Ships;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.interaction.BlockAlterRules;
+import net.camacraft.fullstop.server.physics.interaction.BreakEffects;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
@@ -170,7 +171,8 @@ public final class ShipVegetationSweep {
             if (!BlockAlterRules.mayAlter(level, pos, cause) || !BlockAlterRules.breakEventAllows(level, pos, block, cause)) {
                 return true;
             }
-            if (!level.destroyBlock(pos, drops, cause)) return true;
+            // the dust and sound of a whole meadow at once are rationed (BreakEffects); every plant still breaks
+            if (!BreakEffects.destroy(level, pos, drops, cause)) return true;
             energy -= cost;
             spent += cost;
             broken++;
@@ -186,7 +188,8 @@ public final class ShipVegetationSweep {
             Matrix4d[] poseAt = new Matrix4d[POSE_STEPS + 1];
             Matrix4d nowPose = poseAt(poses, poseAt, POSE_STEPS);
             Matrix4d prevPose = poseAt(poses, poseAt, 0);
-            LongOpenHashSet visited = new LongOpenHashSet();
+            // sized for the probes the tick may make: grown from 16 a cell at a time it rehashed a dozen times a tick
+            LongOpenHashSet visited = new LongOpenHashSet(Math.min(MAX_PROBE_OPS, cells.length * 18));
             Long2ObjectOpenHashMap<LevelChunk> chunks = new Long2ObjectOpenHashMap<>();
             Long2ByteOpenHashMap sections = new Long2ByteOpenHashMap();
             Vector3d scratch = new Vector3d();

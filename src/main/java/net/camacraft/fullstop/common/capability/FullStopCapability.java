@@ -148,6 +148,9 @@ public class FullStopCapability {
     private long standingNoteTick = Long.MIN_VALUE;
     private long stoodShipId = Long.MIN_VALUE;
     private long stoodTick = Long.MIN_VALUE;
+    // Since when (game time) the entity has stood on standingShipNow without a break: a body that only got onto a ship
+    // as it ran into it (a car's wheels over a low raft's edge) has stood on it for a tick or two.
+    private long standingSinceTick = Long.MIN_VALUE;
 
     // The velocity (world, m/s) a two-body collision with a ship left this
     // entity with, and the contact normal: while the ship's own reaction is
@@ -1216,8 +1219,22 @@ public class FullStopCapability {
             stoodShipId = standingShipNow;
             stoodTick = standingNoteTick;
         }
+        if (shipId == Long.MIN_VALUE || shipId != standingShipNow || gameTime - standingNoteTick > 1) {
+            standingSinceTick = gameTime;
+        }
         standingShipNow = shipId;
         standingNoteTick = gameTime;
+    }
+
+    /**
+     * Whether the entity has stood on ship {@code shipId} without a break since at least {@code ticks} ticks before
+     * {@code gameTime}: it was aboard before whatever it is meeting now, not something that only got onto the ship as
+     * it ran into it.
+     *
+     * @since round 2026-10-10
+     */
+    public boolean aboardSince(long shipId, long gameTime, int ticks) {
+        return shipId == standingShipNow && standingSinceTick != Long.MIN_VALUE && gameTime - standingSinceTick >= ticks;
     }
 
     /**

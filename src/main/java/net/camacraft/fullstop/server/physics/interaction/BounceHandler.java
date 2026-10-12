@@ -144,6 +144,10 @@ public final class BounceHandler {
         Gravity.setWorldVelocity(entity, newV.scale(0.05), fullstop.getFrame());
         entity.hurtMarked = true;
         fullstop.setBounceCooldown(BOUNCE_COOLDOWN_TICKS);
+        // a bounce off a slime face that leans (or a wall) is partly sideways: carried through the air (SlimeFlight)
+        if (bounceType == Collision.CollisionType.SLIME && carrierType == null) {
+            net.camacraft.fullstop.common.physics.SlimeFlight.start(entity, newV.scale(0.05));
+        }
         debug(entity, "bounced (" + bounceType + ")", preV, normal, newV);
         triggerBouncy(entity, bounceType, collision, preV);
 

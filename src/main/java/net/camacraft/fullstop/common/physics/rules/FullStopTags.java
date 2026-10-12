@@ -131,6 +131,22 @@ public final class FullStopTags {
      */
     public static final TagKey<Block> GLUEY = blockTag("gluey");
 
+    /**
+     * Projectiles that bounce off slime (SlimeProjectiles): arrows and tridents skip off it at a shallow angle and stick
+     * when shot steeply in; firework rockets always bounce. Arrows, spectral arrows, tridents and firework rockets.
+     */
+    public static final TagKey<EntityType<?>> BOUNCES_ON_SLIME = entityTag("bounces_on_slime");
+
+    /** Dropped items that bounce off what they land on or hit (SlimeProjectiles): slime balls and slime blocks. */
+    public static final TagKey<net.minecraft.world.item.Item> BOUNCY_ITEMS = TagKey.create(Registries.ITEM,
+            new ResourceLocation(FullStop.MODID, "bouncy_items"));
+
+    /** Blocks that are foliage whatever they are made of (Foliage): running into them never hurts. Empty by default. */
+    public static final TagKey<Block> FOLIAGE = blockTag("foliage");
+
+    /** Blocks that are never foliage, whatever they look like (Foliage). Empty by default. */
+    public static final TagKey<Block> NOT_FOLIAGE = blockTag("not_foliage");
+
     /** Entities a moving Valkyrien Skies ship never hits (no push, no damage). Empty by default. */
     public static final TagKey<EntityType<?>> SHIP_IMMUNE = entityTag("ship_immune");
 

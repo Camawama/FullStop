@@ -24,7 +24,7 @@ import java.util.Map;
  * wheel near the camera draws its teeth (or paddle) ring and arrows along the way the teeth or paddles move. A
  * water wheel also draws a fainter ring where its catch ends; red when turning with water at it (it drowns),
  * yellow when it only sweeps, grey when idle (or slower than {@code gearMinRpm}). A single gear is yellow when
- * turning: it only pushes; red when its teeth move at {@code gearFlingSpeed} or faster: it flings. Where two gears mesh, the in-running mouth of their nip (where both gears' teeth run
+ * turning: it only pushes; red when its teeth move fast enough to bite (1 m/s, {@code gearTouchDamage}) or to fling. Where two gears mesh, the in-running mouth of their nip (where both gears' teeth run
  * into the mesh) is drawn as a wedge with an arrow into the mesh: red when fast enough to crush
  * ({@value KineticHazards#TEETH_BITE_RPM} RPM and up), yellow when it only draws in, grey when the pair stands
  * jammed (its network overstressed) or idle. Every body a part acts on gets a line: into the mesh from a body in
@@ -94,7 +94,7 @@ public final class KineticDebugView {
             float[] colour;
             if (!active) colour = IDLE;
             else if (part.kind().wheel) colour = Boolean.TRUE.equals(WET.get(part)) ? BITES : PULLS;
-            else colour = flings(live, cfg) ? BITES : PULLS;
+            else colour = flings(live, cfg) || bites(live, cfg) ? BITES : PULLS;
             String id = "kinetic_" + part.pos().asLong() + "_" + part.shipId() + "_";
             ring(id + "teeth_", live, live.radius(), colour, 0.85f, RING_THICKNESS);
             double scale = live.radius() / part.kind().radius;
@@ -181,6 +181,12 @@ public final class KineticDebugView {
                 LINE_LIFE_TICKS, false, RING_THICKNESS);
         RaycastLineRenderer.queueLine(id + "arrow_r", tip, backOfHead.subtract(nip.across().scale(head * 0.7)), c[0], c[1], c[2], 1.0f,
                 LINE_LIFE_TICKS, false, RING_THICKNESS);
+    }
+
+    /** Whether a single gear's teeth move fast enough to bite a still body ({@code gearTouchDamage}). */
+    private static boolean bites(Hazard.Live part, FullStopConfig.ServerConfigValues cfg) {
+        return !part.hazard().kind().wheel && cfg.gearTouchDamage.get() > 0.0
+                && KineticGrip.teethMps(part) >= KineticHazards.TOUCH_BITE_MPS;
     }
 
     /** Whether a single gear's teeth move fast enough to fling a still body (gearFlingSpeed). */

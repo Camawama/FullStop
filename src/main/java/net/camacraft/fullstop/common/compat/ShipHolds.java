@@ -1,10 +1,7 @@
 package net.camacraft.fullstop.common.compat;
 
+import net.camacraft.camafy.compat.vs.ShipEntities;
 import net.minecraft.world.entity.Entity;
-
-import java.lang.invoke.MethodHandle;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.MethodType;
 
 /**
  * Valkyrien Skies holding a body in place. A body whose box touches a ship the game hasn't finished loading for it (a
@@ -13,33 +10,18 @@ import java.lang.invoke.MethodType;
  * sets a player who moves anyway back where it was ("moved while colliding with unloaded ships!"). Nothing else in the
  * game stops for it: gravity goes on adding to the body's velocity.
  *
- * <p>Asked of Valkyrien Skies by name ({@code EntityShipCollisionUtils.isCollidingWithUnloadedShips}): Camafy has no
- * call for it yet (one belongs in its {@code ShipEntities}); without Valkyrien Skies 2.4 the answer is no.
+ * <p>Asked through Camafy ({@code ShipEntities.isCollidingWithUnloadedShips}): the same test VS runs, so it follows
+ * Camafy 0.1.36's {@code valkyrienSkies.loadingShipsHoldOnlyAtTheirBlocks} (a body is held only at the ship's own
+ * blocks, no longer anywhere in the chunk round a new ship). Without Valkyrien Skies the answer is no.
  */
 public final class ShipHolds {
-
-    private static final MethodHandle CHECK = find();
 
     private ShipHolds() {
     }
 
-    private static MethodHandle find() {
-        try {
-            Class<?> utils = Class.forName("org.valkyrienskies.mod.common.util.EntityShipCollisionUtils");
-            return MethodHandles.publicLookup().findStatic(utils, "isCollidingWithUnloadedShips",
-                    MethodType.methodType(boolean.class, Entity.class));
-        } catch (ReflectiveOperationException | LinkageError e) {
-            return null;
-        }
-    }
-
     /** Whether Valkyrien Skies is refusing to move {@code entity} this tick (it touches a ship not loaded for it). */
     public static boolean heldForUnloadedShip(Entity entity) {
-        if (CHECK == null || !ShipCompat.active()) return false;
-        try {
-            return (boolean) CHECK.invoke(entity);
-        } catch (Throwable t) {
-            return false;
-        }
+        if (!ShipCompat.active()) return false;
+        return ShipEntities.isCollidingWithUnloadedShips(entity);
     }
 }

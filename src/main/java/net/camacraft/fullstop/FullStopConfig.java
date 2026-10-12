@@ -47,6 +47,17 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
         public final ForgeConfigSpec.BooleanValue wildMode;
+
+        // Bounces and booms (projectiles and items on slime, foliage, slime-bounce flight, sonic boom range)
+        public final ForgeConfigSpec.BooleanValue projectilesBounceOnSlime;
+        public final ForgeConfigSpec.DoubleValue projectileSlimeSkipAngle;
+        public final ForgeConfigSpec.DoubleValue projectileSlimeRestitution;
+        public final ForgeConfigSpec.DoubleValue projectileSlimeFriction;
+        public final ForgeConfigSpec.IntValue projectileSlimeMaxSkips;
+        public final ForgeConfigSpec.DoubleValue bouncyItemRestitution;
+        public final ForgeConfigSpec.BooleanValue foliageNeverHurts;
+        public final ForgeConfigSpec.BooleanValue slimeBounceKeepsMomentum;
+        public final ForgeConfigSpec.DoubleValue sonicBoomRange;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
         public final ForgeConfigSpec.BooleanValue scaledKnockback;
@@ -169,6 +180,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue sweepPlacedLeaves;
         public final ForgeConfigSpec.DoubleValue sweepDrag;
         public final ForgeConfigSpec.IntValue sweepMaxBlocksPerTick;
+        public final ForgeConfigSpec.IntValue breakSoundsPerTick;
+        public final ForgeConfigSpec.IntValue breakDustPerTick;
+        public final ForgeConfigSpec.BooleanValue mergeBreakDrops;
         public final ForgeConfigSpec.DoubleValue sweepPlacedLeavesMinSpeed;
         public final ForgeConfigSpec.BooleanValue shipRedstone;
         public final ForgeConfigSpec.DoubleValue shipWeightedPlateKgPerSignal;
@@ -211,6 +225,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue contraptionImpactStress;
         public final ForgeConfigSpec.BooleanValue contraptionShipImpacts;
         public final ForgeConfigSpec.DoubleValue contraptionTerrainMinSpeed;
+        public final ForgeConfigSpec.BooleanValue contraptionSlowJams;
+        public final ForgeConfigSpec.BooleanValue contraptionsMeet;
+        public final ForgeConfigSpec.BooleanValue contraptionHitsOverstress;
         public final ForgeConfigSpec.DoubleValue contraptionImpactStrength;
         public final ForgeConfigSpec.DoubleValue contraptionStressPerImpact;
         public final ForgeConfigSpec.IntValue maxContraptionTerrainChecksPerTick;
@@ -220,6 +237,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue gearHazards;
         public final ForgeConfigSpec.DoubleValue gearPullStrength;
         public final ForgeConfigSpec.DoubleValue gearDamage;
+        public final ForgeConfigSpec.DoubleValue gearTouchDamage;
+        public final ForgeConfigSpec.DoubleValue gearMaxDamage;
         public final ForgeConfigSpec.DoubleValue gearMinRpm;
         public final ForgeConfigSpec.DoubleValue gearJamStress;
         public final ForgeConfigSpec.DoubleValue gearFlingSpeed;
@@ -369,6 +388,74 @@ public class FullStopConfig {
                     .translation(key("wildMode"))
                     .comment("Default: true")
                     .define("wildMode", true);
+
+            builder.pop();
+            builder.comment("What bounces off slime besides bodies, what never hurts to run into, and how far a sonic boom carries.")
+                    .push("Bounces and booms");
+
+            this.projectilesBounceOnSlime = builder
+                    .comment("Arrows, tridents and firework rockets (#fullstop:bounces_on_slime) bounce off slime, in the world and on ships.",
+                            "An arrow or trident meeting the face at a shallow angle skips off it (as a stone skips on water); one",
+                            "shot more steeply into it sticks, as on any block. A firework rocket always bounces.")
+                    .translation(key("projectilesBounceOnSlime"))
+                    .comment("Default: true")
+                    .define("projectilesBounceOnSlime", true);
+
+            this.projectileSlimeSkipAngle = builder
+                    .comment("The steepest angle (degrees above the slime's face) at which an arrow or trident still skips off it;",
+                            "steeper, it sticks. Water skipping takes 25.")
+                    .translation(key("projectileSlimeSkipAngle"))
+                    .comment("Default: 30.0")
+                    .defineInRange("projectileSlimeSkipAngle", 30.0, 0.0, 90.0);
+
+            this.projectileSlimeRestitution = builder
+                    .comment("The share of a projectile's speed INTO the slime given back out of it when it skips or bounces.")
+                    .translation(key("projectileSlimeRestitution"))
+                    .comment("Default: 0.6")
+                    .defineInRange("projectileSlimeRestitution", 0.6, 0.0, 1.0);
+
+            this.projectileSlimeFriction = builder
+                    .comment("The share of a projectile's speed ALONG the slime it keeps when it skips or bounces: below 1, every skip",
+                            "is shorter and slower than the last, so an arrow can't skip across slime forever.")
+                    .translation(key("projectileSlimeFriction"))
+                    .comment("Default: 0.8")
+                    .defineInRange("projectileSlimeFriction", 0.8, 0.0, 1.0);
+
+            this.projectileSlimeMaxSkips = builder
+                    .comment("An arrow or trident skips off slime at most this many times; the next time it sticks.")
+                    .translation(key("projectileSlimeMaxSkips"))
+                    .comment("Default: 6")
+                    .defineInRange("projectileSlimeMaxSkips", 6, 0, 64);
+
+            this.bouncyItemRestitution = builder
+                    .comment("Dropped slime balls and slime blocks (#fullstop:bouncy_items) bounce off whatever they land on or hit,",
+                            "giving back this share of their speed into it (0: they land like any item). They settle after a few bounces.")
+                    .translation(key("bouncyItemRestitution"))
+                    .comment("Default: 0.8")
+                    .defineInRange("bouncyItemRestitution", 0.8, 0.0, 0.95);
+
+            this.foliageNeverHurts = builder
+                    .comment("Running (or being thrown) into foliage never hurts: plants and leaves of any mod, told by what they are",
+                            "(breaking at once or nearly, with a plant's sound or a plant's map colour) or by #fullstop:foliage",
+                            "(#fullstop:not_foliage takes a block out). Landing on foliage from a fall counts as a soft landing.")
+                    .translation(key("foliageNeverHurts"))
+                    .comment("Default: true")
+                    .define("foliageNeverHurts", true);
+
+            this.slimeBounceKeepsMomentum = builder
+                    .comment("A body bounced off slime at an angle (a tilted ship's slime, a slime wall) keeps the sideways speed the",
+                            "bounce gave it through the air as it keeps its upward speed, instead of losing it to the walking air drag",
+                            "(vanilla slows sideways motion in the air about five times as fast as vertical motion).")
+                    .translation(key("slimeBounceKeepsMomentum"))
+                    .comment("Default: true")
+                    .define("slimeBounceKeepsMomentum", true);
+
+            this.sonicBoomRange = builder
+                    .comment("How far (blocks) a sonic boom is heard: loud a long way off, deeper and more muffled the farther it",
+                            "travelled. A supersonic rotor's train of cracks keeps its own range (192 blocks).")
+                    .translation(key("sonicBoomRange"))
+                    .comment("Default: 768.0")
+                    .defineInRange("sonicBoomRange", 768.0, 64.0, 4096.0);
 
             builder.pop();
             builder.push("Kinetic Damage settings");
@@ -1169,6 +1256,31 @@ public class FullStopConfig {
                     .comment("Default: 64")
                     .defineInRange("sweepMaxBlocksPerTick", 64, 0, 4096);
 
+            this.breakSoundsPerTick = builder
+                    .comment("Performance: when ships, contraptions and fast bodies break many blocks in one tick (a ship ploughing a",
+                            "meadow, an arm carving a hillside), only this many of them per level and tick play the block's break",
+                            "sound and dust as a mined block does (none right beside another that did). Every sound start makes the",
+                            "game wait for the sound thread: dozens a tick froze the screen for up to a second while a fast",
+                            "contraption carved stone. 4096 = every break as vanilla.")
+                    .translation(key("breakSoundsPerTick"))
+                    .comment("Default: 3")
+                    .defineInRange("breakSoundsPerTick", 3, 0, 4096);
+
+            this.breakDustPerTick = builder
+                    .comment("Of the rest of a tick's mass breaks, this many more throw a lighter puff of the block's dust, without a",
+                            "sound; the others break the same way, quietly. 0 = none.")
+                    .translation(key("breakDustPerTick"))
+                    .comment("Default: 24")
+                    .defineInRange("breakDustPerTick", 24, 0, 4096);
+
+            this.mergeBreakDrops = builder
+                    .comment("Performance: the drops of the blocks ships, contraptions and fast bodies break in one tick land as merged",
+                            "stacks (one per kind of item in each 3-block cell) instead of one item entity per block. The same items:",
+                            "a ship mowing a meadow left thousands of separate item entities that slowed the server for minutes.")
+                    .translation(key("mergeBreakDrops"))
+                    .comment("Default: true")
+                    .define("mergeBreakDrops", true);
+
             this.sweepPlacedLeavesMinSpeed = builder
                     .comment("With sweepPlacedLeaves off, leaves players placed (hedges, leaf roofs) still give to a hull hitting them at",
                             "this speed (m/s) or faster: the tips of a spinning arm, a ship at speed. A raft drifting into a hedge at",
@@ -1491,7 +1603,7 @@ public class FullStopConfig {
                             "(block mass / 1000 kg)^massInfluence) decides which side gives. A fast iron arm carves stone, cracking",
                             "it first when one hit isn't enough (hits add up); bedrock, ship_unbreakable blocks and protected blocks",
                             "never break. What nothing gives way to stops the contraption (contraptionImpactStress). Slower than",
-                            "contraptionTerrainMinSpeed, a contraption passes through blocks as in Create. Also needs kineticBlockBreaking.")
+                            "contraptionTerrainMinSpeed, a turning arm or a cart jams against them instead (contraptionSlowJams). Also needs kineticBlockBreaking.")
                     .translation(key("contraptionTerrainImpacts"))
                     .comment("Default: true")
                     .define("contraptionTerrainImpacts", true);
@@ -1534,6 +1646,25 @@ public class FullStopConfig {
                     .comment("Default: 5.0")
                     .defineInRange("contraptionTerrainMinSpeed", 5.0, 0.0, 1000.0);
 
+            this.contraptionSlowJams = builder
+                    .comment("A contraption turned by a bearing or carried by a minecart whose block moves slower than",
+                            "contraptionTerrainMinSpeed doesn't strike what it runs into, it presses: it stops against a solid block and",
+                            "jams (its network overstressed until its drive stops or turns away), at any speed, instead of passing",
+                            "through it as Create lets it. It pushes plants and natural leaves over (breaks them); its drills, saws and",
+                            "harvesters work through what they can as in Create. Pistons, pulleys and gantries Create stops itself.")
+                    .translation(key("contraptionSlowJams"))
+                    .comment("Default: true")
+                    .define("contraptionSlowJams", true);
+
+            this.contraptionsMeet = builder
+                    .comment("Moving contraptions meet each other (two arms on bearings side by side whose sweeps cross): the weaker",
+                            "block is knocked off its contraption (both when they are about as tough), and when neither gives, or",
+                            "they press slowly, both jam against each other (overstressed) until either drive stops or turns away.",
+                            "Needs contraptionTerrainImpacts or contraptionShipImpacts.")
+                    .translation(key("contraptionsMeet"))
+                    .comment("Default: true")
+                    .define("contraptionsMeet", true);
+
             this.contraptionImpactStrength = builder
                     .comment("How hard a contraption hits terrain and ships: the breaking energy of a hit is the striking block's",
                             "kinetic energy at that speed (times terrainEnergyFraction) times this. A contraption is driven: its",
@@ -1545,11 +1676,20 @@ public class FullStopConfig {
 
             this.contraptionStressPerImpact = builder
                     .comment("Stress (SU) a contraption's network takes per FullStop energy unit of a hit (about 46 kJ). Breaking a",
-                            "stone block costs about 12 units (768 SU at the default): a blip on a big network, a stall on a small",
-                            "water wheel's. It fades by about a tenth each tick.")
+                            "stone block costs about 12 units (768 SU at the default): a blip on a big network, all a small water",
+                            "wheel can spare on a small one (never more: contraptionHitsOverstress). It fades by about a tenth each tick.")
                     .translation(key("contraptionStressPerImpact"))
                     .comment("Default: 64.0")
                     .defineInRange("contraptionStressPerImpact", 64.0, 0.0, 1.0E7);
+
+            this.contraptionHitsOverstress = builder
+                    .comment("Whether a contraption's hit that got through (it broke or knocked off a block) may overstress its network",
+                            "by itself, stopping everything on it until the load fades (about a second). Off: the hit's load is held to",
+                            "what the network can still carry beside everything else (its stressometer peaks, the machine runs on);",
+                            "only a jam (a hit nothing gave way to) overstresses it.")
+                    .translation(key("contraptionHitsOverstress"))
+                    .comment("Default: false")
+                    .define("contraptionHitsOverstress", false);
 
             this.maxContraptionTerrainChecksPerTick = builder
                     .comment("Most block positions checked against the terrain and ships per level per tick, over all moving",
@@ -1578,9 +1718,10 @@ public class FullStopConfig {
             this.gearHazards = builder
                     .comment("Spinning gears are dangerous where two of them mesh: a body at the in-running side of the nip (where",
                             "both gears' teeth run into the mesh: two cogwheels side by side, or a large and a small one diagonally)",
-                            "is drawn in and crushed (gearDamage), and jams them (gearJamStress). A single spinning gear never pulls",
-                            "and never hurts: touching its teeth pushes you off, along the way they move (a nudge when slow), and a",
-                            "very fast one flings you (gearFlingSpeed). Encased cogwheels, gearboxes and shafts are safe. Creative",
+                            "is drawn in and crushed (gearDamage), and jams them (gearJamStress). A single spinning gear never pulls:",
+                            "touching its teeth pushes you off, along the way they move (a nudge when slow), bites (gearTouchDamage)",
+                            "and a very fast one flings you (gearFlingSpeed). No bite of a gear deals more than gearMaxDamage.",
+                            "Encased cogwheels, gearboxes and shafts are safe. Creative",
                             "and spectator players are never caught (a creative player on foot is still pushed and flung).")
                     .translation(key("gearHazards"))
                     .comment("Default: true")
@@ -1598,11 +1739,28 @@ public class FullStopConfig {
             this.gearDamage = builder
                     .comment("Damage the nip of two gears deals per bite at 64 RPM (a bite whenever the damage cooldown allows, twice",
                             "a second). It grows with the speed to the 0.75 power (16 RPM: 0.35x, 256 RPM: 2.8x), a quarter more with",
-                            "a large cogwheel in the pair. Nothing below 8 RPM, and nothing from a single gear. 0 turns the bites off",
+                            "a large cogwheel in the pair, at most gearMaxDamage. Nothing below 8 RPM (a single gear's bite is gearTouchDamage). 0 turns the bites off",
                             "but keeps the pull.")
                     .translation(key("gearDamage"))
                     .comment("Default: 3.0")
                     .defineInRange("gearDamage", 3.0, 0.0, 1000.0);
+
+            this.gearTouchDamage = builder
+                    .comment("Damage a single spinning gear's teeth deal a body touching them, per bite (whenever the damage cooldown",
+                            "allows, twice a second at most), when they hit it at 7.5 m/s (a cogwheel's rim at 128 RPM), in",
+                            "proportion to how fast they hit it: a cogwheel at 64 RPM 1, at 256 RPM 4, a large cogwheel at 256 RPM",
+                            "8. Teeth slower than 1 m/s against the body (a cogwheel under about 17 RPM) don't hurt. Never more",
+                            "than gearMaxDamage. 0: a single gear only pushes and flings.")
+                    .translation(key("gearTouchDamage"))
+                    .comment("Default: 2.0")
+                    .defineInRange("gearTouchDamage", 2.0, 0.0, 1000.0);
+
+            this.gearMaxDamage = builder
+                    .comment("The most one bite of a gear may deal (a single gear's teeth or the nip of two gears), so gears hurt",
+                            "but never kill a healthy player outright: 8 is 4 hearts, 40% of a full health bar.")
+                    .translation(key("gearMaxDamage"))
+                    .comment("Default: 8.0")
+                    .defineInRange("gearMaxDamage", 8.0, 0.0, 1000.0);
 
             this.gearMinRpm = builder
                     .comment("Gears and water wheels turning slower than this (RPM) catch nothing.")
@@ -1693,6 +1851,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue rotateCameraOnlyWhenFlying;
         public final ForgeConfigSpec.DoubleValue shockTrainVolume;
         public final ForgeConfigSpec.BooleanValue blackoutOnlyWithoutAir;
+        public final ForgeConfigSpec.BooleanValue machCones;
+        public final ForgeConfigSpec.DoubleValue machConeOpacity;
 
         protected ClientConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("Client settings");
@@ -1724,6 +1884,20 @@ public class FullStopConfig {
                     .translation("config.fullstop.client.blackoutOnlyWithoutAir")
                     .comment("Default: true")
                     .define("blackoutOnlyWithoutAir", true);
+
+            this.machCones = builder
+                    .comment("Draw the shock cone (a faint, foggy Mach cone) behind anything moving faster than sound: an entity, a",
+                            "ship flying supersonic, or the tips of a supersonic rotor or Create contraption; it opens narrower the",
+                            "faster it goes and is as big as what makes it.")
+                    .translation("config.fullstop.client.machCones")
+                    .comment("Default: true")
+                    .define("machCones", true);
+
+            this.machConeOpacity = builder
+                    .comment("How visible the shock cones are (0..1).")
+                    .translation("config.fullstop.client.machConeOpacity")
+                    .comment("Default: 0.6")
+                    .defineInRange("machConeOpacity", 0.6, 0.0, 1.0);
 
             // The g-force thresholds used to live here. They gate a gameplay
             // mechanic (blackouts, nausea, the potions that shift them), so a

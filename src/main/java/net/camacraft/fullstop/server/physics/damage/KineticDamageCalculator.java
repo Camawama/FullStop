@@ -57,6 +57,12 @@ public class KineticDamageCalculator {
             return 0;
         }
 
+        // Foliage (any mod's plants and leaves, told by what they are) never hurts to run into; landing on it is soft
+        if (collision.collisionType == Collision.CollisionType.SOLID
+                && net.camacraft.fullstop.common.physics.rules.Foliage.spares(collision.blockStates, fullstop.isMostlyDownward())) {
+            return 0;
+        }
+
         boolean isDownwardImpact = fullstop.isMostlyDownward();
         // A FALL is a downward impact with something actually pulling: in zero gravity (VS Genesis
         // space, an Ad Astra orbit, a Gravity Unbound zero field) the frame stays upright, so a
@@ -240,7 +246,7 @@ public class KineticDamageCalculator {
                 damage *= 0.3;
                 break;
             }
-            if (state.is(FullStopTags.CUSHIONING)) {
+            if (state.is(FullStopTags.CUSHIONING) || net.camacraft.fullstop.common.physics.rules.Foliage.cushions(state)) {
                 damage *= 0.7;
                 break;
             }
