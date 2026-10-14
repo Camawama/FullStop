@@ -597,6 +597,21 @@ public class FullStopCapability {
         pushSample(position, onGround, yaw);
     }
 
+    /** What the player's own client said about the ground in its last move packet, and when (server game time). */
+    private boolean clientOnGround;
+    private long clientGroundTick = Long.MIN_VALUE;
+
+    /** A player's move packet: whether its client had it on the ground (the server's own replay may differ). */
+    public void noteClientGround(boolean onGround, long gameTime) {
+        this.clientOnGround = onGround;
+        this.clientGroundTick = gameTime;
+    }
+
+    /** Whether the player's client said it was off the ground in a move packet within the last {@code ticks} ticks. */
+    public boolean clientSaysAirborne(long gameTime, int ticks) {
+        return !clientOnGround && gameTime - clientGroundTick <= ticks;
+    }
+
     private void pushSample(Vec3 position, boolean onGround, float yaw) {
         Vec3 velocity = hasPending ? pendingVelocityMps : null;
         Vec3 carry = hasPending ? pendingCarryMps : null;

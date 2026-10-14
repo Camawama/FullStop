@@ -8,7 +8,8 @@
     "KeyboardHandlerMixin",
     "PlayerTurnHook",
     "LocalPlayerPushOutMixin",
-    "ClientTeleportMixin"
+    "ClientTeleportMixin",
+    "LightTextureAccessor"
   ],
   "injectors": {
     "defaultRequire": 1

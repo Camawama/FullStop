@@ -50,6 +50,16 @@ public class CancelEvents {
         if (event.getProjectile() instanceof FireworkRocketEntity && event.getRayTraceResult() instanceof BlockHitResult hit) {
             net.camacraft.fullstop.common.physics.SlimeProjectiles.bounceFirework(event.getProjectile(), hit);
             event.setCanceled(true);
+        } else if (event.getProjectile() instanceof net.minecraft.world.entity.projectile.ThrowableProjectile thrown
+                && event.getRayTraceResult() instanceof BlockHitResult hit
+                && net.camacraft.fullstop.common.physics.SlimeProjectiles.skipThrown(thrown, hit)) {
+            // a snowball, egg, potion or pearl skipping off slime: no hit (it breaks, splashes or teleports where it lands)
+            event.setCanceled(true);
+        } else if (event.getProjectile() instanceof net.minecraft.world.entity.projectile.AbstractHurtingProjectile fireball
+                && event.getRayTraceResult() instanceof BlockHitResult hit
+                && net.camacraft.fullstop.common.physics.SlimeProjectiles.skipFireball(fireball, hit)) {
+            // a fire charge or fireball bouncing off slime: no fire, no explosion (it does that where it lands)
+            event.setCanceled(true);
         }
     }
 }

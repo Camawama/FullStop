@@ -4,6 +4,21 @@
     "minecraft:arrow",
     "minecraft:spectral_arrow",
     "minecraft:trident",
-    "minecraft:firework_rocket"
+    "minecraft:firework_rocket",
+    "minecraft:snowball",
+    "minecraft:egg",
+    "minecraft:potion",
+    "minecraft:ender_pearl",
+    "minecraft:small_fireball",
+    "minecraft:fireball",
+    "minecraft:dragon_fireball",
+    {
+      "id": "amendments:medium_fireball",
+      "required": false
+    },
+    {
+      "id": "amendments:medium_dragon_fireball",
+      "required": false
+    }
   ]
 }

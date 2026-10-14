@@ -110,8 +110,10 @@ public final class ClientShipRelease {
             return;
         }
         ShipRef carrying = ShipCompat.carryingShip(player);
+        long landedBackOn = ShipRef.NO_ID;
         if (releasedFrom != ShipRef.NO_ID) {
             if (player.onGround() || player.isInWater() || player.isInLava() || player.onClimbable()) {
+                if (player.onGround()) landedBackOn = releasedFrom;
                 setReleased(ShipRef.NO_ID);
             } else if (carrying != null && carrying.id() == releasedFrom) {
                 // re-registered while still in the air: refused, its motion already went with the player
@@ -123,6 +125,14 @@ public final class ClientShipRelease {
             // standing on it: VS registered it on this deck this tick (its own record, which the
             // client can read; a block probe needs the ship's bounds, which only the server has)
             if (player.onGround() && ShipEntities.ticksSinceShip(player) <= 1 && !jumpedNow) {
+                if (landedBackOn == carrying.id() && SERVER.relandingTakesDeckMotionOut.get()) {
+                    // Back on the deck it jumped off: the player still has the deck's motion it was handed as its own,
+                    // and VS carries it with the deck again on top of that. VS takes a deck's motion back out of a body
+                    // landing on a ship only when the ship differs from the one it last stood on, and this is the same
+                    // one, so it is done here as VS does it: the deck's motion at the feet this tick.
+                    Vec3 deckNow = ClientShipContacts.hullVelocity(carrying, player.position()).scale(0.05);
+                    Gravity.setWorldVelocity(player, Gravity.getWorldVelocity(player, cap.getFrame()).subtract(deckNow), cap.getFrame());
+                }
                 kept = Vec3.ZERO;
                 offDeck = 0;
                 sampleDeck(carrying, player.position());

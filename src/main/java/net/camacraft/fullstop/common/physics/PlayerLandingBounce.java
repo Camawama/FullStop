@@ -158,6 +158,41 @@ public final class PlayerLandingBounce {
         Gravity.setWorldVelocity(entity, surface.motion().add(out.scale(0.05)), frame);
         // off a face that leans, part of the rebound is sideways: carried through the air (SlimeFlight)
         SlimeFlight.start(entity, out.scale(0.05));
+        keepGlide(entity);
         return true;
+    }
+
+    /**
+     * A body gliding on an elytra keeps gliding through its bounce (the owner, 2026-10-12: bouncing off slime "while
+     * flying with elytra, it cancels my elytra flight"). Vanilla ends a glide on any tick the body is on the ground
+     * ({@code LivingEntity.updateFallFlying} on the server, from the on-ground this client sends with its position), and
+     * the move that met the slime set it; but the bounce sends the body straight off the face, so it isn't on the ground
+     * ({@code slimeBounceKeepsGlide}).
+     */
+    public static void keepGlide(Entity entity) {
+        if (entity instanceof net.minecraft.world.entity.LivingEntity living && living.isFallFlying() && keepsGlides()) {
+            entity.setOnGround(false);
+        }
+    }
+
+    private static boolean keepsGlides() {
+        return FullStopConfig.SERVER_SPEC.isLoaded() && FullStopConfig.SERVER.slimeBounceKeepsGlide.get();
+    }
+
+    /**
+     * The server's half of {@link #keepGlide}: the server moves a player too, replaying each move its client sends
+     * ({@code LivingEntity.travel} under {@code ServerPlayer.doTick}), and that replay lands on the slime the client
+     * bounced off (the bounce is the client's, {@code playerSlimeLandingsOnClient}) and ended the glide there, whatever
+     * the client said. A gliding player whose client says it is in the air, over slime (its own or a ship's, along its
+     * own down) and not sneaking, keeps gliding; a client that really landed says so in its next move packet.
+     */
+    public static boolean serverKeepsGlide(net.minecraft.world.entity.LivingEntity living) {
+        if (!(living instanceof net.minecraft.server.level.ServerPlayer player) || !player.isFallFlying() || !keepsGlides()
+                || !onClient() || player.isSuppressingBounce()) {
+            return false;
+        }
+        FullStopCapability cap = FullStopCapability.grabCapability(player);
+        if (cap == null || !cap.clientSaysAirborne(player.level().getGameTime(), 3)) return false;
+        return underFeet(player) != null;
     }
 }

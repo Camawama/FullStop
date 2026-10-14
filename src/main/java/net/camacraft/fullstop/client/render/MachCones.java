@@ -14,7 +14,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
@@ -42,8 +41,12 @@ import java.util.Map;
  * the barrier, slimmer the faster it goes. For an entity or a ship flying supersonic as a whole the cone trails the whole
  * body, as long as twelve times its half-size; for a rotor or a Create contraption it trails each supersonic tip (where
  * the server found them, in the body's own frame, placed where the body is drawn now), as long as a few blocks. Its
- * texture is soft noise drawn sliding back along the cone, brightest near the nose and fading out behind, lit by the
- * light where it is. It fades in and out over a fifth of a second.</p>
+ * texture is soft noise drawn sliding back along the cone, brightest near the nose and fading out behind. It is lit as
+ * the world is where it is (the owner, 2026-10-12: at midnight "the sonic cone was still visible as if it was light
+ * out"): the lightmap's own colour for the block and sky light of its cell, so night, dusk, rain, gamma, night vision
+ * and True Darkness all show on it, with Colorful Lighting's colour for the block light when there is one; and it fades
+ * into the fog as everything else does. It fades in and out over a fifth of a second, and belongs to the level it was
+ * started in (a cone was still drawn after its ship had been taken to VS Genesis's space).</p>
  *
  * <p>Cheap: a few hundred translucent quads per cone and nothing at all with none in flight. {@code machCones} (client)
  * turns it off, {@code machConeOpacity} sets how visible it is.</p>
@@ -65,6 +68,8 @@ public final class MachCones {
 
     private static final class Cone {
         final Key key;
+        /** The level the cone was started in: another one (a dimension change, a new world) drops it. */
+        final ClientLevel level;
         float mach = 1.0f;
         List<Vec3> tips = List.of();
         long lastPacket;
@@ -74,8 +79,9 @@ public final class MachCones {
         Vec3[] last = new Vec3[0];
         Vec3[] dir = new Vec3[0];
 
-        Cone(Key key) {
+        Cone(Key key, ClientLevel level) {
             this.key = key;
+            this.level = level;
         }
     }
 
@@ -85,6 +91,11 @@ public final class MachCones {
     private static int drawnTotal;
     /** The last cone drawn: nose, direction, slant length, Mach number, opacity (for the harness). */
     private static String lastDrawn = "";
+    /** The light the last cone was drawn in: block and sky light, and the colour (for the harness). */
+    private static String lastLight = "";
+    /** This frame's fog (blocks from the camera), read once before the cones are drawn. */
+    private static float fogStart = Float.MAX_VALUE, fogEnd = Float.MAX_VALUE;
+    private static boolean fogCylinder;
 
     private MachCones() {
     }
@@ -99,7 +110,7 @@ public final class MachCones {
             if (cone != null) cone.on = false;
             return;
         }
-        if (cone == null) CONES.put(key, cone = new Cone(key));
+        if (cone == null || cone.level != mc.level) CONES.put(key, cone = new Cone(key, mc.level));
         cone.on = true;
         cone.mach = Math.max(1.0f, packet.mach());
         cone.tips = packet.tips();
@@ -117,6 +128,10 @@ public final class MachCones {
 
     public static String lastDrawn() {
         return lastDrawn;
+    }
+
+    public static String lastLight() {
+        return lastLight;
     }
 
     /** How many sources have a cone (drawn or fading), for the harness. */
@@ -154,6 +169,9 @@ public final class MachCones {
         com.mojang.blaze3d.systems.RenderSystem.depthMask(false);
         com.mojang.blaze3d.systems.RenderSystem.setShader(net.minecraft.client.renderer.GameRenderer::getPositionColorTexShader);
         com.mojang.blaze3d.systems.RenderSystem.setShaderTexture(0, TEXTURE);
+        fogStart = com.mojang.blaze3d.systems.RenderSystem.getShaderFogStart();
+        fogEnd = com.mojang.blaze3d.systems.RenderSystem.getShaderFogEnd();
+        fogCylinder = com.mojang.blaze3d.systems.RenderSystem.getShaderFogShape() == com.mojang.blaze3d.shaders.FogShape.CYLINDER;
         com.mojang.blaze3d.vertex.BufferBuilder out = com.mojang.blaze3d.vertex.Tesselator.getInstance().getBuilder();
         out.begin(com.mojang.blaze3d.vertex.VertexFormat.Mode.QUADS, com.mojang.blaze3d.vertex.DefaultVertexFormat.POSITION_COLOR_TEX);
         double opacity = FullStopConfig.CLIENT_SPEC.isLoaded() ? FullStopConfig.CLIENT.machConeOpacity.get() : 0.6;
@@ -163,7 +181,11 @@ public final class MachCones {
         Iterator<Cone> it = CONES.values().iterator();
         while (it.hasNext()) {
             Cone cone = it.next();
-            boolean live = cone.on && now - cone.lastPacket <= LOST_TICKS;
+            if (cone.level != level) {
+                it.remove();
+                continue;
+            }
+            boolean live = cone.on && now >= cone.lastPacket && now - cone.lastPacket <= LOST_TICKS;
             cone.fade = Mth.clamp(cone.fade + (live ? 1.0f : -1.0f) * dtMs / FADE_MS, 0.0f, 1.0f);
             if (!live && cone.fade <= 0.0f) {
                 it.remove();
@@ -272,11 +294,10 @@ public final class MachCones {
         Vec3 back = dir.scale(-1.0);
         Vec3 e1 = (Math.abs(back.y) < 0.9 ? back.cross(new Vec3(0, 1, 0)) : back.cross(new Vec3(1, 0, 0))).normalize();
         Vec3 e2 = back.cross(e1).normalize();
-        BlockPos at = BlockPos.containing(nose);
-        int sky = Math.max(0, level.getBrightness(LightLayer.SKY, at) - level.getSkyDarken());
-        int block = level.getBrightness(LightLayer.BLOCK, at);
-        float lit = 0.3f + 0.7f * Math.max(sky, block) / 15.0f;
-        float r = 0.93f * lit, g = 0.96f * lit, b = lit;
+        float[] light = worldLight(level, BlockPos.containing(nose));
+        float r = 0.93f * light[0], g = 0.96f * light[1], b = light[2];
+        // vapour shows by the light it scatters: in the dark it all but vanishes (it would only darken the sky behind it)
+        opacity *= 0.15f + 0.85f * Mth.clamp(luminance(light) * 1.25f, 0.0f, 1.0f);
         Matrix4f pose = poses.last().pose();
         org.joml.Matrix3f normalPose = poses.last().normal();
         Vec3 o = nose.subtract(cam);
@@ -297,6 +318,70 @@ public final class MachCones {
         return true;
     }
 
+    /**
+     * The light at {@code at} as the world's blocks and bodies there are lit: the lightmap's colour (this frame's, with
+     * everything that changes it) for the cell's block and sky light. With Colorful Lighting the cell's light may come
+     * in its coloured format (its documented contract: red bits 0-7, green 8-15, sky 16-19, blue 20-27, 0xF on top), and
+     * the block light's share of the lightmap colour then takes that colour.
+     */
+    private static float[] worldLight(ClientLevel level, BlockPos at) {
+        int packed = net.minecraft.client.renderer.LevelRenderer.getLightColor(level, at);
+        int block, sky;
+        float hr = 1.0f, hg = 1.0f, hb = 1.0f;
+        if (packed >>> 28 == 0xF) {
+            int r8 = packed & 0xFF, g8 = (packed >>> 8) & 0xFF, b8 = (packed >>> 20) & 0xFF;
+            sky = (packed >>> 16) & 0xF;
+            int max = Math.max(r8, Math.max(g8, b8));
+            block = Mth.clamp(Math.round(max / 17.0f), 0, 15);
+            if (max > 0) {
+                hr = r8 / (float) max;
+                hg = g8 / (float) max;
+                hb = b8 / (float) max;
+            }
+        } else {
+            block = Mth.clamp(net.minecraft.client.renderer.LightTexture.block(packed), 0, 15);
+            sky = Mth.clamp(net.minecraft.client.renderer.LightTexture.sky(packed), 0, 15);
+        }
+        float[] lit = lightmap(level, block, sky);
+        if (block > 0 && (hr < 1.0f || hg < 1.0f || hb < 1.0f)) {
+            float all = luminance(lit), skyOnly = luminance(lightmap(level, 0, sky));
+            float share = all > 1.0E-4f ? Mth.clamp((all - skyOnly) / all, 0.0f, 1.0f) : 0.0f;
+            lit[0] *= 1.0f - share + share * hr;
+            lit[1] *= 1.0f - share + share * hg;
+            lit[2] *= 1.0f - share + share * hb;
+        }
+        lastLight = String.format(java.util.Locale.ROOT, "block %d sky %d rgb(%.3f,%.3f,%.3f)", block, sky, lit[0], lit[1], lit[2]);
+        return lit;
+    }
+
+    /** The lightmap's pixel for this block and sky light (red, green, blue, 0-1). */
+    private static float[] lightmap(ClientLevel level, int block, int sky) {
+        try {
+            com.mojang.blaze3d.platform.NativeImage pixels = ((net.camacraft.fullstop.client.mixin.LightTextureAccessor)
+                    Minecraft.getInstance().gameRenderer.lightTexture()).fullstop$lightPixels();
+            int abgr = pixels.getPixelRGBA(block, sky);
+            return new float[]{(abgr & 0xFF) / 255.0f, ((abgr >>> 8) & 0xFF) / 255.0f, ((abgr >>> 16) & 0xFF) / 255.0f};
+        } catch (RuntimeException noLightmap) {
+            // (no lightmap to read: the level's own darkening, as an estimate)
+            float lit = Math.max(Math.max(0, sky - level.getSkyDarken()), block) / 15.0f;
+            return new float[]{lit, lit, lit};
+        }
+    }
+
+    private static float luminance(float[] rgb) {
+        return 0.2126f * rgb[0] + 0.7152f * rgb[1] + 0.0722f * rgb[2];
+    }
+
+    /** How much of a point at {@code p} (from the camera) shows through this frame's fog: 1 nearer than its start, 0 past its end. */
+    private static float fogVisibility(Vec3 p) {
+        if (!(fogStart < fogEnd)) return 1.0f;
+        double d = fogCylinder ? Math.max(Math.sqrt(p.x * p.x + p.z * p.z), Math.abs(p.y)) : p.length();
+        if (d <= fogStart) return 1.0f;
+        if (d >= fogEnd) return 0.0f;
+        float t = (float) ((d - fogStart) / (fogEnd - fogStart));
+        return 1.0f - t * t * (3.0f - 2.0f * t);
+    }
+
     /** The shell's opacity along its slant (0 at the nose, 1 at the far end): rising just behind the nose, fading out behind. */
     private static float shape(double t) {
         double rise = Mth.clamp(t / 0.12, 0.0, 1.0);
@@ -315,7 +400,7 @@ public final class MachCones {
         double nl = normal.length(), pl = p.length();
         double facing = nl > 1.0E-6 && pl > 1.0E-6 ? Math.abs(normal.dot(p)) / (nl * pl) : 0.0;
         float edge = (float) (0.45 + 0.55 * (1.0 - facing) * (1.0 - facing));
-        out.vertex(pose, (float) p.x, (float) p.y, (float) p.z).color(r, g, b, Math.min(1.0f, a * edge * 1.6f)).uv(u, v).endVertex();
+        out.vertex(pose, (float) p.x, (float) p.y, (float) p.z).color(r, g, b, Math.min(1.0f, a * edge * 1.6f) * fogVisibility(p)).uv(u, v).endVertex();
     }
 
     /** For tests: whether a cone of this source is known. */

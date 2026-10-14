@@ -34,6 +34,7 @@ public abstract class ServerGamePacketListenerImplMixin {
         FullStopCapability cap = FullStopCapability.grabCapability(mover);
         if (cap != null) {
             cap.recordMoveSample(mover.position(), mover.onGround(), mover.getYRot());
+            cap.noteClientGround(packet.isOnGround(), mover.level().getGameTime());
         }
     }
 

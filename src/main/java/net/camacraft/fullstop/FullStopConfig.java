@@ -57,6 +57,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue bouncyItemRestitution;
         public final ForgeConfigSpec.BooleanValue foliageNeverHurts;
         public final ForgeConfigSpec.BooleanValue slimeBounceKeepsMomentum;
+        public final ForgeConfigSpec.BooleanValue slimeBounceKeepsGlide;
         public final ForgeConfigSpec.DoubleValue sonicBoomRange;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
         public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
@@ -200,6 +201,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue deckThrowLift;
         public final ForgeConfigSpec.BooleanValue deckMomentumSeated;
         public final ForgeConfigSpec.BooleanValue releaseLeavingRiders;
+        public final ForgeConfigSpec.BooleanValue relandingTakesDeckMotionOut;
 
         // Entity Collisions (BodyCollisions)
         public final ForgeConfigSpec.BooleanValue enableEntityCollisions;
@@ -248,6 +250,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue waterWheelHazards;
         public final ForgeConfigSpec.DoubleValue waterWheelGrip;
         public final ForgeConfigSpec.DoubleValue waterWheelHoldSeconds;
+        public final ForgeConfigSpec.BooleanValue flywheelHazards;
+        public final ForgeConfigSpec.DoubleValue shaftSurfaceGrip;
 
         protected ServerConfigValues(ForgeConfigSpec.Builder builder) {
             builder.push("General settings");
@@ -394,16 +398,19 @@ public class FullStopConfig {
                     .push("Bounces and booms");
 
             this.projectilesBounceOnSlime = builder
-                    .comment("Arrows, tridents and firework rockets (#fullstop:bounces_on_slime) bounce off slime, in the world and on ships.",
-                            "An arrow or trident meeting the face at a shallow angle skips off it (as a stone skips on water); one",
-                            "shot more steeply into it sticks, as on any block. A firework rocket always bounces.")
+                    .comment("Arrows, tridents, thrown snowballs, eggs, potions and ender pearls, fire charges and fireballs, and",
+                            "firework rockets (#fullstop:bounces_on_slime) bounce off slime, in the world and on ships. A pointy one",
+                            "(an arrow or trident, #fullstop:pointy_projectiles) skips off it only at a shallow angle (as a stone",
+                            "skips on water) and sticks when shot more steeply in; the rest bounce at any angle. A bounce is no hit:",
+                            "a potion splashes, an egg hatches, a pearl teleports, a fire charge burns only where it really lands.",
+                            "A rocket held by a gliding player never bounces itself.")
                     .translation(key("projectilesBounceOnSlime"))
                     .comment("Default: true")
                     .define("projectilesBounceOnSlime", true);
 
             this.projectileSlimeSkipAngle = builder
                     .comment("The steepest angle (degrees above the slime's face) at which an arrow or trident still skips off it;",
-                            "steeper, it sticks. Water skipping takes 25.")
+                            "steeper, it sticks. Water skipping takes 25. Thrown items and fireballs bounce at any angle.")
                     .translation(key("projectileSlimeSkipAngle"))
                     .comment("Default: 30.0")
                     .defineInRange("projectileSlimeSkipAngle", 30.0, 0.0, 90.0);
@@ -422,7 +429,8 @@ public class FullStopConfig {
                     .defineInRange("projectileSlimeFriction", 0.8, 0.0, 1.0);
 
             this.projectileSlimeMaxSkips = builder
-                    .comment("An arrow or trident skips off slime at most this many times; the next time it sticks.")
+                    .comment("An arrow, trident, thrown item or fireball skips off slime at most this many times; the next time it",
+                            "sticks or lands.")
                     .translation(key("projectileSlimeMaxSkips"))
                     .comment("Default: 6")
                     .defineInRange("projectileSlimeMaxSkips", 6, 0, 64);
@@ -449,6 +457,14 @@ public class FullStopConfig {
                     .translation(key("slimeBounceKeepsMomentum"))
                     .comment("Default: true")
                     .define("slimeBounceKeepsMomentum", true);
+
+            this.slimeBounceKeepsGlide = builder
+                    .comment("An elytra glide goes on through a bounce off slime (a floor, a wall, a ship's slime): the bounce is no",
+                            "landing. Off: vanilla's rule, a glide ends on any tick the body is on the ground (a bounce off a slime",
+                            "floor included).")
+                    .translation(key("slimeBounceKeepsGlide"))
+                    .comment("Default: true")
+                    .define("slimeBounceKeepsGlide", true);
 
             this.sonicBoomRange = builder
                     .comment("How far (blocks) a sonic boom is heard: loud a long way off, deeper and more muffled the farther it",
@@ -1462,6 +1478,16 @@ public class FullStopConfig {
                     .comment("Default: true")
                     .define("releaseLeavingRiders", true);
 
+            this.relandingTakesDeckMotionOut = builder
+                    .comment("A rider let go of on a jump (releaseLeavingRiders) who lands back on the same deck has the deck's motion",
+                            "taken back out of its own, as Valkyrien Skies does for a body landing on a ship it didn't stand on last.",
+                            "Valkyrien Skies skips that for the same ship, so the rider kept the motion it was handed AND was carried",
+                            "with the deck again: every jump on a moving ship walked it forward across the deck (about a tenth of a",
+                            "block per jump at 1 m/s, more on faster ships), and on a slanted moving ship off the edge and down.")
+                    .translation(key("relandingTakesDeckMotionOut"))
+                    .comment("Default: true")
+                    .define("relandingTakesDeckMotionOut", true);
+
             builder.pop();
             builder.comment("Mobs, players and vehicles (with whoever rides them, as one body) that run, fly or fall into each other.",
                             "Minecraft only nudges overlapping entities apart, a few hundredths of a block a tick, so fast ones flew",
@@ -1838,6 +1864,24 @@ public class FullStopConfig {
                     .translation(key("waterWheelHoldSeconds"))
                     .comment("Default: 30.0")
                     .defineInRange("waterWheelHoldSeconds", 30.0, 0.0, 600.0);
+
+            this.flywheelHazards = builder
+                    .comment("Create's flywheel is dangerous by its rim (2.75 blocks across, past its block): touching it is touching a",
+                            "single gear's teeth at the rim's speed (with Camafy's real flywheels, the wheel's own spin, coasting or",
+                            "not): pushed off along the rim, bitten (gearTouchDamage at 7.5 m/s), flung from gearFlingSpeed; at 256 RPM",
+                            "the rim runs at 37 m/s, at 64 RPM 9. It never forms a nip with a gear.")
+                    .translation(key("flywheelHazards"))
+                    .comment("Default: true")
+                    .define("flywheelHazards", true);
+
+            this.shaftSurfaceGrip = builder
+                    .comment("A spinning bare shaft drags a body standing on it along its turning surface (a 256 RPM shaft's surface",
+                            "runs at 5 m/s): this share of the difference between the body's speed across the shaft and the",
+                            "surface's is taken each tick (ground friction takes its own share: at 0.6 a body standing still drifts",
+                            "at about 2 m/s on a 256 RPM shaft). 0: shafts drag nothing.")
+                    .translation(key("shaftSurfaceGrip"))
+                    .comment("Default: 0.6")
+                    .defineInRange("shaftSurfaceGrip", 0.6, 0.0, 1.0);
             builder.pop();
         }
 

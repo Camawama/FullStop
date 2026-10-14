@@ -27,6 +27,9 @@ public final class GearDamage {
     /** A large cogwheel's bite. */
     public static final ResourceKey<DamageType> LARGE_GEAR =
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "large_gear"));
+    /** A spinning flywheel's rim. */
+    public static final ResourceKey<DamageType> FLYWHEEL =
+            ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "flywheel"));
     /** A fast water wheel's paddles out of the water. */
     public static final ResourceKey<DamageType> WATER_WHEEL =
             ResourceKey.create(Registries.DAMAGE_TYPE, new ResourceLocation(FullStop.MODID, "water_wheel"));
@@ -44,9 +47,10 @@ public final class GearDamage {
     /** The bite of a part of {@code kind}: a cogwheel's, a large cogwheel's, or a water wheel's paddles. */
     static DamageSource source(LivingEntity body, Hazard.Kind kind) {
         return source(body, switch (kind) {
-            case COGWHEEL -> GEAR;
+            case COGWHEEL, SHAFT -> GEAR;
             case LARGE_COGWHEEL -> LARGE_GEAR;
             case WATER_WHEEL, LARGE_WATER_WHEEL -> WATER_WHEEL;
+            case FLYWHEEL -> FLYWHEEL;
         });
     }
 

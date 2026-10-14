@@ -1,6 +1,5 @@
 package net.camacraft.fullstop.server.physics;
 
-import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.fullstop.common.handler.PacketHandler;
 import net.camacraft.fullstop.common.network.ShockTrainPacket;
 import net.minecraft.core.particles.ParticleTypes;
@@ -43,7 +42,8 @@ import java.util.function.Predicate;
  * second ({@link #SUBSONIC_SHARE}, {@link #SUBSONIC_TICKS}): speed jitter at the barrier, a rotor slowed for a moment
  * by what it hit, or a ship in FullStop's grace after a hard crash ({@link #keepAlive}) can't start new ones, while a
  * body swung back and forth past it booms on each swing. Its own riders and passengers hear nothing: the shock trails
- * behind them. Where there is no air to carry it (VS Genesis's space, an orbit: no gravity there) nothing booms.</p>
+ * behind them. Where there is no air to carry it nothing booms and no cone forms (Camafy's {@code Air.ambient}: VS
+ * Genesis's space, Ad Astra's orbits, the Moon...), and a body flying out of the air ends its stretch there.</p>
  *
  * <p><b>The shock train.</b> A supersonic rotor doesn't boom over and over: each tip drags its shock round with it,
  * and a listener is swept by one shock per supersonic tip per turn, a train of booms at the blade-passing rate - at
@@ -67,6 +67,25 @@ public final class SonicBooms {
     public static final int SUBSONIC_TICKS = 20;
     /** Over the barrier this many ticks running before a stretch begins: a one-tick spike booms nothing. */
     private static final int SUSTAIN_TICKS = 2;
+    /**
+     * A driven source ({@link Key#driven}: a ship, a Create contraption) must be over the barrier this many ticks AND
+     * {@link #DRIVEN_SUSTAIN_NANOS} of real time before its stretch begins. What drives it can fall behind for a moment
+     * and catch up faster than it really turns (the owner, 2026-10-12: a rotor on a phys bearing "will lag slightly and
+     * when it catches up, it counts as a large increase in speed which can sometimes trigger a false sonic boom"); a
+     * real one stays past the barrier. The waves of the wait are kept, so a real boom still comes from where and when
+     * the barrier was crossed.
+     */
+    static final int DRIVEN_SUSTAIN_TICKS = 10;
+    static final long DRIVEN_SUSTAIN_NANOS = 400_000_000L;
+    /**
+     * The server catching up after a lag runs its ticks back to back, and a rotor driven by the game's ticks (a Clockwork
+     * phys bearing's target angle, a contraption) then turns faster in real time than it ever does: while the last
+     * {@link #CLOCK_TICKS} ticks took less than {@link #CATCH_UP_SHARE} of their 50 ms each, and for
+     * {@link #CATCH_UP_SETTLE_NANOS} after, a driven source's speed over the barrier counts for nothing.
+     */
+    private static final int CLOCK_TICKS = 20;
+    private static final double CATCH_UP_SHARE = 0.8;
+    private static final long CATCH_UP_SETTLE_NANOS = 500_000_000L;
     /**
      * A listener this far (blocks) from where the shock came from still hears it: the server's {@code sonicBoomRange}
      * (768 by default; it was 192, the owner: "the sound should be heard from even further away but low passed the
@@ -104,14 +123,24 @@ public final class SonicBooms {
     private SonicBooms() {
     }
 
-    /** A source: an entity or a ship, by id. */
-    public record Key(boolean ship, long id) {
+    /**
+     * A source: an entity or a ship, by id. {@code driven}: something else moves it (a ship's physics and what turns
+     * it, a body FullStop doesn't simulate: {@code #fullstop:physics_blacklist}, Create's contraptions), so its speed
+     * can leap for a moment when that catches up after a hitch ({@link #DRIVEN_SUSTAIN_TICKS}).
+     */
+    public record Key(boolean ship, long id, boolean driven) {
+        /** A ship's key, or an entity's that isn't driven. */
+        public Key(boolean ship, long id) {
+            this(ship, id, ship);
+        }
+
         public static Key entity(Entity entity) {
-            return new Key(false, entity.getId());
+            return new Key(false, entity.getId(),
+                    entity.getType().is(net.camacraft.fullstop.common.physics.rules.FullStopTags.PHYSICS_BLACKLIST));
         }
 
         public static Key ship(long shipId) {
-            return new Key(true, shipId);
+            return new Key(true, shipId, true);
         }
     }
 
@@ -158,6 +187,10 @@ public final class SonicBooms {
     private static final class Source {
         int overTicks;
         int underTicks;
+        /** When (System.nanoTime) its current run over the barrier began. */
+        long overSinceNanos;
+        /** The waves of a run over the barrier whose stretch hasn't begun yet (a driven source's wait). */
+        final ArrayDeque<Wave> pending = new ArrayDeque<>();
         long seen;
         /** Stretches begun since the source was first seen (for the tests). */
         int stretches;
@@ -198,25 +231,50 @@ public final class SonicBooms {
             SOURCES.computeIfAbsent(level, l -> new HashMap<>()).put(key, source);
         }
         long now = level.getGameTime();
+        long nanos = System.nanoTime();
         source.seen = now;
         source.mach = speed / SOUND_MPS;
         source.lastAt = at;
+        boolean wasLive = source.live != null;
         if (speed >= SOUND_MPS) {
-            source.overTicks++;
+            if (key.driven() && !wasLive && catchingUp(level, nanos)) {
+                // a driven rotor sped up by the server's catch-up: its run over the barrier starts again afterwards
+                source.overTicks = 0;
+                source.pending.clear();
+            } else {
+                if (source.overTicks == 0) source.overSinceNanos = nanos;
+                source.overTicks++;
+                if (!wasLive) {
+                    source.pending.addLast(new Wave(now, at));
+                    if (source.pending.size() > MAX_PENDING) source.pending.removeFirst();
+                }
+            }
             source.underTicks = 0;
         } else if (speed < SUBSONIC_SHARE * SOUND_MPS) {
             source.underTicks++;
             source.overTicks = 0;
+            source.pending.clear();
         }
-        if (source.live == null && source.overTicks >= SUSTAIN_TICKS && hasAir(level, at)) {
+        boolean sustained = key.driven()
+                ? source.overTicks >= DRIVEN_SUSTAIN_TICKS && nanos - source.overSinceNanos >= DRIVEN_SUSTAIN_NANOS
+                : source.overTicks >= SUSTAIN_TICKS;
+        if (!wasLive && sustained && hasAir(level, at)) {
             source.live = new Stretch();
+            // the run's waves so far, this tick's included: the boom comes from where the barrier was crossed
+            source.live.waves.addAll(source.pending);
+            source.pending.clear();
             source.stretches++;
             vapourCone(level, at, velocityMps);
+        }
+        // out of the air (a ship climbing into space): the stretch ends there, its waves already on their way still arrive
+        if (source.live != null && !hasAir(level, at)) {
+            source.ending.add(source.live);
+            source.live = null;
         }
         Stretch live = source.live;
         if (live != null) {
             live.aboard = aboard;
-            if (speed >= SOUND_MPS) live.waves.addLast(new Wave(now, at));
+            if (wasLive && speed >= SOUND_MPS) live.waves.addLast(new Wave(now, at));
             if (source.underTicks >= SUBSONIC_TICKS) {
                 source.ending.add(live);
                 source.live = null;
@@ -232,7 +290,44 @@ public final class SonicBooms {
     public static void keepAlive(ServerLevel level, Key key) {
         Map<Key, Source> sources = SOURCES.get(level);
         Source source = sources == null ? null : sources.get(key);
-        if (source != null) source.seen = level.getGameTime();
+        if (source == null) return;
+        source.seen = level.getGameTime();
+        if (source.live == null) {
+            // unmeasured, it can't be sustaining a run over the barrier either: one begins again once it can be measured
+            source.overTicks = 0;
+            source.pending.clear();
+        }
+    }
+
+    /** The most waves a run over the barrier keeps while its stretch waits to begin. */
+    private static final int MAX_PENDING = 200;
+
+    /** The server tick each slot of {@link #CLOCK_NANOS} was taken at, and when (System.nanoTime). */
+    private static final int[] CLOCK_TICK = new int[CLOCK_TICKS + 1];
+    private static final long[] CLOCK_NANOS = new long[CLOCK_TICKS + 1];
+    private static int clockLast = Integer.MIN_VALUE;
+    private static long catchUpUntilNanos = Long.MIN_VALUE;
+
+    /**
+     * Whether the server is catching up after a lag ({@link #CATCH_UP_SHARE}): its last {@link #CLOCK_TICKS} ticks ran
+     * well faster than real time, or did so in the last {@link #CATCH_UP_SETTLE_NANOS}. Server thread.
+     */
+    static boolean catchingUp(ServerLevel level, long nanos) {
+        // the game-test server runs every tick back to back by design: never "catching up" there
+        if (level.getServer() instanceof net.minecraft.gametest.framework.GameTestServer) return false;
+        int tick = level.getServer().getTickCount();
+        if (tick != clockLast) {
+            int slot = Math.floorMod(tick, CLOCK_TICK.length);
+            CLOCK_TICK[slot] = tick;
+            CLOCK_NANOS[slot] = nanos;
+            int oldSlot = Math.floorMod(tick - CLOCK_TICKS, CLOCK_TICK.length);
+            if (clockLast != Integer.MIN_VALUE && CLOCK_TICK[oldSlot] == tick - CLOCK_TICKS
+                    && nanos - CLOCK_NANOS[oldSlot] < (long) (CLOCK_TICKS * 50_000_000L * CATCH_UP_SHARE)) {
+                catchUpUntilNanos = nanos + CATCH_UP_SETTLE_NANOS;
+            }
+            clockLast = tick;
+        }
+        return catchUpUntilNanos != Long.MIN_VALUE && nanos - catchUpUntilNanos < 0;
     }
 
     /** Whether the source is in a supersonic stretch right now. */
@@ -305,15 +400,17 @@ public final class SonicBooms {
         if (source != null) source.coneTips = localTips;
     }
 
-    /** No air, no sound: nothing booms where there is no gravity (VS Genesis's space, an orbit). */
+    /** No air, no sound (Camafy's {@code Air.ambient}; with an older Camafy, no gravity: Genesis's space, an orbit). */
     private static boolean hasAir(ServerLevel level, Vec3 at) {
-        return Gravity.ambientStrength(level, at) >= Gravity.WEIGHTLESS_BELOW;
+        return net.camacraft.fullstop.common.compat.AirCompat.hasAir(level, at);
     }
 
     /** After every source has been observed this tick: whom the shock waves reach now, and who hears the trains. */
     @SubscribeEvent
     public static void onLevelTick(TickEvent.LevelTickEvent event) {
         if (event.phase != TickEvent.Phase.END || !(event.level instanceof ServerLevel level)) return;
+        // every tick, so the clock knows when the server runs its ticks back to back
+        catchingUp(level, System.nanoTime());
         Map<Key, Source> sources = SOURCES.get(level);
         if (sources == null || sources.isEmpty()) return;
         long now = level.getGameTime();

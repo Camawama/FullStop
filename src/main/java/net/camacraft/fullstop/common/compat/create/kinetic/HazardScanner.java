@@ -2,6 +2,8 @@ package net.camacraft.fullstop.common.compat.create.kinetic;
 
 import com.simibubi.create.content.kinetics.base.IRotate;
 import com.simibubi.create.content.kinetics.base.KineticBlockEntity;
+import com.simibubi.create.content.kinetics.flywheel.FlywheelBlock;
+import com.simibubi.create.content.kinetics.simpleRelays.AbstractShaftBlock;
 import com.simibubi.create.content.kinetics.simpleRelays.CogWheelBlock;
 import com.simibubi.create.content.kinetics.waterwheel.LargeWaterWheelBlock;
 import com.simibubi.create.content.kinetics.waterwheel.WaterWheelBlock;
@@ -31,7 +33,8 @@ import java.util.List;
  * <p>Cheap by construction: a chunk section is only searched when its palette may hold a cogwheel or
  * a water wheel ({@code LevelChunkSection.maybeHas}, a look at a handful of palette entries), so a
  * body far from any of them costs a few palette checks a few times a second. Encased cogwheels and
- * gearboxes are never hazards (they're encased); shafts are safe too.
+ * gearboxes are never hazards (they're encased); a bare shaft only drags what stands on it, and Create's flywheel's
+ * rim acts as a single gear's teeth.
  */
 final class HazardScanner {
 
@@ -120,7 +123,8 @@ final class HazardScanner {
 
     static boolean isHazardState(BlockState state) {
         Block block = state.getBlock();
-        return block instanceof CogWheelBlock || block instanceof WaterWheelBlock || block instanceof LargeWaterWheelBlock;
+        return block instanceof CogWheelBlock || block instanceof WaterWheelBlock || block instanceof LargeWaterWheelBlock
+                || block instanceof FlywheelBlock || block instanceof AbstractShaftBlock;
     }
 
     @Nullable
@@ -129,6 +133,9 @@ final class HazardScanner {
         if (block instanceof CogWheelBlock cog) return cog.isLargeCog() ? Hazard.Kind.LARGE_COGWHEEL : Hazard.Kind.COGWHEEL;
         if (block instanceof WaterWheelBlock) return Hazard.Kind.WATER_WHEEL;
         if (block instanceof LargeWaterWheelBlock) return Hazard.Kind.LARGE_WATER_WHEEL;
+        if (block instanceof FlywheelBlock) return Hazard.Kind.FLYWHEEL;
+        // a bare shaft (a cogwheel is a shaft block too, taken above; encased shafts are no AbstractShaftBlock)
+        if (block instanceof AbstractShaftBlock) return Hazard.Kind.SHAFT;
         return null;
     }
 
@@ -155,6 +162,17 @@ final class HazardScanner {
         if (!(be instanceof KineticBlockEntity kinetic)) return null;
         double rpm = kinetic.getSpeed();
         double driveRpm = kinetic.getTheoreticalSpeed();
+        boolean stalled = kinetic.isOverStressed();
+        if (hazard.kind() == Hazard.Kind.FLYWHEEL) {
+            // Camafy's real flywheel keeps its own spin (coasting, it turns on whatever its network does): its rim is
+            // what moves; without it, the wheel turns with its shaft
+            double own = FlywheelSpins.spin(be);
+            if (own != 0.0) {
+                rpm = own;
+                driveRpm = own;
+                stalled = false;
+            }
+        }
         if (!Double.isFinite(rpm) || !Double.isFinite(driveRpm)) return null;
         Direction.Axis axis = ((IRotate) state.getBlock()).getRotationAxis(state);
         Vec3 center = Vec3.atCenterOf(pos);
@@ -178,7 +196,7 @@ final class HazardScanner {
         // rotating.vert, KineticBlockEntityRenderer.kineticRotationTransform), and its water wheel calls the motion
         // VecHelper.rotate(normal, +90, axis) gives a positive one. So the teeth move the way they are drawn.
         return new Hazard.Live(hazard, center, axisVec, kind.radius * scale, kind.halfWidth * scale,
-                rpm * TWO_PI_PER_MINUTE_PER_TICK, rpm, base, driveRpm, kinetic.isOverStressed(), axis);
+                rpm * TWO_PI_PER_MINUTE_PER_TICK, rpm, base, driveRpm, stalled, axis);
     }
 
     /**

@@ -34,7 +34,9 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * the corners of its blocks' bounds first - a cheap upper bound - and, once that nears the barrier, at its real
  * outermost blocks: the corners of a turned or irregular ship's bounds stick out past any block (a disc's by 41%), and
  * read as supersonic a rim that isn't. A ship in its grace (a new one, or one that jumped: a hard crash) keeps its
- * stretch rather than ending it and booming again once it can be measured.</p>
+ * stretch rather than ending it and booming again once it can be measured, and so does one whose physics just stalled
+ * and is catching up ({@link ShipTracker.State#deckQuiet}); a stretch begins only after the hull has been past the
+ * barrier for half a second ({@link SonicBooms#DRIVEN_SUSTAIN_TICKS}), never while the server catches up after a lag.</p>
  */
 final class ShipSonicBooms {
 
@@ -54,8 +56,10 @@ final class ShipSonicBooms {
     static void process(ServerLevel level, ShipRef ship, ShipTracker.State state, AABB bounds, long now) {
         if (!SERVER.shipSonicBooms.get()) return;
         SonicBooms.Key key = SonicBooms.Key.ship(ship.id());
-        // a teleported or new ship's first frames can show any speed at all: unmeasured, its stretch goes on
-        if (state.inGrace(now)) {
+        // a teleported or new ship's first frames can show any speed at all, and so can a ship whose physics just stalled
+        // and is catching up (a rotor on a phys bearing spins faster for a moment): unmeasured, its stretch goes on
+        // and none begins
+        if (state.inGrace(now) || state.deckQuiet(now)) {
             SonicBooms.keepAlive(level, key);
             return;
         }

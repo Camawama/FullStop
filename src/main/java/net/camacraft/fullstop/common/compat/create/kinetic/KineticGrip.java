@@ -192,6 +192,27 @@ final class KineticGrip {
         return cap(dv);
     }
 
+    /**
+     * A spinning shaft dragging a body that stands on it (its nearest point on top of the shaft, across gravity, and on the
+     * ground): its velocity across the shaft is drawn toward the surface's speed ({@code omega x radius}) by {@code grip}
+     * a tick, as on a log rolling under it; along the shaft nothing changes. Null when the body doesn't stand on it.
+     *
+     * @param v    the body's world velocity, blocks per tick
+     * @param up   the way up for the body
+     * @param grip the share of the difference taken each tick (0 to 1)
+     */
+    @Nullable
+    static Vec3 surfaceDrag(Catch k, Vec3 v, Vec3 up, double grip) {
+        if (k.radialDir().dot(up) < 0.7) return null;
+        Vec3 t = k.tangent().subtract(up.scale(k.tangent().dot(up)));
+        double len = t.length();
+        if (len < 0.5) return null;
+        t = t.scale(1.0 / len);
+        double surface = k.speedAt(k.part().radius()) * len;
+        double along = v.subtract(k.part().base()).dot(t);
+        return cap(t.scale((surface - along) * grip));
+    }
+
     /** A flung body's share of the throw out from the gear: the rest goes along the teeth. */
     static final double FLING_OUT = 0.5;
     /** At least this share of a throw goes out from the gear (a body the teeth would drive into the floor squeezes out). */
@@ -299,7 +320,7 @@ final class KineticGrip {
     /** Whether two gears mesh, by Create's own rule (in RotationPropagator); two large cogs only mesh at right angles: no nip. */
     static boolean meshes(Hazard.Live a, Hazard.Live b) {
         Hazard ha = a.hazard(), hb = b.hazard();
-        if (ha.kind().wheel || hb.kind().wheel || ha.shipId() != hb.shipId() || a.gridAxis() != b.gridAxis()) return false;
+        if (!ha.kind().gear() || !hb.kind().gear() || ha.shipId() != hb.shipId() || a.gridAxis() != b.gridAxis()) return false;
         net.minecraft.core.BlockPos d = hb.pos().subtract(ha.pos());
         net.minecraft.core.Direction.Axis axis = a.gridAxis();
         if (axis.choose(d.getX(), d.getY(), d.getZ()) != 0) return false;

@@ -88,6 +88,7 @@ public final class KineticDebugView {
         List<Hazard.Live> turning = new ArrayList<>();
         List<Hazard.Live> driven = new ArrayList<>();
         for (Hazard part : PARTS) {
+            if (part.kind().surface) continue;
             Hazard.Live live = HazardScanner.resolveAny(level, part);
             if (live == null) continue;
             boolean active = live.turning(minRpm);

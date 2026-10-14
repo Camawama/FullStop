@@ -21,23 +21,40 @@ record Hazard(Kind kind, BlockPos pos, long shipId) {
      * The parts and their reach, in blocks at full size: {@code radius} is where the teeth or
      * paddles end (from Create's own geometry: a cogwheel's teeth reach about 9/16 from its axis, a
      * large cogwheel's 1 1/8, its particles' target radius; a water wheel's paddles reach into the
-     * cells Create reads its flow from, the four beside it, a large one's into the ring two out);
-     * {@code halfWidth} is half the disc's thickness (a cogwheel is 4/16 thick, a wheel a block).
+     * cells Create reads its flow from, the four beside it, a large one's into the ring two out; Create's flywheel's
+     * rim reaches 1.37 from its axis, its model 2.75 blocks across, well past the block it stands in, and it acts like
+     * a single gear's teeth by its rim's speed, never in a nip; a shaft is a smooth pole of radius 3/16 that only drags
+     * what stands on it along its turning surface, {@code surface});
+     * {@code halfWidth} is half the disc's thickness (a cogwheel is 4/16 thick, a wheel a block, a shaft's whole block).
      */
     enum Kind {
         COGWHEEL(0.5625, 0.16, false),
         LARGE_COGWHEEL(1.125, 0.16, false),
         WATER_WHEEL(0.9, 0.5, true),
-        LARGE_WATER_WHEEL(1.75, 0.5, true);
+        LARGE_WATER_WHEEL(1.75, 0.5, true),
+        FLYWHEEL(1.37, 0.375, false),
+        SHAFT(0.1875, 0.5, false, true);
 
         final double radius;
         final double halfWidth;
         final boolean wheel;
+        /** Only a surface to stand on: it drags what rests on it, never pushes off, bites or flings. */
+        final boolean surface;
 
         Kind(double radius, double halfWidth, boolean wheel) {
+            this(radius, halfWidth, wheel, false);
+        }
+
+        Kind(double radius, double halfWidth, boolean wheel, boolean surface) {
             this.radius = radius;
             this.halfWidth = halfWidth;
             this.wheel = wheel;
+            this.surface = surface;
+        }
+
+        /** A toothed gear: the only parts that mesh into a nip. */
+        boolean gear() {
+            return this == COGWHEEL || this == LARGE_COGWHEEL;
         }
 
         boolean large() {

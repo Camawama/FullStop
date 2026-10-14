@@ -59,7 +59,9 @@
 - [ ] **Two cogwheels side by side on one axis (or a large and a small one diagonally), spinning; step into the V where both gears' teeth run into the mesh.** *Expect:* drawn in and crushed (about 3 a bite at 64 RPM, "was caught in the gears"; with a large cog "was ground up by a large cogwheel"); on the other side of the pair (where the teeth come out of the mesh) you're only pushed away `[NEW]`.
 - [ ] **The same pair driven by a single water wheel or a hand crank.** *Expect:* the moment you're caught the network overstresses (goggles say so) and the gears stop with you wedged in them; step out and they turn again. Driven by a creative motor they keep crushing `[NEW]`.
 - [ ] **Sneak while caught in a nip, then walk out of the gears' plane.** *Expect:* sneaking pulls in slower; walking out along the axles frees you within a second `[NEW]`.
-- [ ] **An encased cogwheel, a gearbox, a shaft, a cogwheel turning under 4 RPM.** *Expect:* nothing at all.
+- [ ] **An encased cogwheel, a gearbox, an encased shaft, a cogwheel turning under 4 RPM.** *Expect:* nothing at all.
+- [ ] **Stand on a bare shaft lying flat, turning at 64 then 256 RPM (and stopped).** *Expect:* carried off it across the shaft the way its top turns (faster at 256); stopped, nothing. Walking along the shaft isn't slowed `[NEW 2026-10-13]`.
+- [ ] **Walk into the rim of a spinning flywheel at 16, 64 and 256 RPM (and one coasting after its motor stopped).** *Expect:* at 16 nudged, at 64 bitten (about a heart, "was flung by a flywheel" if it kills), at 256 thrown hard; a coasting wheel is as dangerous as its own spin `[NEW 2026-10-13]`.
 - [ ] **Swim under / next to a water wheel turning in a channel (on the side the water falls).** *Expect:* swept down and held under the paddles; holding jump doesn't bring you up; air runs out, then drowning damage. Swimming sideways along the axle gets you out. After 30 s held you are let go.
 - [ ] **Stand on top of a turning water wheel.** *Expect:* the paddles sweep you off the downstroke side into the water.
 - [ ] **Creative mode near any of these.** *Expect:* never caught, never hurt; on foot a single gear still pushes you off, and a very fast one flings you `[NEW]`.
@@ -98,6 +100,22 @@
 
 - [ ] **Walk off the edge of a ship spinning fast (45+ RPM), and of one cruising.** *Expect:* you fly off straight along the edge with the deck's speed, not swung round with it; stand still on the same deck: you stay put.
 - [ ] **Jump on a cruising deck.** *Expect:* you land where you took off (in the deck's frame), as before.
+
+## Slime, booms and fish, 2026-10-13 `[FIX]` `[NEW]` (round 15)
+
+- [ ] **Throw a snowball, egg, splash potion and ender pearl straight down at a slime floor, then low along it; shoot an arrow steeply into it and low along it.** *Expect:* every thrown item bounces at any angle (it breaks, splashes, hatches or teleports you only where it finally lands); the arrow skips low and sticks steep.
+- [ ] **Fire a fire charge from a dispenser at a slime wall at an angle, and get a ghast to shoot at slime.** *Expect:* it bounces off and flies away; no fire on the slime, no explosion there.
+- [ ] **Throw fire charges by hand (Amendments) at a slime wall and down onto a slime floor, and fire MKW's kart fireball at a slime wall.** *Expect:* each bounces; it explodes (or flares) only where it lands on something else.
+- [ ] **Glide on an elytra with a firework rocket into a slime wall and a slime floor.** *Expect:* one squish, not two.
+- [ ] **Spin a rotor on a Clockwork phys bearing just under the speed of sound (or a Create arm), then lag the server for a moment (e.g. `/forge tps` aside, load chunks fast).** *Expect:* no boom when it catches up; spun past the barrier for good, it booms about half a second later than before.
+- [ ] **Watch a big school of Nice Catch fish swim.** *Expect:* they glide past each other without bumping or scattering.
+
+## Bodies, 2026-10-12 `[FIX]` `[NEW]` (fsentity; Camafy 0.1.37, WallJump Unbound)
+
+- [ ] **Go supersonic at midnight, at dusk, at noon and in a dark cave lit by torches** (an elytra dive won't do it: a fast ship, a launched mob). *Expect:* the shock cone lit like the blocks round it: bright white at noon, warm at dusk, all but invisible at midnight (under True Darkness as black as the ground), faintly torch-coloured in the cave; it fades into fog and rain fog like everything else.
+- [ ] **Fly a ship fast into VS Genesis's space, and go supersonic on Ad Astra's Moon.** *Expect:* no cone and no boom in space or on the Moon; a cone left behind in the overworld is gone the moment you arrive.
+- [ ] **Hold right-click to charge a snowball, egg, splash potion and ender pearl and throw each low along a slime floor, then down at it steeply.** *Expect:* low, each skips off the slime (up to 6 times) and only breaks, splashes, hatches or teleports you where it really lands; steep, it bounces too since 2026-10-13 (a quick tap, which throws too slowly, still breaks on the slime). Also on a ship's slime deck.
+- [ ] **Glide on an elytra into a slime floor, a slime wall, a ship's slime deck and a ship's slime wall.** *Expect:* you bounce and keep gliding; sneaking into a slime floor still lands you. `slimeBounceKeepsGlide` off: a floor bounce ends the glide (vanilla's rule).
 
 ## Bodies, 2026-10-04 `[FIX]` `[NEW]` (fs-bodies)
 
@@ -749,3 +767,6 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Sprint (or get thrown) into Biomes o' Plenty's huge clover petals, a moss wall, azalea leaves; then into stone at the same speed.** *Expect:* no damage from the plants; the stone hurts as before. Falling onto a petal from high up still hurts, a little less (a soft landing).
 - [ ] **Fall onto a ship's slime deck tilted 30 degrees (or onto a slime wall at an angle).** *Expect:* you fly off sideways along the tilt and keep that speed through the air, landing well away from where you hit; `slimeBounceKeepsMomentum` off: the old drop back near the spot.
 - [ ] **Get something supersonic (a rotor ship's tips, a Create arm, a ship flying fast) while standing 300-700 blocks away, then close by.** *Expect:* far off a deep, muffled but still loud boom when the shock reaches you; close by a sharp crack. Standing by the tip end of a long rotor ship, its cracks come from the tips beside you. A faint foggy cone trails each supersonic tip (or the whole ship or entity), narrower the faster it goes; client `machCones` off hides them.
+
+## 49. Jumping on a moving ship (round 14, 2026-10-12) `[VS]` `[FIX]`
+- [ ] **Stand on a slanted ship that moves slowly (a few m/s) and hold the jump key for ten seconds; then do the same on a flat moving ship and on a slanted ship at rest.** *Expect:* you keep landing about where you took off on the deck (a few tenths of a block of wander at most) and never walk off the edge or down the slope; at rest you don't move at all. Ship Riders `relandingTakesDeckMotionOut` off: on the moving ships you creep forward with every landing.

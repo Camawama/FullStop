@@ -22,6 +22,7 @@
     "RandomStrollGoalMixin",
     "ProjectileHitInvoker",
     "AbstractArrowAccessor",
+    "FireworkRocketAccessor",
     "ButtonBlockAccessor",
     "ShipButtonAccessor",
     "ShipButtonHoldMixin",
@@ -34,6 +35,7 @@
     "ArrowSlimeSkipMixin",
     "ItemEntityBounceMixin",
     "LivingEntitySlimeFlightMixin",
+    "LivingEntityGlideMixin",
     "EntityMovementBlockInvoker"
   ],
   "injectors": {

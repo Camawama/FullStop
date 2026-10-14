@@ -236,7 +236,7 @@ public final class GearPushables {
     private static List<Hazard.Live> driven(Level level, List<Hazard> hazards, double minRpm, long notOnShip) {
         List<Hazard.Live> cogs = new ArrayList<>();
         for (Hazard hazard : hazards) {
-            if (hazard.kind().wheel || (notOnShip != Hazard.NO_SHIP && hazard.shipId() == notOnShip)) continue;
+            if (!hazard.kind().gear() || (notOnShip != Hazard.NO_SHIP && hazard.shipId() == notOnShip)) continue;
             Hazard.Live live = HazardScanner.resolveAny(level, hazard);
             if (live != null && Math.abs(live.driveRpm()) >= minRpm) cogs.add(live);
         }

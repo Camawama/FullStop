@@ -132,10 +132,17 @@ public final class FullStopTags {
     public static final TagKey<Block> GLUEY = blockTag("gluey");
 
     /**
-     * Projectiles that bounce off slime (SlimeProjectiles): arrows and tridents skip off it at a shallow angle and stick
-     * when shot steeply in; firework rockets always bounce. Arrows, spectral arrows, tridents and firework rockets.
+     * Projectiles that bounce off slime (SlimeProjectiles): pointy ones (arrows and tridents) skip off it at a shallow
+     * angle and stick when shot steeply in; the rest (thrown snowballs, eggs, potions, ender pearls, fire charges and
+     * fireballs, firework rockets) bounce at any angle.
      */
     public static final TagKey<EntityType<?>> BOUNCES_ON_SLIME = entityTag("bounces_on_slime");
+
+    /**
+     * Pointy projectiles besides every arrow-like ({@code AbstractArrow}: arrows, tridents): they stick in slime when
+     * they come in steeply, and skip off it only at a shallow angle (SlimeProjectiles). Arrows and the trident.
+     */
+    public static final TagKey<EntityType<?>> POINTY_PROJECTILES = entityTag("pointy_projectiles");
 
     /** Dropped items that bounce off what they land on or hit (SlimeProjectiles): slime balls and slime blocks. */
     public static final TagKey<net.minecraft.world.item.Item> BOUNCY_ITEMS = TagKey.create(Registries.ITEM,

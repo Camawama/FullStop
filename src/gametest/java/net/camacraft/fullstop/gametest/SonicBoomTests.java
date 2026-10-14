@@ -34,11 +34,13 @@ public final class SonicBoomTests {
     /**
      * Over the barrier (1.2x), jittering to 96% of it for ten ticks, back over, dipping to 85% for
      * 19 ticks, back over: one stretch throughout. Then 85% for 21 ticks and back over: a second.
+     * (A source that isn't driven: a driven one, a ship, also waits {@code DRIVEN_SUSTAIN_TICKS} and real
+     * time before its stretch begins, {@link #aDrivenSourcePastTheBarrierForAMomentBoomsNothing}.)
      */
     @GameTest(template = FLAT, timeoutTicks = 400, batch = BATCH)
     public static void aSourceJitteringAtTheBarrierBoomsOnce(GameTestHelper helper) {
         ServerLevel level = helper.getLevel();
-        SonicBooms.Key key = SonicBooms.Key.ship(-4242L - helper.absolutePos(net.minecraft.core.BlockPos.ZERO).asLong() % 1000L);
+        SonicBooms.Key key = new SonicBooms.Key(true, -4242L - helper.absolutePos(net.minecraft.core.BlockPos.ZERO).asLong() % 1000L, false);
         Vec3 at = helper.absoluteVec(new Vec3(0.5, 3.0, 0.5));
         double s = SonicBooms.SOUND_MPS;
         List<Double> plan = new ArrayList<>();
@@ -72,6 +74,59 @@ public final class SonicBoomTests {
                     for (int i = 0; i < expected.length; i++) {
                         helper.assertTrue(seen.get(i) == expected[i], "checkpoint " + (i + 1) + ": " + out);
                     }
+                    helper.succeed();
+                });
+    }
+
+    /**
+     * The owner's false boom (2026-10-12): a rotor on a phys bearing lagged and, catching up, read past the
+     * barrier for a few ticks. A driven source (a ship) over the barrier for 6 ticks begins no stretch; a
+     * flung body (not driven) does after 2; the ship held over it for 14 ticks and 0.7 s does (the game-test
+     * server runs its ticks back to back, so the run is held until the real time has passed too).
+     */
+    @GameTest(template = FLAT, timeoutTicks = 3000, batch = BATCH)
+    public static void aDrivenSourcePastTheBarrierForAMomentBoomsNothing(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        long base = -9100L - helper.absolutePos(net.minecraft.core.BlockPos.ZERO).asLong() % 1000L;
+        SonicBooms.Key ship = SonicBooms.Key.ship(base);
+        SonicBooms.Key body = new SonicBooms.Key(false, base - 1L, false);
+        Vec3 at = helper.absoluteVec(new Vec3(0.5, 3.0, 0.5));
+        double s = SonicBooms.SOUND_MPS;
+        List<Double> plan = new ArrayList<>();
+        phase(plan, 0.8, 4);
+        phase(plan, 1.3, 6);             // the catch-up spike
+        phase(plan, 0.8, 4);
+        int afterSpike = plan.size();
+        phase(plan, 0.8, 25);           // under 90% for over a second: anything begun is over
+        int runFrom = plan.size();      // then really past the barrier (1.2x), 14 ticks and 0.7 s at least
+        int[] tick = {0};
+        long[] runStart = {0L};
+        int[][] seen = new int[2][];
+        helper.onEachTick(() -> {
+            if (seen[1] != null) return;
+            int t = tick[0]++;
+            double share;
+            if (t < plan.size()) {
+                share = plan.get(t);
+            } else {
+                if (t == runFrom) runStart[0] = System.nanoTime();
+                share = 1.2;
+            }
+            Vec3 v = new Vec3(share * s, 0.0, 0.0);
+            SonicBooms.observe(level, ship, at, v, p -> true);
+            SonicBooms.observe(level, body, at, v, p -> true);
+            if (t + 1 == afterSpike) seen[0] = new int[]{SonicBooms.stretchesStarted(level, ship), SonicBooms.stretchesStarted(level, body)};
+            if (t >= runFrom + 13 && System.nanoTime() - runStart[0] >= 700_000_000L) {
+                seen[1] = new int[]{SonicBooms.stretchesStarted(level, ship), SonicBooms.stretchesStarted(level, body)};
+            }
+        });
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(seen[1] != null, "feeding the sources (" + tick[0] + " ticks)"))
+                .thenExecute(() -> {
+                    String out = "after the 6-tick spike: ship " + seen[0][0] + ", body " + seen[0][1] + " (wanted 0, 1); after 14 ticks over: ship "
+                            + seen[1][0] + ", body " + seen[1][1] + " (wanted 1, 2)";
+                    ShipCollisionTests.report("a ship and a flung body past the barrier for 6 ticks, then for 14", out);
+                    helper.assertTrue(seen[0][0] == 0 && seen[0][1] == 1 && seen[1][0] == 1 && seen[1][1] == 2, out);
                     helper.succeed();
                 });
     }

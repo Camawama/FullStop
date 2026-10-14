@@ -12,7 +12,10 @@ import net.minecraft.util.Mth;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.projectile.AbstractArrow;
+import net.minecraft.world.entity.projectile.AbstractHurtingProjectile;
+import net.minecraft.world.entity.projectile.FireworkRocketEntity;
 import net.minecraft.world.entity.projectile.Projectile;
+import net.minecraft.world.entity.projectile.ThrowableProjectile;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.SlimeBlock;
 import net.minecraft.world.level.block.state.BlockState;
@@ -39,8 +42,20 @@ import java.util.WeakHashMap;
  *   {@code projectileSlimeFriction}, at most {@code projectileSlimeMaxSkips} times; shot more steeply, slower than
  *   {@link #MIN_SKIP_MPS}, or past its last skip it sticks as on any block. Both sides decide the same way (an arrow
  *   is simulated on its watchers' clients too, and whether it stuck is never sent);</li>
+ *   <li>a thrown snowball, egg, potion or ender pearl, and a fire charge or a ghast's fireball (a dragon's too, and
+ *   Amendments' thrown fire and dragon charges: the owner, 2026-10-13, "fireballs are not bouncing on the slime and
+ *   instead are exploding on contact"), in the tag bounce off
+ *   slime at ANY angle (the owner, 2026-10-13: the shallow angle is for "pointy" things, which stick in slime when
+ *   thrown straight in; "Ender pearls, eggs, etc should bounce at any angle", "Fireballs projectiles (fire charge)
+ *   should bounce off slime too"), with the same restitution, friction and last skip. Only what is pointy
+ *   ({@link #pointy}: an arrow-like, {@code #fullstop:pointy_projectiles}) needs the shallow angle. A bounce is no
+ *   hit: nothing shatters, splashes, hatches, teleports, sets fire or explodes until it really lands (too slow, or
+ *   past its last skip), where it does what it always does. A fireball's thrust is turned with it, mirrored in the
+ *   face, or it would fly straight back in;</li>
  *   <li>a firework rocket in the tag bounces off slime at any angle, with the same restitution and friction (its
- *   block hit is already Full Stop's: it skims instead of exploding on contact);</li>
+ *   block hit is already Full Stop's: it skims instead of exploding on contact). A rocket held by a gliding player
+ *   (attached to them) is the player's: it never bounces or sounds itself (the owner heard two bounces when flying
+ *   into slime on a rocket);</li>
  *   <li>a dropped item in {@code #fullstop:bouncy_items} (slime balls, slime blocks) bounces off whatever it lands on
  *   or hits, giving back {@code bouncyItemRestitution} of its speed into it, until it is too slow to.</li>
  * </ul>
@@ -89,6 +104,15 @@ public final class SlimeProjectiles {
         return state.getBlock() instanceof SlimeBlock || state.is(FullStopTags.BOUNCY);
     }
 
+    /**
+     * Whether a projectile is pointy (an arrow, a trident: {@link AbstractArrow}, or {@code #fullstop:pointy_projectiles}):
+     * such a thing only skips off slime at a shallow angle and sticks in it when it comes in steeply; anything else
+     * bounces at any angle.
+     */
+    public static boolean pointy(Projectile projectile) {
+        return projectile instanceof AbstractArrow || projectile.getType().is(FullStopTags.POINTY_PROJECTILES);
+    }
+
     /** Whether Full Stop bounces this projectile off slime here (not one with Full Stop's full physics: those bounce there). */
     public static boolean bounces(Projectile projectile) {
         return enabled() && projectile.getType().is(FullStopTags.BOUNCES_ON_SLIME)
@@ -101,36 +125,81 @@ public final class SlimeProjectiles {
      * from the face; false when it sticks as usual.
      */
     public static boolean skipArrow(AbstractArrow arrow, BlockHitResult hit) {
-        if (!bounces(arrow) || arrow.noPhysics) return false;
-        Level level = arrow.level();
+        if (arrow.noPhysics || !skip(arrow, hit)) return false;
+        arrow.setCritArrow(false);
+        return true;
+    }
+
+    /**
+     * A thrown item's block hit ({@code ThrowableProjectile}: a snowball, an egg, a potion, an ender pearl; its impact
+     * event, both sides, as the thrown item is simulated on its watchers' clients too): true when it skipped off slime
+     * (the caller cancels the impact, so it neither breaks nor does what it does on landing), with its position and
+     * velocity set so this tick's own move carries it on from the face; false when it lands as usual.
+     */
+    public static boolean skipThrown(ThrowableProjectile thrown, BlockHitResult hit) {
+        return skip(thrown, hit);
+    }
+
+    /**
+     * A fire charge's or a fireball's block hit (its impact event, both sides: it is simulated on its watchers' clients
+     * too): true when it bounced off slime (the caller cancels the impact: no fire, no explosion), its velocity and its
+     * thrust ({@code xPower}..., which accelerate it every tick) mirrored in the face, so it flies off rather than being
+     * pushed straight back in.
+     */
+    public static boolean skipFireball(AbstractHurtingProjectile fireball, BlockHitResult hit) {
+        if (!skip(fireball, hit)) return false;
+        Bounce bounce = LAST.get(fireball);
+        if (bounce != null) {
+            Vec3 n = bounce.normal();
+            double into = fireball.xPower * n.x + fireball.yPower * n.y + fireball.zPower * n.z;
+            if (into < 0.0) {
+                fireball.xPower -= 2.0 * into * n.x;
+                fireball.yPower -= 2.0 * into * n.y;
+                fireball.zPower -= 2.0 * into * n.z;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * The skip itself, for anything that moves by its velocity right after its hit is handled (an arrow's and a thrown
+     * item's tick both do): true when it skipped.
+     */
+    private static boolean skip(Projectile projectile, BlockHitResult hit) {
+        if (!bounces(projectile)) return false;
+        Level level = projectile.level();
         BlockPos pos = hit.getBlockPos();
         if (!isSlime(level.getBlockState(pos))) return false;
-        Vec3 v = arrow.getDeltaMovement();
+        Vec3 v = projectile.getDeltaMovement();
         Face face = face(level, hit);
         Vec3 rel = v.subtract(face.motion);
         double into = -rel.dot(face.normal);
         double speed = rel.length();
         if (!(into > 0.0) || speed * 20.0 < MIN_SKIP_MPS) return false;
         double angle = Math.toDegrees(Math.asin(Mth.clamp(into / speed, 0.0, 1.0)));
-        int skips = skips(arrow);
-        if (angle > FullStopConfig.SERVER.projectileSlimeSkipAngle.get() || skips >= FullStopConfig.SERVER.projectileSlimeMaxSkips.get()) {
+        int skips = skips(projectile);
+        // only a pointy thing sticks in slime when it comes in steeply; anything else bounces at any angle
+        if ((pointy(projectile) && angle > FullStopConfig.SERVER.projectileSlimeSkipAngle.get())
+                || skips >= FullStopConfig.SERVER.projectileSlimeMaxSkips.get()) {
             return false;
         }
         Vec3 out = reflect(rel, face.normal, FullStopConfig.SERVER.projectileSlimeRestitution.get(),
                 FullStopConfig.SERVER.projectileSlimeFriction.get()).add(face.motion);
         if (out.subtract(face.motion).length() * 20.0 < MIN_SKIP_MPS) return false;
 
-        // This tick's own move adds the velocity to the position after the hit (AbstractArrow.tick): placed so that
-        // it ends where the rest of the tick takes it from the face, lifted just off it.
-        Vec3 from = arrow.position();
+        // This tick's own move adds the velocity to the position after the hit (AbstractArrow.tick, ThrowableProjectile.tick,
+        // AbstractHurtingProjectile.tick): placed so that it ends where the rest of the tick takes it from the face, lifted
+        // just off it. One that moved to the face before reporting its hit (Moonlight's ImprovedProjectileEntity: Amendments'
+        // thrown fire charges) has travelled nothing past it and moves on from the face next tick; setPos, not setPosRaw,
+        // so its box (which it sweeps from) goes with it.
+        Vec3 from = projectile.position();
         double travelled = v.lengthSqr() > 1.0E-12 ? Mth.clamp(face.at.subtract(from).length() / v.length(), 0.0, 1.0) : 1.0;
         Vec3 end = face.at.add(face.normal.scale(LIFT)).add(out.scale(1.0 - travelled));
-        arrow.setPosRaw(end.x - out.x, end.y - out.y, end.z - out.z);
-        arrow.setDeltaMovement(out);
-        arrow.setCritArrow(false);
-        arrow.hasImpulse = true;
-        SKIPS.put(arrow, skips + 1);
-        LAST.put(arrow, new Bounce(level.getGameTime(), v, out, face.normal, angle, skips + 1));
+        projectile.setPos(end.x - out.x, end.y - out.y, end.z - out.z);
+        projectile.setDeltaMovement(out);
+        projectile.hasImpulse = true;
+        SKIPS.put(projectile, skips + 1);
+        LAST.put(projectile, new Bounce(level.getGameTime(), v, out, face.normal, angle, skips + 1));
         squish(level, face.at, into * 20.0);
         return true;
     }
@@ -141,6 +210,11 @@ public final class SlimeProjectiles {
      */
     public static boolean bounceFirework(Projectile rocket, BlockHitResult hit) {
         if (!bounces(rocket)) return false;
+        // held by a gliding player: it goes where they go, and they bounce (and sound) themselves
+        if (rocket instanceof FireworkRocketEntity firework
+                && ((net.camacraft.fullstop.common.mixin.FireworkRocketAccessor) firework).fullstop$isAttachedToEntity()) {
+            return false;
+        }
         Level level = rocket.level();
         if (!isSlime(level.getBlockState(hit.getBlockPos()))) return false;
         Vec3 v = rocket.getDeltaMovement();

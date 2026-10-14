@@ -35,8 +35,9 @@ import java.util.Map;
 /**
  * Create Catastrophes, the kinetic half: the nip of two meshing gears draws bodies in and crushes them,
  * a single spinning gear pushes off what touches it, and water wheels drag bodies under and hold them
- * there ({@code gearHazards}, {@code waterWheelHazards} in the config's Create section). Registered only
- * with Create installed.
+ * there ({@code gearHazards}, {@code waterWheelHazards} in the config's Create section); Create's flywheel's rim acts as
+ * a single gear's teeth by its own spin (Camafy's real flywheel coasts on), {@code flywheelHazards}, and a spinning bare
+ * shaft drags what stands on it along its surface ({@code shaftSurfaceGrip}). Registered only with Create installed.
  *
  * <p><b>Who moves whom.</b> A body's motion is changed on the side that simulates it: the server for
  * mobs, the player's own client for a player (the client owns a player's movement; a pull applied by
@@ -187,11 +188,16 @@ public final class KineticHazards {
 
         // the gears: what turns them now (or would: a jammed pair still knows its in-running side), and the water wheels
         List<Hazard.Live> cogs = new ArrayList<>();
+        List<Hazard.Live> shafts = new ArrayList<>(0);
         KineticGrip.Catch wheel = null;
+        boolean flywheels = cfg.flywheelHazards.get();
         for (Hazard hazard : state.hazards) {
+            if (hazard.kind() == Hazard.Kind.FLYWHEEL && !flywheels) continue;
             Hazard.Live live = HazardScanner.resolveAny(level, hazard);
             if (live == null) continue;
-            if (hazard.kind().wheel) {
+            if (hazard.kind().surface) {
+                if (live.rpm() != 0.0) shafts.add(live);
+            } else if (hazard.kind().wheel) {
                 if (!live.turning(minRpm)) continue;
                 KineticGrip.Catch k = KineticGrip.of(box, live);
                 if (k != null && (wheel == null || k.outside() < wheel.outside())) wheel = k;
@@ -242,6 +248,22 @@ public final class KineticHazards {
                 hold(body, state);
             }
             return;
+        }
+
+        // a spinning shaft underfoot drags the body along its turning surface
+        if (!shafts.isEmpty() && mayPull && body.onGround()) {
+            double grip = cfg.shaftSurfaceGrip.get();
+            KineticGrip.Catch on = null;
+            for (Hazard.Live live : shafts) {
+                KineticGrip.Catch k = grip > 0.0 ? KineticGrip.touch(box, live) : null;
+                if (k != null && (on == null || k.outside() < on.outside())) on = k;
+            }
+            Vec3 drag = on == null ? null : KineticGrip.surfaceDrag(on, v, up(body), Math.min(1.0, grip));
+            if (drag != null) {
+                Impulses.add(body, drag);
+                letGo(body, state);
+                return;
+            }
         }
 
         if (creative || wheel == null || !wheels) {
