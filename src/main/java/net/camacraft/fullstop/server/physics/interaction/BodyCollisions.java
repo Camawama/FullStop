@@ -14,6 +14,7 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.physics.math.SweptBoxes;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
+import net.camacraft.fullstop.common.physics.rules.EntityCollisionRules;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
@@ -93,10 +94,15 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * "loses" is the closing speed times the lander's mass over its own - a golem landing on a
  * chicken flattens it, a chicken landing on a cow does nothing), and the lander - mobs aren't
  * solid to each other - falls on past it to the ground, where FullStop bills its landing as usual.
+ * A player (or, by config, any living body) coming down on a mob, boat or minecart at a landing's
+ * speed rides it instead ({@link EntityRiding}: no crush, no damage), so such a landing is looked
+ * at below the collision speed; a falling slime or honey block makes any collision it is part of
+ * springy ({@code fallingSlimeRestitution}).
  *
  * <p>Left alone: spectators, what vanilla doesn't push either (armour stands, bats, a body on a
  * ladder), the ender dragon (multipart), NoAI mobs, sleepers, riders of the same mount, a rider and
- * the mount it just left, two minecarts (vanilla bumps carts), anything seated on a ship, bodies
+ * the mount it just left, two minecarts (vanilla bumps carts), two fish swimming together
+ * ({@link EntityCollisionRules}), anything seated on a ship, bodies
  * whose contacts another mod owns ({@code CONTACT}: MKW's karts
  * and racers), bodies whose scoreboard teams don't collide, and pairs a minigame host says may
  * not touch ({@code MatchPolicies.canHarm}). A body another mod moves ({@code MOTION}) isn't
@@ -138,9 +144,11 @@ public final class BodyCollisions {
      * @param speedLost the speed it lost bringing the closing speed to zero (m/s): what hurts
      * @param damage    the damage dealt to it, before armour (0 when none)
      * @param crushed   it was landed on while standing on the ground
+     * @param mounted   the landing was a mount ({@link EntityRiding}): the upper body now rides the lower one, nothing
+     *                  was pushed or hurt
      */
     public record Record(long tick, Entity other, Vec3 normal, double closing, double restitution, double kg, double otherKg,
-                        Vec3 before, Vec3 change, double speedLost, double damage, boolean crushed) {
+                        Vec3 before, Vec3 change, double speedLost, double damage, boolean crushed, boolean mounted) {
     }
 
     /** The last collision {@code entity} (the root of its ride stack) had with another body, or null. */
@@ -239,6 +247,11 @@ public final class BodyCollisions {
         double minSpeed = SERVER.entityCollisionMinSpeed.get();
         // a pair closes at most as fast as its two speeds together: one of them brings at least half
         double moverSpeed = minSpeed * 0.5;
+        // A body that may ride what it lands on (a player; any living body by config) is looked at from the slower
+        // speed a mount takes: it brings the whole closing speed of its landing itself.
+        EntityRiding.Rules riding = EntityRiding.Rules.read();
+        double rideSpeed = riding.enabled() ? Math.min(minSpeed, riding.minSpeed()) : minSpeed;
+        double riderMoverSpeed = Math.min(moverSpeed, rideSpeed);
         // Bodies are worked out only for the stacks that move fast enough to start a collision (the movers) and for
         // those a mover comes near: every stack's body every tick was most of this pass's cost among many mobs (the
         // owner's main pack, 1,479 entities: 3.5% of the server thread), nearly all of it for mobs strolling about.
@@ -249,7 +262,8 @@ public final class BodyCollisions {
         for (Entity entity : level.getAllEntities()) {
             if (entity.isPassenger() || !mayBeBody(entity)) continue;
             ends.put(entity.getId(), entity.position());
-            if (!net.camacraft.fullstop.common.physics.PerfSwitches.eagerBodies() && quickSpeed(entity, before) < moverSpeed) continue;
+            double need = riding.mayRide(entity) ? riderMoverSpeed : moverSpeed;
+            if (!net.camacraft.fullstop.common.physics.PerfSwitches.eagerBodies() && quickSpeed(entity, before) < need) continue;
             Body body = bodies.of(entity);
             if (body == null) continue;
             movers.add(body);
@@ -263,14 +277,15 @@ public final class BodyCollisions {
         List<Contact> contacts = new ArrayList<>();
         LongOpenHashSet seen = new LongOpenHashSet();
         for (Body a : movers) {
-            if (Math.max(a.velocity.length(), a.move.length() * 20.0) < moverSpeed) continue;
+            boolean aRides = riding.mayRide(a.root);
+            if (Math.max(a.velocity.length(), a.move.length() * 20.0) < (aRides ? riderMoverSpeed : moverSpeed)) continue;
             AABB path = a.box.minmax(a.startBox()).inflate(longestMove + 0.1);
             for (Entity near : level.getEntities(a.root, path, e -> bodies.of(e.getRootVehicle()) != null)) {
                 Body b = bodies.of(near.getRootVehicle());
                 if (b == null || b == a) continue;
                 long key = pair(a.root.getId(), b.root.getId());
                 if (!seen.add(key) || state.cooling.get(key) > now) continue;
-                Contact contact = contact(a, b, minSpeed);
+                Contact contact = contact(a, b, aRides || riding.mayRide(b.root) ? rideSpeed : minSpeed);
                 if (contact != null) contacts.add(contact);
             }
         }
@@ -283,10 +298,11 @@ public final class BodyCollisions {
             Body a = contact.a(), b = contact.b();
             if (done.contains(a.root) || done.contains(b.root)) continue;
             if (!a.root.isAlive() || !b.root.isAlive() || !allowed(a, b)) continue;
+            // (a contact looked at only for a mount that wasn't one is no meeting: the pair stays free to collide)
+            if (!resolve(level, contact, ends, minSpeed, riding)) continue;
             done.add(a.root);
             done.add(b.root);
             state.cooling.put(pair(a.root.getId(), b.root.getId()), now + PAIR_COOLDOWN_TICKS);
-            resolve(level, contact, ends);
         }
     }
 
@@ -428,6 +444,8 @@ public final class BodyCollisions {
         if (recentRideExchange(a.root, b.root)) return null;
         // carts on rails bump each other by vanilla's own rules
         if (a.root instanceof AbstractMinecart && b.root instanceof AbstractMinecart) return null;
+        // pairs that never collide: two fish swimming in a school
+        if (EntityCollisionRules.shouldIgnoreCollision(a.root, b.root)) return null;
         SweptBoxes.Touch touch = SweptBoxes.first(a.startBox(), a.move, b.startBox(), b.move);
         if (touch == null) return null;
         double t = touch.t();
@@ -512,25 +530,39 @@ public final class BodyCollisions {
     // Resolving
     // ------------------------------------------------------------------
 
-    private static void resolve(ServerLevel level, Contact c, Int2ObjectOpenHashMap<Vec3> ends) {
+    /**
+     * What the two bodies' meeting comes to: a mount, a crush or an exchange.
+     *
+     * @param minSpeed the closing speed (m/s) from which a meeting is a collision (a contact slower than that was only
+     *                 looked at for a mount)
+     * @return whether anything happened between them
+     */
+    private static boolean resolve(ServerLevel level, Contact c, Int2ObjectOpenHashMap<Vec3> ends, double minSpeed,
+                                   EntityRiding.Rules riding) {
         Body a = c.a(), b = c.b();
         Vec3 n = c.normal();
+        // One come down on top of the other at a landing's speed: it rides it (a player onto a cow or a boat).
+        if (b.frame.vertical(n) > ON_TOP && ride(level, c, a, b, n, riding)) return true;
+        if (a.frame.vertical(n.scale(-1.0)) > ON_TOP && ride(level, c, b, a, n.scale(-1.0), riding)) return true;
+        if (c.closing() < minSpeed) return false;
         // One on top of the other, the lower one standing on the ground: a crush, not an exchange. A falling
         // block landing on a standing body is vanilla's own affair (an anvil hurts what it lands on, sand buries it).
         if (b.frame.vertical(n) > ON_TOP && b.standing()) {
             if (!(a.root instanceof FallingBlockEntity)) crush(level, c, a, b, n);
-            return;
+            return true;
         }
         if (a.frame.vertical(n.scale(-1.0)) > ON_TOP && a.standing()) {
             if (!(b.root instanceof FallingBlockEntity)) crush(level, c, b, a, n.scale(-1.0));
-            return;
+            return true;
         }
 
         double e = SERVER.entityCollisionRestitution.get();
+        // a falling slime or honey block makes any collision it is part of springy
+        if (stickyBlock(a.root) || stickyBlock(b.root)) e = Math.max(e, SERVER.fallingSlimeRestitution.get());
         // held to its surface by Gravity Unbound (plating, Surface Cling): it moves as little as the ground
         double invA = Gravity.isAnchored(a.root) ? 0.0 : 1.0 / a.kg;
         double invB = Gravity.isAnchored(b.root) ? 0.0 : 1.0 / b.kg;
-        if (!(invA + invB > 0.0)) return;
+        if (!(invA + invB > 0.0)) return true;
         double reduced = 1.0 / (invA + invB);
         // What bringing the closing speed to zero takes (N s): what hurts, at the speed they met with.
         double stop = c.closing() * reduced;
@@ -575,9 +607,38 @@ public final class BodyCollisions {
 
         effects(level, c);
         long tick = level.getGameTime();
-        LAST.put(a.root, new Record(tick, b.root, n, c.closing(), e, a.kg, b.kg, a.carried, pushedA, lostA, damageA, false));
-        LAST.put(b.root, new Record(tick, a.root, n.scale(-1.0), c.closing(), e, b.kg, a.kg, b.carried, pushedB, lostB, damageB, false));
+        LAST.put(a.root, new Record(tick, b.root, n, c.closing(), e, a.kg, b.kg, a.carried, pushedA, lostA, damageA, false, false));
+        LAST.put(b.root, new Record(tick, a.root, n.scale(-1.0), c.closing(), e, b.kg, a.kg, b.carried, pushedB, lostB, damageB,
+                false, false));
         log(c, e, lostA, lostB, damageA, damageB, pushedA, pushedB, null);
+        return true;
+    }
+
+    /**
+     * {@code upper} came down on {@code lower}: when it may ride it and the landing is a mount's speed, it mounts it
+     * ({@link EntityRiding}), and nothing else happens between them.
+     *
+     * @param up the normal from the lower body toward the upper one
+     * @return whether it now rides it
+     */
+    private static boolean ride(ServerLevel level, Contact c, Body upper, Body lower, Vec3 up, EntityRiding.Rules riding) {
+        if (!riding.mayRide(upper.root) || !riding.mounts(c.closing())) return false;
+        if (!EntityRiding.mount(upper.root, lower.root, upper.kg, lower.kg)) return false;
+        long tick = level.getGameTime();
+        LAST.put(upper.root, new Record(tick, lower.root, up, c.closing(), 0.0, upper.kg, lower.kg, upper.carried, Vec3.ZERO,
+                0.0, 0.0, false, true));
+        LAST.put(lower.root, new Record(tick, upper.root, up.scale(-1.0), c.closing(), 0.0, lower.kg, upper.kg, lower.carried,
+                Vec3.ZERO, 0.0, 0.0, false, true));
+        if (SERVER.debugImpactLog.get()) {
+            LOGGER.info("[FullStop] body collision {} landed on {} and rides it: closing {} m/s, {} kg on {} kg",
+                    upper.root.getName().getString(), lower.root.getName().getString(), fmt(c.closing()), fmt(upper.kg), fmt(lower.kg));
+        }
+        return true;
+    }
+
+    /** A falling slime or honey block in flight. */
+    private static boolean stickyBlock(Entity root) {
+        return root instanceof FallingBlockEntity falling && falling.getBlockState().isStickyBlock();
     }
 
     /**
@@ -593,9 +654,9 @@ public final class BodyCollisions {
         effects(level, c);
         long tick = level.getGameTime();
         LAST.put(lower.root, new Record(tick, upper.root, up.scale(-1.0), c.closing(), 0.0, lower.kg, upper.kg, lower.carried,
-                Vec3.ZERO, lost, damage, true));
+                Vec3.ZERO, lost, damage, true, false));
         LAST.put(upper.root, new Record(tick, lower.root, up, c.closing(), 0.0, upper.kg, lower.kg, upper.carried,
-                Vec3.ZERO, 0.0, 0.0, false));
+                Vec3.ZERO, 0.0, 0.0, false, false));
         boolean aBelow = lower == c.a();
         log(c, 0.0, aBelow ? lost : 0.0, aBelow ? 0.0 : lost, aBelow ? damage : 0.0, aBelow ? 0.0 : damage,
                 Vec3.ZERO, Vec3.ZERO, lower);

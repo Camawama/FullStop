@@ -360,11 +360,24 @@ public class FullStopCapability {
             hasTeleported = true;
         }
 
+        // A body at rest (idleFastPaths): it hasn't moved since its last step, nothing is pending on it and its
+        // measurements have settled, so stepping it again would only read the same zeros. Its last step stands; the
+        // tick after it moves again measures from where it rested. No fresh sample: nothing to judge this tick.
+        if (net.camacraft.fullstop.common.physics.PerfSwitches.idleFastPaths() && resting(entity)) {
+            freshSample = false;
+            steppedPerSample = false;
+            steppedTick = entity.tickCount;
+            return;
+        }
+
         frame = currentFrame(entity);
-        gravityStrength = Gravity.strength(entity);
-        weightless = gravityStrength < Gravity.WEIGHTLESS_BELOW;
-        gravityBpt2 = Gravity.acceleration(entity);
+        // one gravity read: the m/s^2 vector is the pull times the strength, and the other two are the same vector
+        // on the other scales (Camafy derives all three from the same strength and pull)
         gravityMps2 = Gravity.accelerationMps2(entity);
+        gravityStrength = gravityMps2.length() / net.camacraft.camafy.util.math.Units.STANDARD_GRAVITY;
+        weightless = gravityStrength < Gravity.WEIGHTLESS_BELOW;
+        gravityBpt2 = gravityStrength == 0.0 ? Vec3.ZERO
+                : gravityMps2.scale(Gravity.VANILLA_ACCEL / net.camacraft.camafy.util.math.Units.STANDARD_GRAVITY);
 
         // Which measurement drives this tick: the queued client-tick samples
         // (a player moving under its own client, a vehicle that client
@@ -431,6 +444,24 @@ public class FullStopCapability {
         if (bounceCooldown > 0) {
             bounceCooldown--;
         }
+    }
+
+    /**
+     * A server-moved body at rest on the ground with nothing pending: its position is exactly where its last step
+     * left it (vanilla doesn't move a body whose motion has decayed below 1e-7 and zeroes such motion), its stopping
+     * force and felt acceleration have run down, no cooldown or flag is live, no ship carries it and no mod claims it.
+     * Players, vehicles and their riders are never "resting" (their steps come from clients or carriers).
+     */
+    private boolean resting(Entity entity) {
+        if (firstTick || entity instanceof Player || entity.isVehicle() || entity.isPassenger()) return false;
+        if (!entity.onGround() || entity.horizontalCollision || entity.verticalCollision) return false;
+        if (hasTeleported || hasDismounted || jumped || jumpWindow > 0 || isDamageImmune || physicsClaims != 0) return false;
+        if (teleportCooldown > 0 || dismountCooldown > 0 || soundCooldown > 0 || waterSkipCooldown > 0 || bounceCooldown > 0) return false;
+        if (standingShipNow != Long.MIN_VALUE || !samples.isEmpty()) return false;
+        if (decelerationForce != 0.0 || Math.abs(avgAccel) > 1.0e-4 || Math.abs(rawAvgAccel) > 1.0e-4) return false;
+        if (velocityMps.lengthSqr() != 0.0) return false;
+        Vec3 at = entity.position();
+        return at.x == currentPosition.x && at.y == currentPosition.y && at.z == currentPosition.z;
     }
 
     /** Whether this entity's motion is owned by a client right now (see the sampling notes above). */
@@ -1114,7 +1145,7 @@ public class FullStopCapability {
 
     private void tickRiding() {
         if (hasDismounted) {
-            dismountCooldown = 40;
+            dismountCooldown = net.camacraft.fullstop.server.physics.interaction.EntityRiding.dismountCooldownTicks();
             hasDismounted = false;
         }
 
@@ -1724,6 +1755,37 @@ public class FullStopCapability {
             thinAirExposureTicks = Math.max(0, thinAirExposureTicks - 4);
         }
         return thinAirExposureTicks;
+    }
+
+    private boolean cachedDead = false;
+    private int deadRefreshIn = 0;
+
+    /**
+     * Cached {@link LivingEntity#isDeadOrDying()} (a locked synched-data read of the health), refreshed once a second;
+     * a body whose death animation has begun ({@code deathTime}, a plain field) reads dead at once.
+     */
+    public boolean isDeadCached(LivingEntity living) {
+        if (living.deathTime > 0) return true;
+        if (--deadRefreshIn <= 0) {
+            cachedDead = living.isDeadOrDying();
+            deadRefreshIn = NO_AI_REFRESH_TICKS;
+        }
+        return cachedDead;
+    }
+
+    // The honey/soul-sand wall field (BlockPhasing): the block position around which no slowing block was found, and
+    // when, so a body that stays within that block isn't scanned again for half a second.
+    private long slowingClearPos = Long.MIN_VALUE;
+    private int slowingClearTick = Integer.MIN_VALUE;
+
+    /** Whether no slowing block was found around {@code blockPos} within the last {@code ticks} ticks. */
+    public boolean slowingClearAt(long blockPos, int now, int ticks) {
+        return slowingClearPos == blockPos && now - slowingClearTick < ticks;
+    }
+
+    public void noteSlowingClear(long blockPos, int now) {
+        slowingClearPos = blockPos;
+        slowingClearTick = now;
     }
 
     /** Cached {@link Mob#isNoAi()}, refreshed once a second. See {@link #NO_AI_REFRESH_TICKS}. */

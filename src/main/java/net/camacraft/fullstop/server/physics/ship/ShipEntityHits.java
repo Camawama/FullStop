@@ -164,7 +164,7 @@ public final class ShipEntityHits {
         BlockState hull = level.getBlockState(contact.pos());
         // springy and sticky hulls keep FullStop's bounce handling (and the plain landing push)
         if (hull.isStickyBlock() || hull.getBlock() instanceof BedBlock) return Outcome.NONE;
-        Collision struck = new Collision(Collision.CollisionType.SOLID, List.of(hull), List.of(), List.of(contact.pos()),
+        Collision struck = new Collision(Collision.CollisionType.SOLID, List.of(hull), List.of(contact.pos()),
                 List.of(new BlockHitResult(contact.point(), Direction.UP, contact.pos(), false)));
 
         // Stopped by this hull, not merely passing it: the closing speed has mostly gone.

@@ -6,7 +6,7 @@
 - [ ] **Stack 3+ mobs (or drop an iron golem onto a cow).** *Expect:* the BOTTOM carrier starts taking periodic squish damage ("was squished too much" on death); a single similar-sized rider deals none. The stack sheds from the bottom up as carriers die.
 - [ ] **Two players + supersonic flyby (VS ship or command).** *Expect:* flyer booms once at the crossing; the bystander hears ONE boom exactly when the flyer passes within ~96 blocks (louder the closer), and never again during that supersonic run. Drop subsonic, cross again → everyone booms once more.
 
-- [ ] **Jump onto a cow (legacy entity collisions: `enableEntityCollisions` off, `entityCollisionDamage` on).** *Expect:* it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
+- [ ] **Jump onto a cow (Entity Riding, `enableEntityRiding` on, 2026-10-17: the new collisions).** *Expect:* you land on its back and ride it; it PANICS and bolts with you on its back, noticeably slower than an unridden cow (~0.6×). It keeps wandering afterward instead of freezing. Look-around behavior unchanged.
 - [ ] **Stack test: cow on cow (or two mobs on one).** *Expect:* the carrier is slower the heavier the stack.
 - [ ] **Ride/push a loaded mob into deep water.** *Expect:* the carrier rides low / gets pushed under proportionally to the load — cow-on-cow submerges the lower one; unridden mobs float exactly as vanilla.
 - [ ] **Saddled horse/pig regression.** *Expect:* steered mounts behave exactly as vanilla — no panic on mounting, no wandering while you steer.
@@ -263,18 +263,17 @@ Useful setup commands:
 - [ ] **Shoot down a thrown ender pearl.** *Expect:* its thrower is teleported to the meeting point and takes vanilla's 5 damage (vanilla does the same when a pearl hits a flying mob).
 - [ ] **Horse or boat on ice ramming a mob.** *Expect:* a hard hit, the mob knocked away; the rider stays mounted.
 
-### Legacy entity collisions (set `enableEntityCollisions = false` and `entityCollisionDamage = true` in server config first)
+### Entity riding (2026-10-17: landing on a mob, boat or minecart rides it; the legacy `entityCollisionDamage` collisions are gone)
 
-- [ ] **Sprint into a cow.** *Expect:* modest push (not a perfectly elastic launch), both sides sync (no rubber-band).
-- [ ] **Creative-mode dash into mobs.** *Expect:* YOU take nothing, but the mobs still take collision damage `[FIX]`.
-- [ ] **Minecart at speed into mobs.** *Expect:* mobs take damage (was zero before) `[FIX]`.
-- [ ] **Two fast flyers passing close without touching.** *Expect:* no damage to either `[FIX]`.
-- [ ] **Fall onto a boat/horse.** *Expect:* auto-mount (players only), respects dismount cooldown.
-- [ ] **Fall onto falling sand.** *Expect:* you do NOT mount it `[FIX]`.
-- [ ] **Spectator standing in the path of a charging mob/anvil.** *Expect:* spectator camera is never shoved `[FIX]`.
-- [ ] **Ram an iron golem gently.** *Expect:* clang sound, but it does NOT aggro unless the hit was hard (≥2 hearts) `[FIX]`.
-- [ ] **Get knocked INTO a golem by something else (soft bump).** *Expect:* no aggro `[FIX]`.
-- [ ] **Passenger on a crashing mount.** *Expect:* passenger damage is reduced by their armor and skipped for kinetic-immune mobs `[FIX]`.
+- [ ] **Jump or drop onto a cow, a pig, a horse (unsaddled), a zombie.** *Expect:* you ride it; a mob panics and bolts, slowed by your weight (Ship Riders' ride weight); nothing is hurt. Shift (crouch) while landing: you drop onto it without mounting.
+- [ ] **Drop onto an empty boat on land or water, and onto an empty rideable minecart.** *Expect:* you ride it. A chest boat too; never a chest or hopper cart.
+- [ ] **Drop onto a chicken.** *Expect:* no mount (you are heavier than it); from 10 m/s and up it is crushed as before.
+- [ ] **Fall 25+ blocks onto a cow (`entityRidingMaxSpeed` 30 m/s).** *Expect:* the crush of the ordinary collisions, no mount.
+- [ ] **Get off a mount and drop straight back onto it, then wait two seconds and drop again.** *Expect:* no mount within the dismount cooldown (`entityRidingDismountCooldownTicks` 40), a mount after it.
+- [ ] **A cow or a pig falling onto a standing player, a pig onto a cow.** *Expect:* no mount (players only by default; `entityRidingMobRiders` on lets any living body ride what it lands on).
+- [ ] **Drop onto a mob held by a physgun, onto a kart in an MKW race, onto a seated rider on a ship.** *Expect:* no mount (bodies another mod holds, and ship seats, are never mounts).
+- [ ] **Saddled horse/pig regression.** *Expect:* steered mounts behave exactly as vanilla: no panic on mounting by right-click, no wandering while you steer.
+- [ ] **Drop a slime block onto a hovering mob (`/summon falling_block` with Motion).** *Expect:* a springier bounce than a sand block gives (`fallingSlimeRestitution` 0.85).
 
 ## 9. Block phasing & engulfing
 
@@ -460,7 +459,7 @@ Needs MKW Mobility with its Camafy physics claims (karts ALL; seated drivers IMP
 - [ ] **Free roam: hop off a moving kart.** *Expect:* you keep the kart's momentum; no phantom impact at the moment you leave the seat; a real crash afterwards hurts as usual.
 - [ ] **Fall off a kart from a height (free roam).** *Expect:* FullStop landing damage applies once you are off the kart.
 - [ ] **Hit by a kart / hazard (shell, banana) as a bystander.** *Expect:* MKW's damage only — FullStop doesn't scale it by speed (no ~6× hazard hits).
-- [ ] **Run into a parked kart and a driven kart on foot (the new collisions, and again with the legacy `entityCollisionDamage` ones).** *Expect:* no FullStop momentum exchange or collision damage with the kart or its driver.
+- [ ] **Run into a parked kart and a driven kart on foot.** *Expect:* no FullStop momentum exchange or collision damage with the kart or its driver.
 - [ ] **A mob run over by a kart, then flying into a wall.** *Expect:* Automobility's run-over hit, then FullStop's wall damage for the mob's flight (the mob is FullStop's).
 - [ ] **A VS ship rams a kart with a driver, in a race.** *Expect:* neither pushed nor damaged by the ship. A kart parked on a ship deck weighs on it; a kart landing on a deck thumps it. Free roam: §29.
 - [ ] **Ride a boat as a PASSENGER (second seat) while a player drives fast and turns.** *Expect:* no g-force blindness/nausea from the smooth ride (passengers replay the vehicle's motion now).

@@ -13,7 +13,6 @@ import net.camacraft.fullstop.server.physics.damage.KineticDamageApplier;
 import net.camacraft.fullstop.server.physics.damage.KineticDamageCalculator;
 import net.camacraft.fullstop.server.physics.effects.StatusEffectApplier;
 import net.camacraft.fullstop.server.physics.interaction.BounceHandler;
-import net.camacraft.fullstop.server.physics.interaction.EntityCollisionHandler;
 import net.camacraft.fullstop.server.physics.interaction.KineticBlockInteractions;
 import net.camacraft.camafy.compat.vs.ShipEntities;
 import net.camacraft.camafy.compat.vs.ShipRef;
@@ -90,6 +89,9 @@ public class PhysicsDispatchServer {
             List<Entity> entities = new ArrayList<>();
             for (Entity entity : level.getAllEntities()) {
                 if (entity.isPassenger()) continue;
+                // drops (items, orbs, effect clouds) are never bodies: not even listed (a dead crowd's items are many)
+                if (entity instanceof net.minecraft.world.entity.item.ItemEntity || entity instanceof net.minecraft.world.entity.ExperienceOrb
+                        || entity instanceof net.minecraft.world.entity.AreaEffectCloud) continue;
                 if (entity.isVehicle()) {
                     entity.getSelfAndPassengers().forEach(entities::add);
                 } else {
@@ -350,10 +352,6 @@ public class PhysicsDispatchServer {
 
         Collision collision = ServerCollisionDetector.detect(entity, fullstop);
 
-        if (!PhysicsAspect.CONTACT.in(claims)) {
-            EntityCollisionHandler.handle(entity, fullstop, collision);
-        }
-
         boolean significantImpact = impactFree && !collision.fake()
                 && fullstop.getStoppingForce() > MIN_AESTHETIC_STOPPING_FORCE;
         if (significantImpact) {
@@ -479,7 +477,7 @@ public class PhysicsDispatchServer {
             }
         }
         LOGGER.info("[FullStop] impact {} frame={} up=({}) pre={} m/s (v={} h={}) lost total={} vertical={} horizontal={} world=({},{},{}) "
-                        + "evidence[recentV={} recentH={} onGround={} ship={}] immune={} claims={} collision={} faces=[{}] entities={} damage={}",
+                        + "evidence[recentV={} recentH={} onGround={} ship={}] immune={} claims={} collision={} faces=[{}] damage={}",
                 entity.getName().getString(),
                 frame.isDefault() ? "default" : "rotated",
                 String.format(java.util.Locale.ROOT, "%.2f,%.2f,%.2f", up.x, up.y, up.z),
@@ -496,7 +494,7 @@ public class PhysicsDispatchServer {
                 net.camacraft.fullstop.common.compat.ShipCompat.anyShipBlock(entity.level(), collision.impactedPositions),
                 fullstop.getIsDamageImmune(),
                 Integer.toBinaryString(fullstop.getClaims()),
-                collision.collisionType, faces, collision.collidingEntities.size(),
+                collision.collisionType, faces,
                 String.format(java.util.Locale.ROOT, "%.2f", damage));
     }
 
@@ -536,7 +534,7 @@ public class PhysicsDispatchServer {
         if (!fullstop.canPlaySound()) return;
 
         float volume = ((float) (fullstop.getStoppingForce() * 0.05f));
-        int hitCount = collision.blockStates.size() + collision.collidingEntities.size();
+        int hitCount = collision.blockStates.size();
         if (hitCount > 1) volume /= (float) (hitCount * 0.6);
         volume = Mth.clamp(volume, 0.0f, 1.0f);
 
@@ -545,13 +543,6 @@ public class PhysicsDispatchServer {
         float pitch = (float) Mth.clamp(minPitch + (fullstop.getStoppingForce() / 100f) * (maxPitch - minPitch), minPitch, maxPitch);
 
         List<SoundEvent> playedSounds = new ArrayList<>();
-        for (Entity collidedEntity : collision.collidingEntities) {
-            SoundEvent hitSound = SoundEvents.BOOK_PUT;
-            if (!playedSounds.contains(hitSound)) {
-                FSSoundPlayer.playSoundServer(entity.level(), collidedEntity.blockPosition(), hitSound, SoundSource.PLAYERS, volume, pitch);
-                playedSounds.add(hitSound);
-            }
-        }
         for (BlockState blockState : collision.blockStates) {
             SoundType soundType = blockState.getSoundType();
             // a liquid's own block is silent; one met as a solid (oobleck struck hard) thuds like mud

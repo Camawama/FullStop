@@ -8,6 +8,7 @@
   "mixins": [
     "TrainDamageMixin",
     "KineticStressMixin",
+    "KineticTickMixin",
     "ContraptionStallMixin"
   ],
   "injectors": {

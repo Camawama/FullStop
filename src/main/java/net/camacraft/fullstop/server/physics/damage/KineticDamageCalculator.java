@@ -8,7 +8,6 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
-import net.camacraft.fullstop.common.physics.math.VelocityMath;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.minecraft.core.BlockPos;
@@ -80,8 +79,7 @@ public class KineticDamageCalculator {
         // its own solver and never sets the vanilla flags, so a shipyard raycast
         // hit is accepted as its own evidence (the stopping-force thresholds still
         // gate whether it deals anything).
-        boolean blockImpact = collision.collisionType != Collision.CollisionType.ENTITY
-                && collision.collisionType != Collision.CollisionType.WATER;
+        boolean blockImpact = collision.collisionType != Collision.CollisionType.WATER;
         boolean shipEvidence = blockImpact && ShipCompat.anyShipBlock(entity.level(), collision.impactedPositions);
         // Evidence is per axis: onGround corroborates only VERTICAL deceleration.
         // Letting it stand in for horizontal evidence billed "wall damage" to any
@@ -160,34 +158,9 @@ public class KineticDamageCalculator {
             }
         }
 
-        double damage;
-        if (collision.collisionType == Collision.CollisionType.ENTITY) {
-            if (!SERVER.entityCollisionDamage.get()) {
-                return 0;
-            }
-            // Relative speed alone would bill two fast movers that merely pass
-            // close by; require the mover to have lost some speed OR to carry a
-            // fresh impulse from EntityCollisionHandler (which runs just before
-            // this in the dispatch). The impulse check matters on the overlap
-            // tick itself: the position-delta stopping force only shows the
-            // momentum transfer one tick later, by which point the knocked-back
-            // target may already be outside the detection box.
-            if (fullstop.getStoppingForce() < 1.0 && !entity.hasImpulse) {
-                return 0;
-            }
-            double averageRelativeSpeed = collision.collidingEntities.stream()
-                    .mapToDouble(other -> VelocityMath.entityVelocity(entity).subtract(VelocityMath.entityVelocity(other)).length())
-                    .average()
-                    .orElse(0.0);
-            double threshold = isFall
-                    ? verticalThresholdMps()
-                    : SERVER.velocityDamageThresholdHorizontal.get();
-            damage = Math.max(averageRelativeSpeed - threshold, 0);
-        } else {
-            damage = Math.max(horizontalExceedance, verticalExceedance);
-            // Vanilla rounds fall damage up to whole points.
-            if (vanillaParity) damage = Math.ceil(damage);
-        }
+        double damage = Math.max(horizontalExceedance, verticalExceedance);
+        // Vanilla rounds fall damage up to whole points.
+        if (vanillaParity) damage = Math.ceil(damage);
 
         if (damage <= 0) return 0;
 

@@ -37,6 +37,8 @@ public final class BlockPhasing {
 
     /** Per-tick horizontal drag while brushing a fullstop:slowing block (honey, soul sand family). */
     private static final double SLOWING_FIELD_DRAG = 0.8;
+    /** How long a "no slowing block around this block position" answer stands (ticks). */
+    private static final int SLOWING_CLEAR_TICKS = 10;
 
     private BlockPhasing() {
     }
@@ -130,6 +132,29 @@ public final class BlockPhasing {
         if (velocity.horizontalDistanceSqr() < 1.0e-6) return;
 
         Level level = entity.level();
+        // idleFastPaths: once no slowing block was found in the 3x3 columns around the body's block position, a body
+        // still within that block meets none for half a second (a block placed beside it then slows it that much late)
+        FullStopCapability cap = null;
+        if (PerfSwitches.idleFastPaths()) {
+            cap = FullStopCapability.grabCapability(entity);
+            if (cap != null) {
+                BlockPos at = entity.blockPosition();
+                long key = at.asLong();
+                if (cap.slowingClearAt(key, entity.tickCount, SLOWING_CLEAR_TICKS)) return;
+                int top = Mth.floor(entity.getBoundingBox().maxY);
+                boolean any = false;
+                for (BlockPos pos : BlockPos.betweenClosed(at.getX() - 1, at.getY(), at.getZ() - 1, at.getX() + 1, top, at.getZ() + 1)) {
+                    if (level.getBlockState(pos).is(FullStopTags.SLOWING)) {
+                        any = true;
+                        break;
+                    }
+                }
+                if (!any) {
+                    cap.noteSlowingClear(key, entity.tickCount);
+                    return;
+                }
+            }
+        }
         AABB box = entity.getBoundingBox().inflate(0.1, 0.0, 0.1);
         for (BlockPos pos : BlockPos.betweenClosed(
                 Mth.floor(box.minX), Mth.floor(box.minY), Mth.floor(box.minZ),

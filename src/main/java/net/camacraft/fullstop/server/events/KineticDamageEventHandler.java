@@ -188,7 +188,7 @@ public class KineticDamageEventHandler {
 
     /**
      * Reflective's damage absorption. The physical "reflection" (keeping/returning
-     * momentum) is owned by EntityCollisionHandler — applying it here too was
+     * momentum) is owned by BodyCollisions — applying it here too was
      * double-dipping, and pushing projectile "attackers" after impact did nothing.
      */
     private static float applyReflective(LivingEntity entity, float damage) {

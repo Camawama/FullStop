@@ -46,7 +46,7 @@ import java.util.UUID;
  * Collisions: {@link ProjectileCollisions}). Measured before these existed (default config): a pig
  * flung at 30 m/s flew straight through a hovering one (which got vanilla's 1 m/s nudge, nobody hurt),
  * two arrows or two eggs thrown at each other passed through each other untouched; with the old
- * experimental {@code entityCollisionDamage} on, two 10-hp pigs meeting head-on at 15 m/s each both
+ * experimental {@code entityCollisionDamage} collisions (removed 2026-10-17) on, two 10-hp pigs meeting head-on at 15 m/s each both
  * died (each billed from both sides).
  *
  * <p>The bodies float (no gravity, no AI goals) so that a collision is the only thing that changes

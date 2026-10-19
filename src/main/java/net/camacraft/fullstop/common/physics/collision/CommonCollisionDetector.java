@@ -346,7 +346,7 @@ public class CommonCollisionDetector {
             return Collision.NONE;
         }
 
-        return new Collision(impactType, collidedBlockStates, List.of(), collidedBlockPositions, collidedBlockHits);
+        return new Collision(impactType, collidedBlockStates, collidedBlockPositions, collidedBlockHits);
     }
 
     /**

@@ -155,12 +155,20 @@ public final class KineticHazards {
         boolean gears = cfg.gearHazards.get();
         boolean wheels = cfg.waterWheelHazards.get();
         if (!gears && !wheels) return;
+        long now = level.getGameTime();
+        // nothing turns in this level (idleFastPaths): no body is near a hazard; one still held is let go
+        if (net.camacraft.fullstop.common.physics.PerfSwitches.idleFastPaths() && !KineticPresence.anySpinning(level, now)) {
+            if (!STATES.isEmpty()) {
+                State gone = STATES.remove(body);
+                if (gone != null) letGo(body, gone);
+            }
+            return;
+        }
         if (exempt(body)) {
             State gone = STATES.remove(body);
             if (gone != null && gone.held) PhysicsOwnership.release(body, OWNER);
             return;
         }
-        long now = level.getGameTime();
         // a creative player on foot: a single gear's teeth push or fling it, nothing catches it
         boolean creative = body instanceof Player p && p.isCreative();
         State state = STATES.computeIfAbsent(body, b -> new State());
@@ -464,7 +472,7 @@ public final class KineticHazards {
     }
 
     private static boolean exempt(LivingEntity body) {
-        if (body.isSpectator() || body.isPassenger() || body.noPhysics || body.isDeadOrDying()) return true;
+        if (body.isSpectator() || body.isPassenger() || body.noPhysics || DamageImmunityRules.deadOrDying(body)) return true;
         // decorations, not bodies: a gear would knock a display stand to bits
         if (body instanceof net.minecraft.world.entity.decoration.ArmorStand) return true;
         // a creative player on foot is only pushed or flung by a single gear (see tick), never caught

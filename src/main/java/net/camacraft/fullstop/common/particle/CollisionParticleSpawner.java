@@ -42,7 +42,6 @@ public class CollisionParticleSpawner {
         ParticleOptions particleType = switch (collisionType) {
             case HONEY -> ParticleTypes.FALLING_HONEY;
             case SOLID, BED, SLIME -> blockState != null ? new BlockParticleOption(ParticleTypes.BLOCK, blockState) : null;
-            case ENTITY -> ParticleTypes.CLOUD;
             default -> null;
         };
 

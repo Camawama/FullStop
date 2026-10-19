@@ -60,7 +60,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue slimeBounceKeepsGlide;
         public final ForgeConfigSpec.DoubleValue sonicBoomRange;
         public final ForgeConfigSpec.BooleanValue deathMessageAppend;
-        public final ForgeConfigSpec.BooleanValue entityCollisionDamage;
+        public final ForgeConfigSpec.BooleanValue idleFastPaths;
         public final ForgeConfigSpec.BooleanValue scaledKnockback;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
         public final ForgeConfigSpec.BooleanValue kineticDoorOpening;
@@ -209,6 +209,19 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue entityCollisionRestitution;
         public final ForgeConfigSpec.DoubleValue entityCollisionFriction;
         public final ForgeConfigSpec.DoubleValue entityCollisionDamageMultiplier;
+        public final ForgeConfigSpec.DoubleValue fallingSlimeRestitution;
+
+        // Entity Riding (EntityRiding): landing on a mob, boat or minecart rides it
+        public final ForgeConfigSpec.BooleanValue enableEntityRiding;
+        public final ForgeConfigSpec.BooleanValue entityRidingMobs;
+        public final ForgeConfigSpec.BooleanValue entityRidingBoats;
+        public final ForgeConfigSpec.BooleanValue entityRidingMinecarts;
+        public final ForgeConfigSpec.DoubleValue entityRidingMinSpeed;
+        public final ForgeConfigSpec.DoubleValue entityRidingMaxSpeed;
+        public final ForgeConfigSpec.BooleanValue entityRidingCrouchPrevents;
+        public final ForgeConfigSpec.BooleanValue entityRidingMobRiders;
+        public final ForgeConfigSpec.BooleanValue entityRidingMountPanic;
+        public final ForgeConfigSpec.IntValue entityRidingDismountCooldownTicks;
 
         // Projectile Collisions (ProjectileCollisions)
         public final ForgeConfigSpec.BooleanValue enableProjectileCollisions;
@@ -284,6 +297,19 @@ public class FullStopConfig {
                     .translation(key("deathMessageAppend"))
                     .comment("Default: true")
                     .define("deathMessageAppend", true);
+
+            this.idleFastPaths = builder
+                    .comment("Performance: what FullStop skips for bodies that aren't doing anything. A mob at rest on the ground (it",
+                            "hasn't moved since last tick, nothing pending on it, not on a ship) keeps its last measurement instead",
+                            "of measuring itself again every tick; with Create, the gear/water-wheel/flywheel hazard check stands",
+                            "down for every body while no kinetic block in the level is turning; the honey and soul-sand wall drag",
+                            "looks for such blocks once per block a body moves through (half a second at most before a block placed",
+                            "beside a standing body slows it); and a body's health (the dead check) is read once a second rather",
+                            "than every tick. Measured with 523 mobs in a pen: see the changelog (2026-10-17). Off: everything is",
+                            "checked every tick for every body, as before.")
+                    .translation(key("idleFastPaths"))
+                    .comment("Default: true")
+                    .define("idleFastPaths", true);
 
             this.enableGForceEffects = builder
                     .comment("When true, enables visual effects (vignette and blackout) when experiencing high G-forces")
@@ -529,14 +555,6 @@ public class FullStopConfig {
                     .translation(key("minimumSolidImpactDamage"))
                     .comment("Default: 2.0")
                     .defineInRange("minimumSolidImpactDamage", 2.0, 0.0, 100.0);
-
-            this.entityCollisionDamage = builder
-                    .comment("Legacy: the old experimental entity collisions (a momentum exchange and damage per entity, and landing on a",
-                            "mob or boat rides it). Superseded by the Entity Collisions section: this only runs while",
-                            "enableEntityCollisions is off. Highly experimental, use at your own risk!")
-                    .translation(key("entityCollisionDamage"))
-                    .comment("Default: false")
-                    .define("entityCollisionDamage", false);
 
             this.kineticBlockBreaking = builder
                     .comment("When enabled, entities hitting blocks at high speeds can crack or break them.")
@@ -1491,8 +1509,9 @@ public class FullStopConfig {
             builder.pop();
             builder.comment("Mobs, players and vehicles (with whoever rides them, as one body) that run, fly or fall into each other.",
                             "Minecraft only nudges overlapping entities apart, a few hundredths of a block a tick, so fast ones flew",
-                            "straight through each other. Supersedes the old experimental entityCollisionDamage (Kinetic Damage",
-                            "settings), which only runs while enableEntityCollisions is off.")
+                            "straight through each other. (The old experimental entityCollisionDamage collisions are gone; an",
+                            "entityCollisionDamage line left in this file is ignored. Landing on a mob to ride it is the Entity",
+                            "Riding section.)")
                     .push("Entity Collisions");
 
             this.enableEntityCollisions = builder
@@ -1539,6 +1558,91 @@ public class FullStopConfig {
                     .translation(key("entityCollisionDamageMultiplier"))
                     .comment("Default: 1.0")
                     .defineInRange("entityCollisionDamageMultiplier", 1.0, 0.0, 100.0);
+
+            this.fallingSlimeRestitution = builder
+                    .comment("A falling slime or honey block (a block in flight) makes any collision it is part of this bouncy, if",
+                            "that is more than entityCollisionRestitution: a slime block dropped on a hovering pig springs it away.")
+                    .translation(key("fallingSlimeRestitution"))
+                    .comment("Default: 0.85")
+                    .defineInRange("fallingSlimeRestitution", 0.85, 0.0, 1.0);
+
+            builder.pop();
+            builder.comment("Landing on a mob, a boat or a minecart rides it. A player who comes down on top of one that nothing rides",
+                            "yet, at a landing's speed, mounts it instead of colliding with it: no crush, no damage, no push. A mob",
+                            "landed on this way panics and bolts (the vanilla panic goal), slowed by the load on its back (Ship Riders'",
+                            "ride weight). Rules kept from the old collisions: never while crouching, never a creative flyer, never a",
+                            "body already riding, never onto something ridden or crouching, never heavier than a living mount (a boat",
+                            "or a cart takes anyone), never onto one's own kind unless a baby, never within the dismount cooldown,",
+                            "never a ring of riders. Never onto a",
+                            "player, a body another mod holds outright (a physgun's grip, an MKW race), or a seat on a ship. Faster",
+                            "landings are the crush they always were (Entity Collisions).")
+                    .push("Entity Riding");
+
+            this.enableEntityRiding = builder
+                    .comment("Whether landing on a mob, boat or minecart rides it at all.")
+                    .translation(key("enableEntityRiding"))
+                    .comment("Default: true")
+                    .define("enableEntityRiding", true);
+
+            this.entityRidingMobs = builder
+                    .comment("Mobs and animals can be landed on and ridden (a cow, a pig, a zombie...).")
+                    .translation(key("entityRidingMobs"))
+                    .comment("Default: true")
+                    .define("entityRidingMobs", true);
+
+            this.entityRidingBoats = builder
+                    .comment("Boats (chest boats too) can be landed on and ridden.")
+                    .translation(key("entityRidingBoats"))
+                    .comment("Default: true")
+                    .define("entityRidingBoats", true);
+
+            this.entityRidingMinecarts = builder
+                    .comment("Rideable minecarts can be landed on and ridden (never chest, hopper or furnace carts).")
+                    .translation(key("entityRidingMinecarts"))
+                    .comment("Default: true")
+                    .define("entityRidingMinecarts", true);
+
+            this.entityRidingMinSpeed = builder
+                    .comment("Slowest landing (closing speed, m/s) that mounts: slower, the two only overlap as vanilla has them. A jump",
+                            "from flat ground lands at about 6-8 m/s, a step off a block at 4.")
+                    .translation(key("entityRidingMinSpeed"))
+                    .comment("Default: 3.0")
+                    .defineInRange("entityRidingMinSpeed", 3.0, 0.0, 100.0);
+
+            this.entityRidingMaxSpeed = builder
+                    .comment("Fastest landing (m/s) that still mounts; faster, the lander crushes what it lands on as any body does",
+                            "(entityCollisionMinSpeed and up). A fall of 10 blocks lands at about 14 m/s, of 20 at 20.")
+                    .translation(key("entityRidingMaxSpeed"))
+                    .comment("Default: 30.0")
+                    .defineInRange("entityRidingMaxSpeed", 30.0, 0.0, 1000.0);
+
+            this.entityRidingCrouchPrevents = builder
+                    .comment("Crouching (sneaking) while landing never mounts: the way to drop onto a mob without riding it.")
+                    .translation(key("entityRidingCrouchPrevents"))
+                    .comment("Default: true")
+                    .define("entityRidingCrouchPrevents", true);
+
+            this.entityRidingMobRiders = builder
+                    .comment("Mobs ride what they land on too (a zombie dropping onto a cow rides it). Off: players only. On, every",
+                            "living body is looked at from entityRidingMinSpeed instead of half of entityCollisionMinSpeed, which",
+                            "costs a little more server time among many mobs.")
+                    .translation(key("entityRidingMobRiders"))
+                    .comment("Default: false")
+                    .define("entityRidingMobRiders", false);
+
+            this.entityRidingMountPanic = builder
+                    .comment("A mob that gets landed on panics and bolts with its rider on its back (the vanilla panic goal; saddled",
+                            "riding never panics).")
+                    .translation(key("entityRidingMountPanic"))
+                    .comment("Default: true")
+                    .define("entityRidingMountPanic", true);
+
+            this.entityRidingDismountCooldownTicks = builder
+                    .comment("After getting off a mount (any mount, saddled ones too), a body mounts nothing for this many ticks, and",
+                            "it and the mount it left don't collide with each other.")
+                    .translation(key("entityRidingDismountCooldownTicks"))
+                    .comment("Default: 40")
+                    .defineInRange("entityRidingDismountCooldownTicks", 40, 0, 1200);
 
             builder.pop();
             builder.comment("Projectiles that meet in the air. Vanilla lets projectiles fly through each other (a projectile's own",

@@ -28,8 +28,8 @@ import java.util.UUID;
  * </ul>
  *
  * The mount-panic reaction ("it's scared you jumped on it") lives in
- * {@link EntityCollisionHandler#applyMountPanic} — it applies only to
- * FullStop's collision mounts, never to saddled riding.
+ * {@link EntityRiding} ({@code entityRidingMountPanic}) — it applies only to
+ * FullStop's landing mounts, never to saddled riding.
  */
 public final class RideStackHandler {
 

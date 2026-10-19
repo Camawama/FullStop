@@ -12,7 +12,6 @@ import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.damagesource.DamageSources;
 import net.minecraft.world.damagesource.DamageType;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
@@ -350,97 +349,6 @@ public final class FullStopDamageSources {
     }
 
     // --- Entity-collision damage -------------------------------------------
-
-    /**
-     * The moving entity is treated as the attacker (kill credit goes to it).
-     * Accepts ANY entity: a boat or minecart ramming someone must show up as
-     * "was hit by Boat", not the generic kinetic message — non-living attackers
-     * use the kinetic damage type with the attacker attached.
-     */
-    public static DamageSource entityAttacker(DamageSources sources,
-                                              Entity attacker,
-                                              VelocityDisplay velocity,
-                                              boolean mostlyDownward) {
-        Holder<DamageType> type;
-        if (attacker instanceof Player p) {
-            type = sources.playerAttack(p).typeHolder();
-        } else if (attacker instanceof LivingEntity living) {
-            type = sources.mobAttack(living).typeHolder();
-        } else {
-            type = holder(attacker, KINETIC);
-        }
-
-        // Passing the attacker through the real constructor (not a getEntity()
-        // override) sets the direct entity, so knockback attribution and the
-        // mitigation event see the body that struck; the causing entity is who
-        // answers for it (the driver of a boat, the owner of a hook), so kill
-        // credit and PvP/host rules see them.
-        Entity causing = responsible(attacker);
-        return new KineticSource(type, attacker, causing) {
-            @Override
-            @NotNull
-            public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
-                Component attackerName = attacker.getDisplayName()
-                        .copy()
-                        .withStyle(s -> s.withColor(velocity.color()));
-
-                String key = mostlyDownward ? "death.fullstop.entity.crushed_by" : "death.fullstop.entity.hit_by";
-                if (causing != attacker && causing != victim) {
-                    // "was hit by Steve's Boat"
-                    return Component.translatable(key + ".owned", victim.getDisplayName(), attackerName,
-                                    causing.getDisplayName())
-                            .append(velocitySuffix(velocity));
-                }
-                return Component.translatable(key, victim.getDisplayName(), attackerName)
-                        .append(velocitySuffix(velocity));
-            }
-        };
-    }
-
-    /** Damage the moving entity does to itself by ramming another entity (any type — "slammed into Boat"). */
-    public static DamageSource entityCollisionSelf(Entity entity,
-                                                   Entity collided,
-                                                   VelocityDisplay velocity,
-                                                   boolean mostlyDownward,
-                                                   boolean mostlyUpward) {
-        return new KineticSource(holder(entity, KINETIC)) {
-            @Override
-            @NotNull
-            public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
-                boolean hasElytra = EquipmentRules.hasElytraEquipped(victim);
-                float pitch = victim.getXRot();
-                boolean lookingDown = pitch > 45;
-                boolean lookingUp = pitch < -45;
-
-                String key;
-                if (mostlyDownward) {
-                    key = (hasElytra && lookingDown) ? "death.fullstop.entity.head" : "death.fullstop.entity.fell_on";
-                } else if (mostlyUpward) {
-                    key = (hasElytra && !lookingUp) ? "death.fullstop.entity.collided" : "death.fullstop.entity.head";
-                } else {
-                    key = "death.fullstop.entity.slammed";
-                }
-
-                return Component.translatable(key, victim.getDisplayName(), collided.getDisplayName())
-                        .append(velocitySuffix(velocity));
-            }
-        };
-    }
-
-    /** Two fast movers hitting each other. */
-    public static DamageSource entityMutualCollision(Entity entity,
-                                                     Entity collided,
-                                                     VelocityDisplay velocity) {
-        return new KineticSource(holder(entity, KINETIC)) {
-            @Override
-            @NotNull
-            public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
-                return Component.translatable("death.fullstop.entity.collided",
-                                victim.getDisplayName(), collided.getDisplayName())
-                        .append(velocitySuffix(velocity));
-            }
-        };
-    }
 
     /**
      * Two bodies colliding (Entity Collisions, {@code BodyCollisions}): {@code fullstop:kinetic}, an

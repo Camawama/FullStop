@@ -69,6 +69,19 @@ public class DamageImmunityRules {
         // physics (data/fullstop/tags/entity_types/physics_blacklist.json).
         if (entity.getType().is(FullStopTags.PHYSICS_BLACKLIST)) return true;
 
-        return entity instanceof LivingEntity livingEntity && livingEntity.isDeadOrDying();
+        return entity instanceof LivingEntity livingEntity && deadOrDying(livingEntity);
+    }
+
+    /**
+     * {@link LivingEntity#isDeadOrDying()}, which reads the health through the synched data's lock, read once a second
+     * per body through its capability ({@code idleFastPaths}); a body whose death has begun reads dead at once.
+     */
+    public static boolean deadOrDying(LivingEntity living) {
+        if (living.deathTime > 0) return true;
+        if (net.camacraft.fullstop.common.physics.PerfSwitches.idleFastPaths()) {
+            FullStopCapability cap = FullStopCapability.grabCapability(living);
+            if (cap != null) return cap.isDeadCached(living);
+        }
+        return living.isDeadOrDying();
     }
 }

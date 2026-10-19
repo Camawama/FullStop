@@ -1,83 +1,18 @@
 package net.camacraft.fullstop.server.physics.collision;
 
-import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
-import net.camacraft.fullstop.common.physics.rules.EntityCollisionRules;
-import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
-import net.camacraft.fullstop.server.physics.interaction.BodyCollisions;
 import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.LivingEntity;
-import net.minecraft.world.entity.item.FallingBlockEntity;
-import net.minecraft.world.entity.vehicle.AbstractMinecart;
-import net.minecraft.world.entity.vehicle.Boat;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
 
-import java.util.List;
-
-import static net.camacraft.fullstop.FullStopConfig.SERVER;
-
+/**
+ * What an entity ran into this tick on the server: the blocks {@link CommonCollisionDetector} finds. Bodies meeting
+ * each other are a pairwise pass of their own ({@code BodyCollisions}, once a level tick), not part of an entity's
+ * own impact; the old per-entity entity collisions ({@code entityCollisionDamage}) are gone.
+ */
 public class ServerCollisionDetector {
 
     public static Collision detect(Entity entity, FullStopCapability fullstop) {
-        Collision blockCollision = CommonCollisionDetector.detectBlocks(entity, fullstop);
-
-        Collision.CollisionType impactType = blockCollision.collisionType;
-        List<Entity> collidingEntities = List.of();
-
-        // A mover whose entity contacts another mod owns (an MKW kart's driver)
-        // collides with no one here; neither does anything such a mod owns.
-        // The legacy per-entity collisions only run while Entity Collisions
-        // (BodyCollisions, a pairwise pass) is off: both would exchange momentum.
-        if (SERVER.entityCollisionDamage.get() && !BodyCollisions.enabled() && !fullstop.isClaimed(PhysicsAspect.CONTACT)) {
-            Level level = entity.level();
-            AABB box = entity.getBoundingBox();
-            Vec3 movement = fullstop.getPreviousNativeVelocity();
-            // Expand backwards to catch entities we passed through
-            AABB entityCheckBox = box.expandTowards(movement.scale(-1)).inflate(0.1);
-            collidingEntities = level.getEntities(
-                    entity,
-                    entityCheckBox,
-                    e -> (e instanceof LivingEntity || e instanceof Boat || e instanceof AbstractMinecart
-                            || e instanceof FallingBlockEntity)
-                            && e != entity
-                            && !e.isSpectator()
-                            && !e.noPhysics // spectators/no-clip entities must never be shoved
-                            // Same ride stack (vehicle↔rider, co-passengers) never collides
-                            // with itself: a piston-launched boat overlapped its own rider
-                            // (whose deltaMovement reads ~0 as a passenger), and the impulse
-                            // exchange dead-stopped the boat a few blocks out.
-                            && e.getRootVehicle() != entity.getRootVehicle()
-                            // Fresh (dis)mount pairs are exempt too: vanilla parks the
-                            // dismounted player right beside the still-moving boat, and
-                            // the exchange dead-stopped the boat while launching the
-                            // player further.
-                            && !recentRideExchange(entity, e)
-                            && !EntityCollisionRules.shouldIgnoreCollision(entity, e)
-                            && !PhysicsClaims.handsOff(e, PhysicsAspect.CONTACT)
-            );
-
-            if (!collidingEntities.isEmpty() && impactType.priority < Collision.CollisionType.ENTITY.priority) {
-                impactType = Collision.CollisionType.ENTITY;
-            }
-        }
-
-        if (impactType == Collision.CollisionType.NONE) {
-            return Collision.NONE;
-        }
-
-        return new Collision(impactType, blockCollision.blockStates, collidingEntities,
-                blockCollision.impactedPositions, blockCollision.impactedHits);
-    }
-
-    /** Whether either entity is inside its mount/dismount grace with the other. */
-    private static boolean recentRideExchange(Entity a, Entity b) {
-        FullStopCapability capA = FullStopCapability.grabCapability(a);
-        if (capA != null && capA.recentlyExchangedWith(b)) return true;
-        FullStopCapability capB = FullStopCapability.grabCapability(b);
-        return capB != null && capB.recentlyExchangedWith(a);
+        return CommonCollisionDetector.detectBlocks(entity, fullstop);
     }
 }

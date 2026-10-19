@@ -88,26 +88,13 @@ public class StatusEffectApplier {
 
     /**
      * Hard landings sprain the legs and slow the entity down for a while.
-     * Landing-only by design: ramming something sideways (walls or entities) is
-     * not a sprain, and for entity collisions the faller must actually have come
-     * down on top of the other entity.
+     * Landing-only by design: ramming something sideways (a wall) is not a sprain.
+     * (A body landing on another body is BodyCollisions' own hurt, never this.)
      */
     public static void applyDamageEffects(Entity entity, FullStopCapability fullstop, Collision collision, double damage) {
         if (damage <= 0) return;
         // A real fall only: in zero gravity a feet-first bump into a floor sprains nothing.
         if (!fullstop.isFall()) return;
-
-        if (collision.collisionType == Collision.CollisionType.ENTITY) {
-            boolean landedOnSomeone = false;
-            for (Entity other : collision.collidingEntities) {
-                // "on top of" as the faller's gravity frame sees it
-                if (fullstop.getFrame().vertical(entity.position().subtract(other.position())) >= other.getBbHeight() * 0.5) {
-                    landedOnSomeone = true;
-                    break;
-                }
-            }
-            if (!landedOnSomeone) return;
-        }
 
         if (!(entity instanceof LivingEntity livingEntity)) return;
         if (DamageImmunityRules.isDamageImmune(livingEntity)) return;
