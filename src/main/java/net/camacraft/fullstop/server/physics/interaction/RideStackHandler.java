@@ -45,6 +45,13 @@ public final class RideStackHandler {
     private static final int CRUSH_INTERVAL_TICKS = 40;
     private static final float CRUSH_DAMAGE_PER_RATIO = 2.0f;
 
+    /**
+     * Mobs carrying the ride-weight modifier (server thread only). It is transient (never saved), so a mob outside
+     * this set has none: a mob that carries nothing skips the attribute map altogether (2026-10-23: the speed
+     * attribute and its modifier were looked up for every mob every tick, 65 ms of every 30 s with 400 mobs).
+     */
+    private static final java.util.Set<Mob> SLOWED = java.util.Collections.newSetFromMap(new java.util.WeakHashMap<>());
+
     private RideStackHandler() {
     }
 
@@ -54,16 +61,18 @@ public final class RideStackHandler {
         if (living.level().isClientSide) return;
         if (!(living instanceof Mob mob)) return;
 
-        AttributeInstance speed = mob.getAttribute(Attributes.MOVEMENT_SPEED);
-
         if (!mob.isVehicle()) {
             // Cheap for the common case: only touch the attribute map when a
             // leftover modifier must be cleared after the last rider left.
+            if (SLOWED.isEmpty() || !SLOWED.remove(mob)) return;
+            AttributeInstance speed = mob.getAttribute(Attributes.MOVEMENT_SPEED);
             if (speed != null && speed.getModifier(RIDE_WEIGHT_SPEED_UUID) != null) {
                 speed.removeModifier(RIDE_WEIGHT_SPEED_UUID);
             }
             return;
         }
+
+        AttributeInstance speed = mob.getAttribute(Attributes.MOVEMENT_SPEED);
 
         double vehicleMass = Math.max(EntityStackUtils.getEntityMass(mob), 0.001);
         double passengerMass = 0;
@@ -83,6 +92,7 @@ public final class RideStackHandler {
                 }
                 speed.addTransientModifier(new AttributeModifier(RIDE_WEIGHT_SPEED_UUID,
                         RIDE_WEIGHT_SPEED_NAME, desired, AttributeModifier.Operation.MULTIPLY_TOTAL));
+                SLOWED.add(mob);
             }
         }
 

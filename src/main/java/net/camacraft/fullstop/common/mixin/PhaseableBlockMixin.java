@@ -38,16 +38,37 @@ public abstract class PhaseableBlockMixin {
     @org.spongepowered.asm.mixin.Unique
     private static long fullstop$lastPhaseLog = Long.MIN_VALUE;
 
+    /**
+     * Whether this state is in {@code fullstop:phaseable}, as ((tag epoch + 1) << 1) | answer; 0 before it was first
+     * read. One int, so a reader on another thread sees a whole answer or none (2026-10-23: the tag test itself was
+     * the cost of this hook, 250 ms of every 30 s with 400 mobs walking about).
+     */
+    @org.spongepowered.asm.mixin.Unique
+    private int fullstop$phaseable;
+
     @Inject(method = "getCollisionShape(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/phys/shapes/CollisionContext;)Lnet/minecraft/world/phys/shapes/VoxelShape;",
             at = @At("HEAD"), cancellable = true)
     private void fullstop$phaseableCollision(BlockGetter level, BlockPos pos, CollisionContext context,
                                              CallbackInfoReturnable<VoxelShape> cir) {
-        // Tag check first: this hook runs for every block shape query near every
-        // entity (movement, pathfinding, our raycasts), and virtually every block
-        // fails the tag — the config/capability work below must not run for stone.
+        // Tag check first, from the state's cached answer: this hook runs for every
+        // block shape query near every entity (movement, pathfinding, our raycasts),
+        // and virtually every block fails the tag — the config/capability work below
+        // must not run for stone.
         BlockBehaviour.BlockStateBase state = (BlockBehaviour.BlockStateBase) (Object) this;
-        if (!state.is(FullStopTags.PHASEABLE)) return;
+        int cached = fullstop$phaseable;
+        int stamp = FullStopTags.epoch() + 1;
+        if ((cached >>> 1) != stamp) {
+            cached = (stamp << 1) | (state.is(FullStopTags.PHASEABLE) ? 1 : 0);
+            fullstop$phaseable = cached;
+        }
+        if ((cached & 1) == 0) return;
+        fullstop$phase(level, pos, context, cir);
+    }
 
+    /** The phaseable case (rare: most states fail the tag), out of line so the hook above stays small enough to inline. */
+    @org.spongepowered.asm.mixin.Unique
+    private static void fullstop$phase(BlockGetter level, BlockPos pos, CollisionContext context,
+                                       CallbackInfoReturnable<VoxelShape> cir) {
         if (!(context instanceof EntityCollisionContext entityContext)) return;
         if (!(entityContext.getEntity() instanceof LivingEntity living)) return;
         if (!FullStopConfig.SERVER_SPEC.isLoaded()) return;

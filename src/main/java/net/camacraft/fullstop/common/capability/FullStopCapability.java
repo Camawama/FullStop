@@ -172,6 +172,10 @@ public class FullStopCapability {
     private int jumpWindow = 0;
     private static final int JUMP_WINDOW_TICKS = 6;
     private boolean wasSleeping = false;
+    /** The entity's pose count (PoseFlips) when the sleeping state was last read; MIN_VALUE: never. */
+    private int sleepPoseFlips = Integer.MIN_VALUE;
+    /** The entity's pose count when tickVelocity last looked; MIN_VALUE: never. */
+    private int stepPoseFlips = Integer.MIN_VALUE;
     private boolean hasDismounted = false;
     private boolean firstTick = true;
     private int teleportCooldown = 0;
@@ -219,10 +223,18 @@ public class FullStopCapability {
     // round trip plus VS's interpolation), so subtracting the server's carry from positions the
     // client measured left a residual velocity turning with the ship - 5 to 15 m/s on a rotor
     // at 64 RPM - that read as the player's own.
+    // afterGap: the samples before this one were dropped (more than MAX_QUEUED_SAMPLES client
+    // ticks arrived between two server ticks: a server stall), so its move from the last stepped
+    // position spans several client ticks (see #reanchor).
     private record MoveSample(Vec3 position, @Nullable Vec3 clientVelocityMps,
                               boolean horizontalCollision, boolean verticalCollision,
                               boolean onGround, float yaw,
-                              @Nullable Vec3 clientCarryMps, @Nullable Vec3 clientPushMps) {
+                              @Nullable Vec3 clientCarryMps, @Nullable Vec3 clientPushMps,
+                              boolean afterGap) {
+        MoveSample afterAGap() {
+            return new MoveSample(position, clientVelocityMps, horizontalCollision, verticalCollision, onGround, yaw,
+                    clientCarryMps, clientPushMps, true);
+        }
     }
 
     private final java.util.ArrayDeque<MoveSample> samples = new java.util.ArrayDeque<>();
@@ -333,7 +345,12 @@ public class FullStopCapability {
     }
 
     public void tick(Entity entity) {
-        if (lastTick != -1 && entity.tickCount > lastTick + 1) {
+        // A body that missed ticks starts again from where it is. Not a body its client measures (a player): its
+        // continuity is in its samples, and its tick count runs with how often its level ticks it, not with this
+        // tick. In a world ticked twice a server tick (Multiworld's under Camafy 0.1.46) the count went up by two
+        // every time, and moving its position to where it stood after all its queued samples, before stepping them,
+        // read the oldest one as a jump back: a jolt every tick, nausea and blindness for a player walking about.
+        if (lastTick != -1 && entity.tickCount > lastTick + 1 && !(sampling && sampledMover(entity))) {
             resetVelocity();
             currentPosition = entity.position();
             previousPosition = currentPosition;
@@ -346,7 +363,17 @@ public class FullStopCapability {
         // dead stop and the resulting "impact" can kill sleepers (villagers at
         // sunrise). Route it through the teleport path instead.
         if (entity instanceof LivingEntity living) {
-            boolean sleeping = living.isSleeping();
+            boolean sleeping;
+            if (net.camacraft.fullstop.common.physics.PerfSwitches.idleFastPaths() && entity instanceof PoseFlips flips) {
+                // Getting into or out of a bed always sets the pose (and so does a sleeper loaded from its save):
+                // the sleeping data, read through a lock, only on a tick the pose was set since the last one.
+                int now = flips.fullstop$poseFlips();
+                sleeping = now == sleepPoseFlips ? wasSleeping : living.isSleeping();
+                sleepPoseFlips = now;
+            } else {
+                sleeping = living.isSleeping();
+                sleepPoseFlips = Integer.MIN_VALUE;
+            }
             if (sleeping || wasSleeping) {
                 hasTeleported = true;
             }
@@ -416,7 +443,7 @@ public class FullStopCapability {
                 for (Vec3 vehicleAt : carrier.steppedPositions) {
                     ride.addLast(new MoveSample(vehicleAt.add(seat), null,
                             entity.horizontalCollision, entity.verticalCollision,
-                            entity.onGround(), entity.getYRot(), null, null));
+                            entity.onGround(), entity.getYRot(), null, null, false));
                 }
                 stepSamples(entity, ride);
             }
@@ -469,7 +496,9 @@ public class FullStopCapability {
         if (entity instanceof Player) {
             return !entity.isPassenger();
         }
-        return entity.getControllingPassenger() instanceof Player;
+        // isVehicle first: a mob's controlling passenger is read through its synched data's lock (a pig's saddle),
+        // and nothing without passengers has one
+        return entity.isVehicle() && entity.getControllingPassenger() instanceof Player;
     }
 
     /**
@@ -497,9 +526,13 @@ public class FullStopCapability {
         double bH = 0, bV = 0, bX = 0, bY = 0, bZ = 0, bTotal = 0;
         MoveSample sample;
         while ((sample = queue.pollFirst()) != null) {
-            step(entity, sample.position(), sample.clientVelocityMps(),
-                    sample.horizontalCollision(), sample.verticalCollision(),
-                    sample.onGround(), sample.yaw(), sample.clientCarryMps(), sample.clientPushMps());
+            if (sample.afterGap() && !firstTick) {
+                reanchor(sample.position(), sample.onGround(), sample.yaw());
+            } else {
+                step(entity, sample.position(), sample.clientVelocityMps(),
+                        sample.horizontalCollision(), sample.verticalCollision(),
+                        sample.onGround(), sample.yaw(), sample.clientCarryMps(), sample.clientPushMps());
+            }
             steppedPositions.add(sample.position());
             if (count > 1 && decelerationForce > bestForce) {
                 bestForce = decelerationForce;
@@ -563,6 +596,25 @@ public class FullStopCapability {
         }
 
         // After tickSpeed, which reads the previous ticks' values.
+        prevPrevOnGround = prevOnGround;
+        prevOnGround = onGround;
+        groundedTicks = onGround ? Math.min(groundedTicks + 1, 1_000_000) : 0;
+    }
+
+    /**
+     * A sample whose move spans client ticks whose own samples were dropped ({@link MoveSample#afterGap}): the queue
+     * keeps {@link #MAX_QUEUED_SAMPLES}, and a server stall longer than that many client ticks (a new world generating
+     * its chunks, a lag spike) overflows it. Its position is taken without measuring the move: the velocity history is
+     * kept, nothing is felt or lost this step, and the next sample is measured from here as usual. Measured, the dropped
+     * ticks' travel read as one tick's and the next tick as a stop: up to 60 m/s gained and lost per tick for a player
+     * walking and jumping about while the server caught up, which built the blackout's nausea and blindness (the owner,
+     * 2026-10-23, in a Multiworld world generating round them), and the speed "lost" counted toward impacts.
+     */
+    private void reanchor(Vec3 position, boolean onGround, float yaw) {
+        previousPosition = position;
+        currentPosition = position;
+        holdStep();
+        lastYaw = yaw;
         prevPrevOnGround = prevOnGround;
         prevOnGround = onGround;
         groundedTicks = onGround ? Math.min(groundedTicks + 1, 1_000_000) : 0;
@@ -655,8 +707,11 @@ public class FullStopCapability {
         pendingPushMps = null;
         if (samples.size() >= MAX_QUEUED_SAMPLES) {
             samples.pollFirst();
+            // the oldest kept sample's move now starts where a dropped one ended
+            MoveSample oldest = samples.pollFirst();
+            if (oldest != null) samples.addFirst(oldest.afterAGap());
         }
-        samples.addLast(new MoveSample(position, velocity, horizontal, vertical, onGround, yaw, carry, shove));
+        samples.addLast(new MoveSample(position, velocity, horizontal, vertical, onGround, yaw, carry, shove, false));
     }
 
     /**
@@ -893,9 +948,18 @@ public class FullStopCapability {
         // room's wall (7 to 17 damage per crouch, the owner's report of 2026-09-30). No pose change moves a body
         // that fast. On that tick and the next, a carried body's own motion is nothing (its carry stays the
         // ship's), and the jump is dropped rather than folded into the carry, which the ship-hit judgement reads.
-        net.minecraft.world.entity.Pose pose = entity.getPose();
-        if (lastPose != null && pose != lastPose) poseChangedTick = entity.tickCount;
-        lastPose = pose;
+        if (net.camacraft.fullstop.common.physics.PerfSwitches.idleFastPaths() && entity instanceof PoseFlips flips) {
+            // the pose count, not the pose (synched data, read through a lock): it moves whenever the pose is set anew
+            int now = flips.fullstop$poseFlips();
+            if (stepPoseFlips != Integer.MIN_VALUE && now != stepPoseFlips) poseChangedTick = entity.tickCount;
+            stepPoseFlips = now;
+            lastPose = null;
+        } else {
+            net.minecraft.world.entity.Pose pose = entity.getPose();
+            if (lastPose != null && pose != lastPose) poseChangedTick = entity.tickCount;
+            lastPose = pose;
+            stepPoseFlips = Integer.MIN_VALUE;
+        }
         // Getting into or out of a vehicle is the same kind of jump (the seat, then the dismount spot beside it):
         // a player getting out of a car on the plating of a ship cruising at 300 m/s was read as a 12 m/s jolt of
         // the deck under them and thrown off with the deck's motion, at 350 m/s (2026-09-30).
@@ -937,7 +1001,7 @@ public class FullStopCapability {
         // Player-controlled vehicles consume the driver's report too — the packet
         // stored it on the vehicle's capability, but only players ever read it,
         // so the whole vehicle branch was dead.
-        boolean clientControlled = entity instanceof Player || entity.getControllingPassenger() instanceof Player;
+        boolean clientControlled = entity instanceof Player || (entity.isVehicle() && entity.getControllingPassenger() instanceof Player);
         if (clientControlled && clientVelocityMps != null) {
             // The client value may REFINE the measurement UPWARD only — it exists
             // to capture intent the server position hasn't integrated yet (the

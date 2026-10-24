@@ -71,6 +71,8 @@ public class FullStop
         }
 
         MinecraftForge.EVENT_BUS.register(PhysicsDispatchServer.class);
+        // cached tag answers are read again when tags reload (FullStopTags.epoch)
+        MinecraftForge.EVENT_BUS.addListener(net.camacraft.fullstop.common.physics.rules.FullStopTags::onTagsUpdated);
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.BreakEffects.class);
         MinecraftForge.EVENT_BUS.register(net.camacraft.fullstop.server.physics.interaction.RideStackHandler.class);
         // Knockback carries a Pehkui-resized entity as far as a normal-size one (scaledKnockback).

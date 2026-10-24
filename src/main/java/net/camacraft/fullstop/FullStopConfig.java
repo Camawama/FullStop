@@ -703,13 +703,15 @@ public class FullStopConfig {
                     .defineInRange("highAltitudeStartLevel", 200, -64, 320);
 
             this.highAltitudeDimensions = builder
-                    .comment("The dimensions whose air thins with height (dimension ids). Anywhere else the altitude rule is off,",
-                            "whatever the Y: VS Genesis's space (the Great Unknown), the Nether, the End and modded worlds are not",
-                            "the overworld's sky. Empty = nowhere.")
+                    .comment("The dimensions whose air thins with height: dimension ids, ids with * wildcards (\"multiworld:*\"),",
+                            "\"type:<dimension type>\" or \"kind:<overworld|nether|end|other>\" (Camafy's Dimensions: kind:overworld is",
+                            "the overworld and every world made as a copy of it, Multiworld's included). Anywhere else the altitude",
+                            "rule is off, whatever the Y: VS Genesis's space (the Great Unknown), the Nether, the End and modded worlds",
+                            "are not the overworld's sky. Empty = nowhere.")
                     .translation(key("highAltitudeDimensions"))
-                    .comment("Default: [\"minecraft:overworld\"]")
-                    .defineListAllowEmpty("highAltitudeDimensions", List.of("minecraft:overworld"),
-                            o -> o instanceof String s && ResourceLocation.isValidResourceLocation(s));
+                    .comment("Default: [\"kind:overworld\"]")
+                    .defineListAllowEmpty("highAltitudeDimensions", List.of("kind:overworld"),
+                            o -> o instanceof String s && net.camacraft.camafy.world.Dimensions.invalidEntries(List.of(s)).isEmpty());
 
             this.highAltitudeAirLossRate = builder
                     .comment("Multiplier for air loss rate at high altitudes. Higher is faster.")

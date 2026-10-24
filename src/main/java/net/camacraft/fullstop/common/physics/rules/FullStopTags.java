@@ -157,6 +157,37 @@ public final class FullStopTags {
     /** Entities a moving Valkyrien Skies ship never hits (no push, no damage). Empty by default. */
     public static final TagKey<EntityType<?>> SHIP_IMMUNE = entityTag("ship_immune");
 
+    // ---- cached tag answers (2026-10-23) --------------------------------------------------------------------------
+    //
+    // A tag test hashes the TagKey (a record: its hash is worked out again on every call) into the holder's tag set.
+    // The phaseable test ran for every block shape query near every moving body (PhaseableBlockMixin) and the
+    // blacklist test for every body every tick from several hooks: about 330 ms of every 30 s with 400 mobs walking
+    // about (pack harness perf_pack, spark). Their answers only change when tags (re)load.
+
+    private static volatile int epoch;
+    /** Per entity type: (epoch << 1) | blacklisted, for the epoch it was read in. */
+    private static final java.util.Map<EntityType<?>, Integer> BLACKLISTED = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Bumped whenever tags load or reload, on either side: every cached tag answer is read again after it. */
+    public static int epoch() {
+        return epoch;
+    }
+
+    /** Forge bus, both sides: data packs (re)loaded on the server, tags received on the client. */
+    public static void onTagsUpdated(net.minecraftforge.event.TagsUpdatedEvent event) {
+        epoch++;
+    }
+
+    /** {@code type.is(PHYSICS_BLACKLIST)}, read once per entity type until tags reload. Any thread. */
+    public static boolean physicsBlacklisted(EntityType<?> type) {
+        int now = epoch;
+        Integer cached = BLACKLISTED.get(type);
+        if (cached != null && (cached >>> 1) == now) return (cached & 1) != 0;
+        boolean value = type.is(PHYSICS_BLACKLIST);
+        BLACKLISTED.put(type, (now << 1) | (value ? 1 : 0));
+        return value;
+    }
+
     private static TagKey<Block> blockTag(String name) {
         return TagKey.create(Registries.BLOCK, new ResourceLocation(FullStop.MODID, name));
     }

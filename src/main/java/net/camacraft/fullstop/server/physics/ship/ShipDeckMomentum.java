@@ -366,7 +366,7 @@ public final class ShipDeckMomentum {
         if (entity instanceof Player player && (player.getAbilities().flying || player.isSpectator())) return false;
         if (entity instanceof Mob mob && mob.isNoAi()) return false;
         if (entity instanceof LivingEntity living && living.isDeadOrDying()) return false;
-        if (entity.getType().is(FullStopTags.PHYSICS_BLACKLIST)) return false;
+        if (FullStopTags.physicsBlacklisted(entity.getType())) return false;
         for (Entity member : EntityStack.selfAndPassengers(entity)) {
             // another mod moves it - unless it takes velocity changes through Camafy's Impulses
             // (an MKW kart: its own speed fields take the throw)

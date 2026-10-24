@@ -62,7 +62,7 @@ public final class PhysicsClaims {
      * per-entity hooks that run every tick (travel, living tick) and must not call out.
      */
     public static boolean cachedHandsOff(Entity entity, PhysicsAspect aspect) {
-        return entity.getType().is(FullStopTags.PHYSICS_BLACKLIST) || cachedClaimed(entity, aspect);
+        return FullStopTags.physicsBlacklisted(entity.getType()) || cachedClaimed(entity, aspect);
     }
 
     /**
@@ -71,6 +71,6 @@ public final class PhysicsClaims {
      * the aspect right now. Game threads only.
      */
     public static boolean handsOff(Entity entity, PhysicsAspect aspect) {
-        return entity.getType().is(FullStopTags.PHYSICS_BLACKLIST) || aspect.in(live(entity));
+        return FullStopTags.physicsBlacklisted(entity.getType()) || aspect.in(live(entity));
     }
 }

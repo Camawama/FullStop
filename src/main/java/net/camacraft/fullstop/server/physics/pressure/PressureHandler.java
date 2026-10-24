@@ -126,13 +126,12 @@ public class PressureHandler {
         }
     }
 
-    /** Whether {@code level} is one of {@code highAltitudeDimensions}: its air thins above the start level. */
+    /**
+     * Whether {@code highAltitudeDimensions} names {@code level} (Camafy's {@code Dimensions}: ids, wildcards, types,
+     * kinds): its air thins above the start level.
+     */
     public static boolean thinAirDimension(Level level) {
-        String id = level.dimension().location().toString();
-        for (String listed : FullStopConfig.SERVER.highAltitudeDimensions.get()) {
-            if (id.equals(listed)) return true;
-        }
-        return false;
+        return net.camacraft.camafy.world.Dimensions.matches(level, FullStopConfig.SERVER.highAltitudeDimensions.get());
     }
 
     private static void handleDepth(LivingEntity living) {

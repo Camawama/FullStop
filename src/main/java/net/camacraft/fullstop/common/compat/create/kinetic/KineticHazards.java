@@ -477,6 +477,6 @@ public final class KineticHazards {
         if (body instanceof net.minecraft.world.entity.decoration.ArmorStand) return true;
         // a creative player on foot is only pushed or flung by a single gear (see tick), never caught
         if (body instanceof Player p && p.getAbilities().flying) return true;
-        return body.getType().is(FullStopTags.PHYSICS_BLACKLIST);
+        return FullStopTags.physicsBlacklisted(body.getType());
     }
 }

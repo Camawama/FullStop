@@ -67,7 +67,7 @@ public class DamageImmunityRules {
 
         // Data-driven full opt-out for modded entities that manage their own
         // physics (data/fullstop/tags/entity_types/physics_blacklist.json).
-        if (entity.getType().is(FullStopTags.PHYSICS_BLACKLIST)) return true;
+        if (FullStopTags.physicsBlacklisted(entity.getType())) return true;
 
         return entity instanceof LivingEntity livingEntity && deadOrDying(livingEntity);
     }
