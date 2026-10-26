@@ -35,8 +35,32 @@ public class PressureHandler {
         // another mod owns it (MKW racers on tracks above the thin-air line).
         if (PhysicsClaims.cachedHandsOff(living, PhysicsAspect.ENVIRONMENT)) return;
 
-        handleAltitude(living);
+        boolean vacuum = inVacuum(living);
+        handleAltitude(living, vacuum);
         handleDepth(living);
+        if (vacuum) handleVacuumCold(living);
+    }
+
+    /**
+     * Whether {@code living} has nothing to breathe here (Camafy's {@code Air.breathable} at its eyes: VS Genesis's space,
+     * Ad Astra's orbits and airless worlds, outside an oxygen bubble) and isn't sealed in a whole space suit.
+     */
+    private static boolean inVacuum(LivingEntity living) {
+        if (!FullStopConfig.SERVER.vacuumSuffocation.get() && !FullStopConfig.SERVER.vacuumFreezing.get()) return false;
+        if (net.camacraft.camafy.compat.space.SpaceSuits.sealed(living)) return false;
+        return !net.camacraft.camafy.compat.space.Air.breathable(living.level(), net.minecraft.core.BlockPos.containing(living.getEyePosition()));
+    }
+
+    /**
+     * Vacuum's cold, as powder snow's: three frozen ticks a tick against vanilla's thaw of two, so the frost creeps in over
+     * {@code getTicksRequiredToFreeze} ticks (7 s) and then vanilla's freezing hurts (every 2 s). Leather armour
+     * ({@code canFreeze}) keeps it off, as in powder snow.
+     */
+    private static void handleVacuumCold(LivingEntity living) {
+        if (!FullStopConfig.SERVER.vacuumFreezing.get() || !living.canFreeze()) return;
+        if (!(living instanceof Player) && !FullStopConfig.SERVER.vacuumAffectsMobs.get()) return;
+        int required = living.getTicksRequiredToFreeze();
+        living.setTicksFrozen(Math.min(required + 2, living.getTicksFrozen() + 3));
     }
 
     /** Ticks of thin-air exposure until the drain reaches the altitude's full rate (5 s). */
@@ -54,17 +78,20 @@ public class PressureHandler {
      */
     private static final double MAX_EXTRA_AIR_LOSS_PER_TICK = 6.0;
 
-    private static void handleAltitude(LivingEntity living) {
-        if (!(living instanceof Player) && !FullStopConfig.SERVER.altitudePressureAffectsMobs.get()) return;
+    private static void handleAltitude(LivingEntity living, boolean inVacuum) {
+        // vacuum: nothing to breathe at any height (vacuumSuffocation), the thin-air drain at its top rate
+        boolean vacuum = inVacuum && FullStopConfig.SERVER.vacuumSuffocation.get();
+        if (!(living instanceof Player) && !(vacuum ? FullStopConfig.SERVER.vacuumAffectsMobs.get()
+                : FullStopConfig.SERVER.altitudePressureAffectsMobs.get())) return;
 
         int altitudeStart = FullStopConfig.SERVER.highAltitudeStartLevel.get();
         // Only where the sky thins with height (highAltitudeDimensions: the overworld). VS Genesis's space, the
-        // Nether, the End and modded worlds have their own air, whatever their Y.
-        boolean inThinAir = living.getY() > altitudeStart && !living.isUnderWater() && thinAirDimension(living.level());
+        // Nether, the End and modded worlds have their own air, whatever their Y (space has none: the vacuum above).
+        boolean inThinAir = vacuum || living.getY() > altitudeStart && !living.isUnderWater() && thinAirDimension(living.level());
 
         // Acclimation is to thin air what Water Breathing is to water: no drain,
-        // and no exposure build-up while it holds.
-        boolean acclimated = living.hasEffect(ModEffects.ACCLIMATION.get());
+        // and no exposure build-up while it holds. Not in vacuum: there is nothing to acclimate to.
+        boolean acclimated = !vacuum && living.hasEffect(ModEffects.ACCLIMATION.get());
         boolean suffering = inThinAir && !acclimated;
 
         // The exposure clock (in the capability) ramps the drain in over several
@@ -75,7 +102,7 @@ public class PressureHandler {
 
         if (!suffering) return;
 
-        double altitudeFactor = Math.min(1.0, (living.getY() - altitudeStart) / ALTITUDE_FULL_SEVERITY_RANGE);
+        double altitudeFactor = vacuum ? 1.0 : Math.min(1.0, (living.getY() - altitudeStart) / ALTITUDE_FULL_SEVERITY_RANGE);
         double rampFactor = Math.min(1.0, exposure / (double) EXPOSURE_RAMP_TICKS);
 
         // Lung Capacity attribute: the base for how long breath can be held.

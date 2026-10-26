@@ -44,6 +44,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue exponentiationConstant;
         public final ForgeConfigSpec.DoubleValue minDamagePercent;
         public final ForgeConfigSpec.DoubleValue maxDamagePercent;
+        public final ForgeConfigSpec.BooleanValue velocityBonusExemptions;
+        public final ForgeConfigSpec.ConfigValue<List<? extends String>> velocityBonusExemptClasses;
         public final ForgeConfigSpec.DoubleValue projectileMultiplier;
         public final ForgeConfigSpec.BooleanValue projectilesHaveMomentum;
         public final ForgeConfigSpec.BooleanValue wildMode;
@@ -101,12 +103,16 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
         public final ForgeConfigSpec.ConfigValue<List<? extends String>> highAltitudeDimensions;
         public final ForgeConfigSpec.DoubleValue highAltitudeAirLossRate;
+        public final ForgeConfigSpec.BooleanValue vacuumSuffocation;
+        public final ForgeConfigSpec.BooleanValue vacuumAffectsMobs;
+        public final ForgeConfigSpec.BooleanValue vacuumFreezing;
         public final ForgeConfigSpec.IntValue deepWaterStartLevel;
         public final ForgeConfigSpec.DoubleValue deepWaterAirLossMultiplier;
         public final ForgeConfigSpec.IntValue pressureDamageStartDepth;
         public final ForgeConfigSpec.DoubleValue pressureDamageAmount;
         public final ForgeConfigSpec.IntValue pressureDamageTickRate;
         public final ForgeConfigSpec.DoubleValue dripstoneDamageMultiplier;
+        public final ForgeConfigSpec.BooleanValue pointedBlocks;
         public final ForgeConfigSpec.IntValue configVersion;
 
         // Ship Weight (from WeightRS; the key names are WeightRS's so its settings import)
@@ -116,6 +122,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue minPhysicsWeightKg;
         public final ForgeConfigSpec.BooleanValue enableItemEntityPhysics;
         public final ForgeConfigSpec.BooleanValue enableStandingWeight;
+        public final ForgeConfigSpec.BooleanValue crewWeightlessInSpace;
         public final ForgeConfigSpec.BooleanValue enableJumpImpulse;
         public final ForgeConfigSpec.BooleanValue enableFallImpact;
         public final ForgeConfigSpec.DoubleValue jumpImpulseMultiplier;
@@ -247,6 +254,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue contraptionStressPerImpact;
         public final ForgeConfigSpec.IntValue maxContraptionTerrainChecksPerTick;
         public final ForgeConfigSpec.BooleanValue contraptionSonicBooms;
+        // Iron's Spells 'n Spellbooks (compat/irons): its Airborne effect's slam damage beside FullStop's impacts
+        public final ForgeConfigSpec.BooleanValue ironsSpellbooksSlamDamage;
         public final ForgeConfigSpec.BooleanValue contraptionRidersTurn;
         // Create: spinning gears and water wheels (compat/create/kinetic)
         public final ForgeConfigSpec.BooleanValue gearHazards;
@@ -291,6 +300,27 @@ public class FullStopConfig {
                     .translation(key("maxDamagePercent"))
                     .comment("Default: " + Float.MAX_VALUE)
                     .defineInRange("maxDamagePercent", DEFAULT_MAXIMUM_DMG, 0, Float.MAX_VALUE);
+
+            this.velocityBonusExemptions = builder
+                    .comment("Hits FullStop's speed bonus (and its malus) leaves alone, so their damage is the weapon's own:",
+                            "a weapon that already prices its speed in, held or being used (the item tag #fullstop:own_velocity_damage:",
+                            "the backported spears and maces), another mod's guns (velocityBonusExemptClasses: Vic's Point Blank),",
+                            "damage types in #fullstop:no_velocity_bonus (explosions: Point Blank's grenades and rockets, TNT,",
+                            "creepers; a blast doesn't hit harder because its victim ran into it), and hits landed beyond the attacker's reach (any mod's",
+                            "hitscan gun: the shooter's running doesn't make a bullet hit harder). FullStop's armor layers still apply",
+                            "to them. Off: every hit with a direct attacker is scaled by the approach speed, as before these rules.")
+                    .translation(key("velocityBonusExemptions"))
+                    .comment("Default: true")
+                    .define("velocityBonusExemptions", true);
+
+            this.velocityBonusExemptClasses = builder
+                    .comment("Classes (fully qualified; a subclass counts too) of damage sources, or of the item the attacker holds or",
+                            "is using, whose hits keep their own damage: other mods' guns, whose hitscan bullets arrive as a plain player",
+                            "attack from the shooter. A class of a mod that isn't installed is simply never seen.")
+                    .translation(key("velocityBonusExemptClasses"))
+                    .defineListAllowEmpty("velocityBonusExemptClasses", List.of(
+                                    "com.vicmatskiv.pointblank.item.ItemDamageSource", "com.vicmatskiv.pointblank.item.HurtingItem"),
+                            o -> o instanceof String s && !s.isBlank());
 
             this.deathMessageAppend = builder
                     .comment("When true, adds the velocity to the death message")
@@ -628,9 +658,21 @@ public class FullStopConfig {
                     .defineInRange("phaseMinimumSpeed", 15.0, 1.0, 1000.0);
             
             this.dripstoneDamageMultiplier = builder
-                    .comment("Multiplier for damage when falling on pointed dripstone.")
+                    .comment("Multiplier for damage when falling on pointed dripstone, and the damage per m/s over the threshold of",
+                            "any pointed block whose rule names no multiplier of its own (see pointedBlocks).")
                     .translation(key("dripstoneDamageMultiplier"))
                     .defineInRange("dripstoneDamageMultiplier", 2.0, 1.0, 100.0);
+
+            this.pointedBlocks = builder
+                    .comment("Pointed blocks hurt more the faster they are met at their point: pointed dripstone, Supplementaries'",
+                            "bamboo spikes, and whatever a datapack names in data/<namespace>/fullstop/pointed_blocks/<name>.json",
+                            "(blocks, the block-state property or direction of the point, a multiplier, a threshold, a damage type).",
+                            "A fall or a ram into the point, a passable point (the spikes) met from inside its block, and a ship's",
+                            "point struck into a body or run into by one, turned with the ship. Off: no block is pointed (pointed",
+                            "dripstone hurts like any other block).")
+                    .translation(key("pointedBlocks"))
+                    .comment("Default: true")
+                    .define("pointedBlocks", true);
 
             this.playerSlimeLandingsOnClient = builder
                     .comment("A player landing on slime bounces on its own client the moment it lands (as in vanilla, with Full Stop's",
@@ -718,6 +760,25 @@ public class FullStopConfig {
                     .translation(key("highAltitudeAirLossRate"))
                     .defineInRange("highAltitudeAirLossRate", 0.5, 0.0, 10.0);
 
+            this.vacuumSuffocation = builder
+                    .comment("Where there is nothing to breathe (Camafy's Air: VS Genesis's space, Ad Astra's orbits and airless worlds,",
+                            "outside an Ad Astra oxygen bubble), the air runs out as at the top of the thin-air ramp, at any height, and",
+                            "Acclimation doesn't help. A whole space suit (#camafy:space_suits: Ad Astra's or VS Genesis's) keeps it in.")
+                    .translation(key("vacuumSuffocation"))
+                    .define("vacuumSuffocation", true);
+
+            this.vacuumAffectsMobs = builder
+                    .comment("When true, mobs suffocate in vacuum too (the undead and water breathers never do).")
+                    .translation(key("vacuumAffectsMobs"))
+                    .define("vacuumAffectsMobs", true);
+
+            this.vacuumFreezing = builder
+                    .comment("Where there is nothing to breathe, living things freeze as in powder snow (the frost creeps in over seven",
+                            "seconds, then vanilla's freezing hurts) unless sealed in a whole space suit; leather armour helps as it does",
+                            "against powder snow.")
+                    .translation(key("vacuumFreezing"))
+                    .define("vacuumFreezing", true);
+
             this.deepWaterStartLevel = builder
                     .comment("The Y-level below which entities lose air faster underwater.")
                     .translation(key("deepWaterStartLevel"))
@@ -790,6 +851,15 @@ public class FullStopConfig {
                     .translation(key("enableStandingWeight"))
                     .comment("Default: true")
                     .define("enableStandingWeight", true);
+
+            this.crewWeightlessInSpace = builder
+                    .comment("In VS Genesis' space a ship and everyone on it fall toward the planets and moons together (Gravity",
+                            "Unbound pulls both alike), so the crew weigh nothing on the ship. Counted, a rider's weight pushed the",
+                            "ship off its centre, in a direction that turned as it flew between bodies, and the ship wobbled and spun",
+                            "up. On: no standing or seated weight on ships in Genesis' space (landings and jumps still push).")
+                    .translation(key("crewWeightlessInSpace"))
+                    .comment("Default: true")
+                    .define("crewWeightlessInSpace", true);
 
             this.enableJumpImpulse = builder
                     .comment("Jumping off a ship kicks it the other way (the jump's reaction impulse): the rider's mass and the ship's",
@@ -1988,6 +2058,19 @@ public class FullStopConfig {
                     .translation(key("shaftSurfaceGrip"))
                     .comment("Default: 0.6")
                     .defineInRange("shaftSurfaceGrip", 0.6, 0.0, 1.0);
+            builder.pop();
+
+            builder.comment("Iron's Spells 'n Spellbooks (only with the mod installed)")
+                    .push("IronsSpellbooks");
+
+            this.ironsSpellbooksSlamDamage = builder
+                    .comment("Telekinesis and Gust give what they throw Iron's Airborne effect, which deals its own damage (4 plus half a point",
+                            "a level, as fly-into-wall damage) when the body slams into something, and FullStop charges the same body for the",
+                            "speed it loses there: two bills for one impact. Off: Iron's slam damage stands down while FullStop's impact",
+                            "damage applies (the effect still ends, its sound still plays). On: both hurt, as before FullStop knew the effect.")
+                    .translation(key("ironsSpellbooksSlamDamage"))
+                    .comment("Default: false")
+                    .define("ironsSpellbooksSlamDamage", false);
             builder.pop();
         }
 

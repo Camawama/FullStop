@@ -1,0 +1,7 @@
+{
+  "blocks": ["minecraft:pointed_dripstone"],
+  "point": "vertical_direction",
+  "min_speed": 4.0,
+  "side_damage": 2.0,
+  "damage_type": "minecraft:stalagmite"
+}

@@ -10,6 +10,7 @@ import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.camacraft.fullstop.common.physics.rules.PointedBlocks;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
@@ -20,7 +21,6 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.PointedDripstoneBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.List;
@@ -128,33 +128,27 @@ public class KineticDamageCalculator {
                     : 0;
         }
 
-        // Dripstone is special: an upward spike hurts from the first block of
-        // exceedance — but only on real contact with real deceleration. The
-        // one-tick-lookahead ray sees spikes BEFORE contact, and without a
-        // stopping-force requirement merely walking toward a column dealt damage.
-        for (BlockState state : collision.blockStates) {
-            if (state.is(Blocks.POINTED_DRIPSTONE)) {
-                Direction tipDirection = state.getValue(PointedDripstoneBlock.TIP_DIRECTION);
-                if (isFall && tipDirection == Direction.UP) {
-                    // ~a one-block drop's landing speed; below that it's a step, not a fall.
-                    if (verticalEvidence && fullstop.getVerticalStoppingForce() > 4.0) {
-                        if (vanillaParity) {
-                            // Vanilla: causeFallDamage(distance + 2, 2.0) → ((d + 2 − 3 − jump) × mult).
-                            double dist = VanillaFall.equivalentFallDistance(fullstop.getVerticalStoppingForce());
-                            return Math.max(dist - 1.0 - jumpBonus, 0.5)
-                                    * SERVER.dripstoneDamageMultiplier.get()
-                                    * SERVER.kineticDamageMultiplier.get();
-                        }
-                        return (1.0 + (verticalExceedance * SERVER.dripstoneDamageMultiplier.get()))
-                                * SERVER.kineticDamageMultiplier.get();
-                    }
-                } else if (!isDownwardImpact) {
-                    // Ramming a spike sideways: needs an actual horizontal hit + a real
-                    // (walking-speed) deceleration, not just proximity.
-                    if (horizontalEvidence && fullstop.getHorizontalStoppingForce() > 2.0) {
-                        return 2.0 * SERVER.kineticDamageMultiplier.get();
-                    }
-                }
+        // A pointed block (data: PointedBlocks - pointed dripstone, Supplementaries' spikes, any pack's) met at its
+        // point hurts from the first block of exceedance, more the faster; rammed on its side, its flat side damage.
+        // Only on real contact with real deceleration: the one-tick-lookahead ray sees points BEFORE contact, and
+        // without a stopping-force requirement merely walking toward a column dealt damage.
+        Vec3 before = fullstop.getPreImpactWorldVelocity();
+        PointedBlocks.Hit point = PointedBlocks.collisionHit(entity, collision, before, before.subtract(fullstop.getCurrentWorldVelocity()));
+        if (point != null) {
+            GravityFrame frame = fullstop.getFrame();
+            boolean alongVertical = Math.abs(frame.vertical(point.tip())) > 0.7;
+            if ((alongVertical ? verticalEvidence : horizontalEvidence) && point.speed() > point.rule().minSpeed()) {
+                // a fall onto an upward point takes vanilla's Jump Boost allowance (VANILLA_PARITY)
+                boolean ontoUpwardPoint = isFall && frame.vertical(point.tip()) > 0.7;
+                return PointedBlocks.damage(point.rule(), point.speed(), alongVertical, weightless,
+                        ontoUpwardPoint ? jumpBonus : 0.0);
+            }
+        } else if (!isDownwardImpact) {
+            // Ramming a point's side: needs an actual horizontal hit + a real (walking-speed) deceleration, not just
+            // proximity.
+            PointedBlocks.Rule side = PointedBlocks.anyStruck(collision);
+            if (side != null && side.sideDamage() > 0 && horizontalEvidence && fullstop.getHorizontalStoppingForce() > 2.0) {
+                return PointedBlocks.sideDamage(side);
             }
         }
 

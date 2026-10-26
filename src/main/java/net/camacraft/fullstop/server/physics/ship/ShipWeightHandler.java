@@ -1,5 +1,6 @@
 package net.camacraft.fullstop.server.physics.ship;
 
+import net.camacraft.camafy.compat.genesis.Celestials;
 import net.camacraft.camafy.compat.gravity.Gravity;
 import net.camacraft.camafy.compat.gravity.GravityFrame;
 import net.camacraft.camafy.compat.vs.PointForce;
@@ -54,6 +55,11 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * on the edge of a small raft rocks it, it doesn't fling it - pushing a light deck as if it were
  * as stiff as its whole mass is what used to spin small rafts up under heavy riders. Standing
  * weight is the static support force {@code m*g} at the feet, only while the rider stands.
+ *
+ * <p>In VS Genesis' space there is no standing or seated weight ({@code crewWeightlessInSpace}): the bodies there pull a
+ * ship and its crew alike (Gravity Unbound's celestial gravity), so they fall together and the crew press on nothing.
+ * Counted, a seated or standing rider's weight was an extra force on the ship at the rider, off its centre and turned
+ * as the pull turned, and a ship flown between several moons wobbled and spun up without end (the owner, 2026-10-24).
  */
 public final class ShipWeightHandler {
 
@@ -100,6 +106,8 @@ public final class ShipWeightHandler {
         double minKg = SERVER.minPhysicsWeightKg.get();
         double maxNewtons = SERVER.maxForceNewtons.get();
         boolean gravityFields = SERVER.enableGravityUnboundCompat.get() && Gravity.available();
+        // the crew fall with their ship in Genesis' space: no support force, so no standing or seated weight
+        boolean freeFall = SERVER.crewWeightlessInSpace.get() && Celestials.isSpace(level);
 
         List<PointForce> standing = new ArrayList<>();
         for (Entity entity : nearby) {
@@ -136,7 +144,7 @@ public final class ShipWeightHandler {
             Vec3 down = gravityFields ? Gravity.pullDirection(entity) : GravityFrame.WORLD_UP.scale(-1);
             double strength = Gravity.strength(entity);
             double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength, maxNewtons);
-            if ((isItem || standingWeight) && newtons > 0.0) {
+            if ((isItem || standingWeight) && !freeFall && newtons > 0.0) {
                 standing.add(PointForce.at(down.scale(newtons), pos));
             }
 
@@ -155,7 +163,7 @@ public final class ShipWeightHandler {
 
         // Seated riders: a seat that is part of this ship (a VS helm, a Create or Clockwork seat)
         // carries its occupant's weight into the hull just as the deck carries a standing one.
-        if (standingWeight) {
+        if (standingWeight && !freeFall) {
             for (Entity rider : seatedRiders(level, nearby)) {
                 if (weighed.contains(rider.getId()) || !rider.isAlive() || rider.isSpectator()) continue;
                 if (!players && rider instanceof Player) continue;

@@ -8,6 +8,7 @@ import net.camacraft.fullstop.common.registry.ModAttributes;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
 import net.camacraft.fullstop.common.util.EnchantmentUtils;
 import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources;
+import net.camacraft.fullstop.server.physics.damage.VelocityBonusRules;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
@@ -91,6 +92,13 @@ public class KineticDamageEventHandler {
         if (!fullstopKinetic && !skipVelocityScaling
                 && (PhysicsClaims.handsOff(event.getEntity(), PhysicsAspect.CONTACT)
                         || PhysicsClaims.handsOff(direct, PhysicsAspect.CONTACT))) {
+            skipVelocityScaling = true;
+        }
+
+        // Weapons that price their own speed in (spears, maces), other mods' guns, and hits from beyond the attacker's
+        // reach keep their own damage (velocityBonusExemptions, VelocityBonusRules).
+        if (!fullstopKinetic && !skipVelocityScaling
+                && VelocityBonusRules.exempt(event.getSource(), direct, event.getEntity())) {
             skipVelocityScaling = true;
         }
 

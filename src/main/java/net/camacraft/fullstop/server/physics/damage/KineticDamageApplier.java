@@ -7,16 +7,13 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.data.Collision;
 import net.camacraft.fullstop.common.physics.rules.DamageImmunityRules;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
+import net.camacraft.fullstop.common.physics.rules.PointedBlocks;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.damage.FullStopDamageSources.VelocityDisplay;
-import net.minecraft.core.Direction;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.PointedDripstoneBlock;
-import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.List;
@@ -74,14 +71,6 @@ public class KineticDamageApplier {
 
     private static boolean applyBlockCollisionDamage(Entity entity, FullStopCapability fullstop, Collision collision,
                                                      double damage, VelocityDisplay velocity) {
-        boolean hitDripstone = false;
-        for (BlockState state : collision.blockStates) {
-            if (state.is(Blocks.POINTED_DRIPSTONE) && state.getValue(PointedDripstoneBlock.TIP_DIRECTION) == Direction.UP) {
-                hitDripstone = true;
-                break;
-            }
-        }
-
         boolean downward = fullstop.isMostlyDownward();
         boolean upward = fullstop.isMostlyUpward();
         // Downward is body-relative (the boots, the crush factor, a belly flop into water); a
@@ -90,8 +79,15 @@ public class KineticDamageApplier {
         boolean waterFlop = collision.collisionType == Collision.CollisionType.WATER
                 && downward && KineticDamageCalculator.isBellyFlop(entity);
 
+        // Met at a pointed block's point (PointedBlocks): its own damage type (dripstone's stalagmite), for a fall onto
+        // the point or a ram into one at the side; a body rising into a point from below hits a ceiling.
+        Vec3 before = fullstop.getPreImpactWorldVelocity();
+        PointedBlocks.Hit point = PointedBlocks.collisionHit(entity, collision, before, before.subtract(fullstop.getCurrentWorldVelocity()));
+        boolean pointVertical = point != null && Math.abs(fullstop.getFrame().vertical(point.tip())) > 0.7;
+        net.minecraft.resources.ResourceKey<net.minecraft.world.damagesource.DamageType> pointType =
+                point != null && point.speed() > point.rule().minSpeed() && (fall || !pointVertical) ? point.rule().damageType() : null;
         DamageSource customSource = FullStopDamageSources.kineticSelf(
-                entity, velocity, downward, upward, fall, hitDripstone && fall, waterFlop);
+                entity, velocity, downward, upward, fall, pointType, waterFlop);
 
         boolean anyHurt = false;
         // The riders, taken BEFORE the vehicle is hurt: a boat hurt hard enough breaks and throws

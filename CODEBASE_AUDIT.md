@@ -15,7 +15,7 @@ Findings are tagged:
 - 🟠 **Bug** — incorrect behavior, desync, or exploitable
 - 🟡 **Design/Smell** — works today but fragile, confusing, or wrongly located
 - 🟢 **Minor** — polish, dead code, missing lang keys
-- ✅ — fixed during the 2026-07-21 session
+- ✅ — fixed on 2026-07-21
 
 ---
 
@@ -30,7 +30,7 @@ with no contact**, and `onGround()` accepted as evidence for *horizontal* impact
 client-polish issues (a dead sound-reload handler that permanently kills the muffle after F3+T,
 frame-rate-dependent easing).
 
-Server-thread performance was overhauled this session (Part 1): the per-tick cost in a ~430-entity
+Server-thread performance was overhauled on 2026-07-21 (Part 1): the per-tick cost in a ~430-entity
 world should drop from ~1.4 ms/tick to an estimated **~0.3 ms/tick**, dominated previously by
 Valkyrien-Skies-wrapped raycasts that are now skipped or routed around whenever no ship is nearby.
 

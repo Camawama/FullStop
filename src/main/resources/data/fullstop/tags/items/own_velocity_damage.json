@@ -1,0 +1,65 @@
+{
+  "replace": false,
+  "values": [
+    {
+      "id": "minecraft:mace",
+      "required": false
+    },
+    {
+      "id": "trials:mace",
+      "required": false
+    },
+    {
+      "id": "minecraft:wooden_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:stone_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:copper_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:iron_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:golden_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:diamond_spear",
+      "required": false
+    },
+    {
+      "id": "minecraft:netherite_spear",
+      "required": false
+    },
+    {
+      "id": "oreganized:electrum_spear",
+      "required": false
+    },
+    {
+      "id": "dragonloot:dragon_spear",
+      "required": false
+    },
+    {
+      "id": "ender_dragon_loot:dragon_spear",
+      "required": false
+    },
+    {
+      "id": "enderitemod:enderite_spear",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:silver_spear",
+      "required": false
+    },
+    {
+      "id": "caverns_and_chasms:necromium_spear",
+      "required": false
+    }
+  ]
+}

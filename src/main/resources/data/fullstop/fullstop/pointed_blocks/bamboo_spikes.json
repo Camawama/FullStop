@@ -1,0 +1,8 @@
+{
+  "blocks": ["supplementaries:bamboo_spikes"],
+  "point": "facing",
+  "passable": true,
+  "min_speed": 4.0,
+  "threshold": 5.0,
+  "damage_type": "supplementaries:bamboo_spikes"
+}

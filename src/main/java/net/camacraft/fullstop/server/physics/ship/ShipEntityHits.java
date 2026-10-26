@@ -218,6 +218,9 @@ public final class ShipEntityHits {
         // Damage: the speed the entity really lost, against the hull block.
         double damage = KineticDamageCalculator.damageForSpeedLost(entity, exchange.speedLost(),
                 Math.abs(frame.vertical(normal)) > 0.7, List.of(hull));
+        // a ship's point the body ran into (PointedBlocks, the point turned with the ship): the faster, the more
+        damage = Math.max(damage, net.camacraft.fullstop.common.physics.rules.PointedBlocks.hullDamage(entity, ship, hull, normal,
+                exchange.speedLost(), frame, weightless));
 
         // The entity: what it keeps along the normal (a landing is left to VS, which carries it on).
         boolean moved = false;

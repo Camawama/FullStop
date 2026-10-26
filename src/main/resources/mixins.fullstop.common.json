@@ -17,6 +17,7 @@
     "ServerLevelCrackClearMixin",
     "ServerShipHoldMixin",
     "PhaseableBlockMixin",
+    "PointedEntityInsideMixin",
     "BoatLerpMixin",
     "EntityPushMixin",
     "EntityShipSweepMixin",

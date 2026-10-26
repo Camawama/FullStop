@@ -415,6 +415,10 @@ public final class ShipEntityImpacts {
         double damage = KineticDamageCalculator.damageForSpeedLost(root, ShipContactPhysics.atOwnScale(root, speedLost),
                 hullAbove || hullBelow, List.of(hull)) * SERVER.entityDamageMultiplier.get()
                 * ShipContactPhysics.strikeDamageShare(hull); // a wool hull shoves, barely hurts
+        // a ship's point struck into the body (PointedBlocks, the point turned with the ship): the faster, the more
+        double pointed = net.camacraft.fullstop.common.physics.rules.PointedBlocks.hullDamage(root, ShipRef.of(root.level(), shipId),
+                hull, normal, ShipContactPhysics.atOwnScale(root, speedLost), frame, Gravity.isWeightless(root));
+        damage = Math.max(damage, pointed * SERVER.entityDamageMultiplier.get());
         if (pinned) damage *= SERVER.pinnedDamageMultiplier.get();
         if (damage < 1) return false;
         Entity credited = SERVER.creditPilot.get() ? pilot.get() : null;

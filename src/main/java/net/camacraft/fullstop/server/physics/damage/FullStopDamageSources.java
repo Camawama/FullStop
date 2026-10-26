@@ -166,9 +166,25 @@ public final class FullStopDamageSources {
                                            boolean fall,
                                            boolean stalagmite,
                                            boolean waterFlop) {
-        Holder<DamageType> type = stalagmite
-                ? entity.damageSources().stalagmite().typeHolder()
-                : holder(entity, fall ? KINETIC_FALL : KINETIC);
+        return kineticSelf(entity, velocity, mostlyDownward, mostlyUpward, fall,
+                stalagmite ? net.minecraft.world.damagesource.DamageTypes.STALAGMITE : null, waterFlop);
+    }
+
+    /**
+     * As above, with the damage type of a pointed block met at its point ({@code PointedBlocks}: the stalagmite for
+     * dripstone, Supplementaries' spikes' own), or null for Full Stop's kinetic types. A type the registry hasn't got
+     * (its mod is missing) falls back to the kinetic one.
+     */
+    public static DamageSource kineticSelf(Entity entity,
+                                           VelocityDisplay velocity,
+                                           boolean mostlyDownward,
+                                           boolean mostlyUpward,
+                                           boolean fall,
+                                           @Nullable ResourceKey<DamageType> pointType,
+                                           boolean waterFlop) {
+        Holder<DamageType> point = pointType == null ? null
+                : entity.level().registryAccess().registryOrThrow(Registries.DAMAGE_TYPE).getHolder(pointType).orElse(null);
+        Holder<DamageType> type = point != null ? point : holder(entity, fall ? KINETIC_FALL : KINETIC);
 
         return new KineticSource(type) {
             @Override
@@ -176,8 +192,8 @@ public final class FullStopDamageSources {
             public Component getLocalizedDeathMessage(@NotNull LivingEntity victim) {
                 Component suffix = velocitySuffix(velocity);
 
-                if (stalagmite) {
-                    return Component.translatable("death.attack.stalagmite", victim.getDisplayName()).append(suffix);
+                if (point != null) {
+                    return Component.translatable("death.attack." + point.value().msgId(), victim.getDisplayName()).append(suffix);
                 }
 
                 if (waterFlop) {

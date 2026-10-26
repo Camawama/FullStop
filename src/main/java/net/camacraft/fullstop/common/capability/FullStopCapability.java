@@ -171,6 +171,8 @@ public class FullStopCapability {
     // one is the jump, whichever path reads it (2026-10-04: a player teleported beside a ship was struck at 463 m/s).
     private int jumpWindow = 0;
     private static final int JUMP_WINDOW_TICKS = 6;
+    /** No body moves faster than this (m/s, 100 blocks a tick): a step past it is a position jump, never motion. */
+    private static final double MAX_PLAUSIBLE_MPS = 2000.0;
     private boolean wasSleeping = false;
     /** The entity's pose count (PoseFlips) when the sleeping state was last read; MIN_VALUE: never. */
     private int sleepPoseFlips = Integer.MIN_VALUE;
@@ -984,8 +986,14 @@ public class FullStopCapability {
         // tick. Compared against the last MEASURED delta, not the tracked velocity,
         // so a genuinely fast entity is only suppressed for the one flagged tick.
         double measuredSpeed = actualVelocity.length();
-        if (measuredSpeed > lastMeasuredSpeed * 3 + 60.0) {
-            lastMeasuredSpeed = measuredSpeed;
+        // Past MAX_PLAUSIBLE_MPS it is a jump whatever came before: two jumps in a row (into Valkyrien Skies' shipyard
+        // and out again, a seat's ship deleted under its rider) passed the relative test the second time, against the
+        // first jump's "speed", and every sweep then ran over millions of blocks, loading each chunk on the way (the
+        // button sweep held the server thread for good, harness cel_spin 2026-10-24).
+        boolean impossible = measuredSpeed > MAX_PLAUSIBLE_MPS;
+        if (impossible || measuredSpeed > lastMeasuredSpeed * 3 + 60.0) {
+            lastMeasuredSpeed = impossible ? 0.0 : measuredSpeed;
+            if (impossible) jumpWindow = JUMP_WINDOW_TICKS;
             previousPosition = currentPosition;
             velocityMps = Vec3.ZERO;
             prevVelocityMps = Vec3.ZERO;
