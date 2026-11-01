@@ -86,7 +86,7 @@ public final class ShipPhysicsServer {
 
             List<Entity> nearby = level.getEntities((Entity) null, query, e -> e.isAlive() && !e.isSpectator());
             if (weight) {
-                ShipWeightHandler.process(level, ship, bounds, nearby, weighed);
+                ShipWeightHandler.process(level, ship, state, bounds, nearby, weighed);
             }
             if (deckBox != null) {
                 ShipDeckMomentum.process(level, ship, state, deckBox, nearby);

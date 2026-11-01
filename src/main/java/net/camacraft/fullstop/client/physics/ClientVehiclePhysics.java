@@ -59,6 +59,8 @@ public final class ClientVehiclePhysics {
 
     /** Called from the client-side mount event for the LOCAL player only. */
     public static void onLocalMountChange(boolean mounting, Entity vehicle, Vec3 observedMotion) {
+        // no seed a body can't have (see PhysicsDispatchServer.observedVehicleMotion)
+        if (net.camacraft.fullstop.common.physics.ShipHullSweep.implausible(observedMotion)) return;
         if (mounting) {
             if (observedMotion.lengthSqr() > 1.0e-6) {
                 vehicleSeed = observedMotion;

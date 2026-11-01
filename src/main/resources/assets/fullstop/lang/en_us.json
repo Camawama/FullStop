@@ -70,6 +70,7 @@
   "config.fullstop.enableStandingWeight": "Standing Weight",
   "config.fullstop.pointedBlocks": "Pointed Blocks",
   "config.fullstop.crewWeightlessInSpace": "Crew Weightless in Space",
+  "config.fullstop.crewWeighByApparentGravity": "Crew Weigh by Apparent Gravity",
   "config.fullstop.enableJumpImpulse": "Jump Impulse",
   "config.fullstop.enableFallImpact": "Landing Impulse",
   "config.fullstop.jumpImpulseMultiplier": "Jump Impulse Multiplier",

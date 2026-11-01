@@ -188,6 +188,13 @@ public final class ShipTracker {
          */
         Vec3 reportedVelocity;
         Vec3 reportedAngularVelocity;
+        /**
+         * The centre of mass's acceleration, m/s^2, world axes, smoothed over the frames ({@link #ACCEL_SMOOTH_SECONDS}),
+         * each frame's sample held to {@link #ACCEL_MAX_SAMPLE}; null until two frames in a row were seen, and again
+         * after the ship jumped (a teleport, a travel, a merge) or came back into view. What a rider on it feels as
+         * gravity is the pull less this ({@link ShipApparentGravity}).
+         */
+        Vec3 acceleration;
 
         private State(long now, long nanos, Vec3 position, Vec3 velocity, Vec3 angularVelocity, Quaterniond rotation,
                       double mass) {
@@ -321,6 +328,12 @@ public final class ShipTracker {
         public double sweepSeconds(long now) {
             double pending = TICK_SECONDS * (1 + Math.max(0, now - frameTick));
             return Math.min(MAX_SWEEP_SECONDS, Math.max(pending, frameSeconds));
+        }
+
+        /** The smoothed acceleration of the centre of mass, m/s^2 (see the field); null while unknown. */
+        @org.jetbrains.annotations.Nullable
+        public Vec3 acceleration() {
+            return acceleration;
         }
 
         /** Kg; +infinity when VS reports none (an unresolved or weightless ship). */
@@ -682,6 +695,7 @@ public final class ShipTracker {
             state.recentCount = 0;
             state.remember(position, velocity, omega, now);
             state.framesSeen = 0;
+            state.acceleration = null;
             state.prevFrameTick = now;
             state.newFrame = false;
             state.frameSeconds = TICK_SECONDS;
@@ -728,6 +742,10 @@ public final class ShipTracker {
                     // motion itself took, when there is enough of it to tell
                     seconds = Math.max(seconds, physicsSeconds(state.position, state.velocity, state.rotation,
                             state.angularVelocity, position, velocity, rotation, omega));
+                    state.acceleration = smoothedAcceleration(state.acceleration, state.velocity, velocity,
+                            motionSeconds(state.position, state.velocity, position, velocity, realSeconds));
+                } else {
+                    state.acceleration = null;
                 }
                 if (state.nextBase != null) {
                     state.base = state.nextBase;
@@ -787,6 +805,39 @@ public final class ShipTracker {
         state.mass = mass;
         state.lastSeen = now;
         return state;
+    }
+
+    /**
+     * The physics time a frame took, for its acceleration: for a ship that moves, the distance along its mean velocity
+     * over that velocity (exact under a steady acceleration, whatever the clocks: VS's physics runs on its own, and a
+     * server whose ticks race ahead of it, as a game test's do, or lag behind it would scale tick seconds wrongly); for one
+     * that barely moves, the real time between the frames. Between 0.01 and 0.5 s.
+     */
+    static double motionSeconds(Vec3 from, Vec3 velocityBefore, Vec3 to, Vec3 velocityAfter, double realSeconds) {
+        Vec3 mean = velocityBefore.add(velocityAfter).scale(0.5);
+        double meanSqr = mean.lengthSqr();
+        double seconds = meanSqr > 0.25 ? to.subtract(from).dot(mean) / meanSqr : realSeconds;
+        return Mth.clamp(Double.isFinite(seconds) ? seconds : realSeconds, 0.01, 0.5);
+    }
+
+    /** How long (seconds) the acceleration estimate takes to follow a change by about two thirds. */
+    static final double ACCEL_SMOOTH_SECONDS = 0.2;
+    /** The largest one frame's acceleration sample counts with (m/s^2, about six g): a contact's spike is held to it. */
+    static final double ACCEL_MAX_SAMPLE = 60.0;
+
+    /**
+     * The acceleration estimate after a frame that took the centre of mass from {@code before} to {@code after} (m/s) in
+     * {@code seconds}: the frame's own change, held to {@link #ACCEL_MAX_SAMPLE}, blended into {@code previous} (none
+     * yet: the sample itself) by how long the frame took against {@link #ACCEL_SMOOTH_SECONDS}.
+     */
+    static Vec3 smoothedAcceleration(@org.jetbrains.annotations.Nullable Vec3 previous, Vec3 before, Vec3 after, double seconds) {
+        Vec3 sample = after.subtract(before).scale(1.0 / seconds);
+        double length = sample.length();
+        if (!Double.isFinite(length)) return previous;
+        if (length > ACCEL_MAX_SAMPLE) sample = sample.scale(ACCEL_MAX_SAMPLE / length);
+        if (previous == null) return sample;
+        double blend = 1.0 - Math.exp(-seconds / ACCEL_SMOOTH_SECONDS);
+        return previous.add(sample.subtract(previous).scale(blend));
     }
 
     /**

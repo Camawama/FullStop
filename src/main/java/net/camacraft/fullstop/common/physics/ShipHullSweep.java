@@ -53,6 +53,17 @@ public final class ShipHullSweep {
     /** How far around the swept box a ship must be to matter (VS gathers ship blocks 0.5 around players). */
     private static final double NEAR = 0.5;
     /**
+     * The longest move (blocks in one call, 100 = 2000 m/s at 20 ticks a second, Full Stop's {@code MAX_PLAUSIBLE_MPS}) that
+     * is collided at all. Anything longer is no motion an entity can have: it is not swept, no collision box is built for
+     * it (vanilla's {@code collide} alone walks every block cell of the box the move spans, and a box from the world to a
+     * ship's shipyard, 28 million blocks off, never ends), and it doesn't move the entity. 2026-10-30: the owner's client
+     * froze for good on joining a save where the player sat on a ship's seat in the Great Unknown ("I restarted the game
+     * and attempted to boot into that world again but the game instantly froze"): the render thread was in this class's
+     * {@code resolve}, in {@code BlockCollisions}, asking the client chunk cache for chunk after chunk.
+     */
+    public static final double MAX_MOVE = 100.0;
+    private static final java.util.concurrent.atomic.AtomicLong REFUSED = new java.util.concurrent.atomic.AtomicLong();
+    /**
      * A rider VS carries with a ship is left to VS for moves up to this long (blocks): its own
      * steps, jumps and falls on a deck are well inside what VS's resolver gets right (it only
      * failed with about a block of travel left after contact), and its riding - standing
@@ -88,6 +99,7 @@ public final class ShipHullSweep {
      * (not its own motion), and for the local player handed to {@link #clientShoves}.
      */
     public static Vec3 collide(Entity self, Vec3 movement, Operation<Vec3> original) {
+        if (implausible(movement)) return refuse(self, movement);
         ShoveListener listener = self instanceof Player && self.level().isClientSide ? clientShoves : null;
         long carriedBefore = ShipRef.NO_ID;
         if (listener != null) {
@@ -141,6 +153,35 @@ public final class ShipHullSweep {
                     String.format(java.util.Locale.ROOT, "%.2f, %.2f, %.2f", total.x, total.y, total.z), trace);
         }
         return total;
+    }
+
+    /** A move no entity can make in one tick: longer than {@link #MAX_MOVE}, or not finite. */
+    public static boolean implausible(Vec3 movement) {
+        double lengthSqr = movement.lengthSqr();
+        return !(lengthSqr <= MAX_MOVE * MAX_MOVE);
+    }
+
+    /**
+     * An implausible move: no sweep, no collision, no movement, and the entity's own velocity dropped so the next tick
+     * doesn't ask for it again. Logged (at most once a minute) with what asked for it.
+     */
+    private static Vec3 refuse(Entity self, Vec3 movement) {
+        long n = REFUSED.incrementAndGet();
+        if (n == 1 || n % 1200 == 0) {
+            org.slf4j.LoggerFactory.getLogger(ShipHullSweep.class).warn("[FullStop] {}{} asked to move ({}) in one tick from ({}), riding {}: "
+                            + "longer than {} blocks, so it doesn't move and its velocity is dropped ({} such moves so far)",
+                    self.getName().getString(), self.level().isClientSide ? " (client)" : "",
+                    String.format(java.util.Locale.ROOT, "%.1f, %.1f, %.1f", movement.x, movement.y, movement.z),
+                    String.format(java.util.Locale.ROOT, "%.1f, %.1f, %.1f", self.getX(), self.getY(), self.getZ()),
+                    self.getVehicle() == null ? "nothing" : self.getVehicle().getType().toShortString(), (int) MAX_MOVE, n);
+        }
+        self.setDeltaMovement(Vec3.ZERO);
+        return Vec3.ZERO;
+    }
+
+    /** Implausible moves refused so far (the harness reads it). */
+    public static long refusedMoves() {
+        return REFUSED.get();
     }
 
     /**

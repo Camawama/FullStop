@@ -123,6 +123,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue enableItemEntityPhysics;
         public final ForgeConfigSpec.BooleanValue enableStandingWeight;
         public final ForgeConfigSpec.BooleanValue crewWeightlessInSpace;
+        public final ForgeConfigSpec.BooleanValue crewWeighByApparentGravity;
         public final ForgeConfigSpec.BooleanValue enableJumpImpulse;
         public final ForgeConfigSpec.BooleanValue enableFallImpact;
         public final ForgeConfigSpec.DoubleValue jumpImpulseMultiplier;
@@ -860,6 +861,16 @@ public class FullStopConfig {
                     .translation(key("crewWeightlessInSpace"))
                     .comment("Default: true")
                     .define("crewWeightlessInSpace", true);
+
+            this.crewWeighByApparentGravity = builder
+                    .comment("A rider weighs on its ship by the gravity it feels there, not by the world's: the pull less the ship's own",
+                            "acceleration along it (smoothed over a few ticks, held between none and three times the pull). A ship at rest",
+                            "or afloat carries its crew's full weight, a ship in free fall carries none (they fall together), and a ship",
+                            "being slowed carries more. Off: the full weight always, as before 2026-10-30, when a falling raft above VS's",
+                            "air tipped 44 degrees in 11.5 s under its seated rider (520 N m).")
+                    .translation(key("crewWeighByApparentGravity"))
+                    .comment("Default: true")
+                    .define("crewWeighByApparentGravity", true);
 
             this.enableJumpImpulse = builder
                     .comment("Jumping off a ship kicks it the other way (the jump's reaction impulse): the rider's mass and the ship's",

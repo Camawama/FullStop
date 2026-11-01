@@ -242,9 +242,14 @@ public class PhysicsDispatchServer {
      * the larger of the two wins so whichever source is live this phase is used.
      */
     public static Vec3 observedVehicleMotion(Entity vehicle) {
-        Vec3 motion = new Vec3(vehicle.getX() - vehicle.xOld,
+        // A vehicle that has never ticked has no old position yet (0, 0, 0): pos - xOld is then its position, not its
+        // motion. 2026-10-30, the owner's save: a Create seat in a ship's shipyard (-28,665,854 129 12,290,046), never
+        // ticked on the client, handed its rider that "motion" on the dismount at the join, and the rider's client froze
+        // colliding a 31-million-block move. Anything no body can move in a tick counts as no motion too.
+        Vec3 motion = vehicle.tickCount <= 0 ? Vec3.ZERO : new Vec3(vehicle.getX() - vehicle.xOld,
                 vehicle.getY() - vehicle.yOld,
                 vehicle.getZ() - vehicle.zOld);
+        if (net.camacraft.fullstop.common.physics.ShipHullSweep.implausible(motion)) motion = Vec3.ZERO;
         FullStopCapability cap = grabCapability(vehicle);
         // FRESH measurements only. A boat's client-side capability is ticked
         // only while the local player drives it; after a dismount it freezes at
@@ -253,7 +258,7 @@ public class PhysicsDispatchServer {
         // boat. Server-side caps tick every tick, so they always pass.
         if (cap != null && vehicle.tickCount - cap.getLastTick() <= 2) {
             Vec3 measured = cap.getCurrentNativeVelocity();
-            if (measured.lengthSqr() > motion.lengthSqr()) {
+            if (!net.camacraft.fullstop.common.physics.ShipHullSweep.implausible(measured) && measured.lengthSqr() > motion.lengthSqr()) {
                 motion = measured;
             }
         }

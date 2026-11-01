@@ -56,6 +56,10 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * as stiff as its whole mass is what used to spin small rafts up under heavy riders. Standing
  * weight is the static support force {@code m*g} at the feet, only while the rider stands.
  *
+ * <p>A rider weighs on its ship by the gravity it feels there ({@code crewWeighByApparentGravity}, {@link ShipApparentGravity}):
+ * the pull less the ship's own acceleration along it. A ship in free fall carries none of its crew's weight, one at rest
+ * all of it, one being slowed more.
+ *
  * <p>In VS Genesis' space there is no standing or seated weight ({@code crewWeightlessInSpace}): the bodies there pull a
  * ship and its crew alike (Gravity Unbound's celestial gravity), so they fall together and the crew press on nothing.
  * Counted, a seated or standing rider's weight was an extra force on the ship at the rider, off its centre and turned
@@ -81,6 +85,12 @@ public final class ShipWeightHandler {
      */
     private static final Map<Entity, double[]> TRACKED = new WeakHashMap<>();
 
+    /**
+     * Each ship's standing and seated weight as last set: {total newtons, torque about the ship's centre (N m), game
+     * tick}. For the tests and the pack harness; a few dozen entries at most, dropped with the ship's forces.
+     */
+    private static final Map<Long, double[]> LAST = new java.util.concurrent.ConcurrentHashMap<>();
+
     private ShipWeightHandler() {
     }
 
@@ -94,7 +104,7 @@ public final class ShipWeightHandler {
      * the entities already weighing on another ship this tick: an entity straddling two ships'
      * bounds only weighs on one.
      */
-    static void process(ServerLevel level, ShipRef ship, AABB shipBox, List<Entity> nearby, Set<Integer> weighed) {
+    static void process(ServerLevel level, ShipRef ship, ShipTracker.State state, AABB shipBox, List<Entity> nearby, Set<Integer> weighed) {
         AABB query = weightQueryBox(shipBox);
         long now = level.getGameTime();
 
@@ -108,6 +118,8 @@ public final class ShipWeightHandler {
         boolean gravityFields = SERVER.enableGravityUnboundCompat.get() && Gravity.available();
         // the crew fall with their ship in Genesis' space: no support force, so no standing or seated weight
         boolean freeFall = SERVER.crewWeightlessInSpace.get() && Celestials.isSpace(level);
+        // what the crew feel on the ship is the pull less the ship's own acceleration (none of it in free fall)
+        Vec3 shipAcceleration = SERVER.crewWeighByApparentGravity.get() ? state.acceleration() : null;
 
         List<PointForce> standing = new ArrayList<>();
         for (Entity entity : nearby) {
@@ -143,7 +155,8 @@ public final class ShipWeightHandler {
             // Unbound compat switch says; that switch only picks the direction of the pull).
             Vec3 down = gravityFields ? Gravity.pullDirection(entity) : GravityFrame.WORLD_UP.scale(-1);
             double strength = Gravity.strength(entity);
-            double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength, maxNewtons);
+            double share = ShipApparentGravity.share(shipAcceleration, down, gravity * strength);
+            double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength * share, maxNewtons);
             if ((isItem || standingWeight) && !freeFall && newtons > 0.0) {
                 standing.add(PointForce.at(down.scale(newtons), pos));
             }
@@ -174,7 +187,8 @@ public final class ShipWeightHandler {
                 if (kg < minKg) continue;
                 Vec3 down = gravityFields ? Gravity.pullDirection(rider) : GravityFrame.WORLD_UP.scale(-1);
                 double strength = Gravity.strength(rider);
-                double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength, maxNewtons);
+                double share = ShipApparentGravity.share(shipAcceleration, down, gravity * strength);
+                double newtons = strength < Gravity.WEIGHTLESS_BELOW ? 0.0 : Math.min(kg * gravity * strength * share, maxNewtons);
                 if (newtons > 0.0) {
                     standing.add(PointForce.at(down.scale(newtons), seatPoint(ship, rider)));
                 }
@@ -183,6 +197,31 @@ public final class ShipWeightHandler {
 
         // Replaces last tick's set; an empty list clears it.
         ShipForces.setContinuous(level, ship.id(), STANDING, standing, STANDING_TTL_TICKS);
+        record(ship, standing, now);
+    }
+
+    private static void record(ShipRef ship, List<PointForce> standing, long now) {
+        if (standing.isEmpty()) {
+            LAST.remove(ship.id()); // nothing weighs on it (and a ship that goes away leaves nothing behind here)
+            return;
+        }
+        Vec3 centre = ship.position();
+        double newtons = 0.0;
+        Vec3 torque = Vec3.ZERO;
+        for (PointForce force : standing) {
+            newtons += force.force().length();
+            if (centre != null && force.worldPoint() != null) torque = torque.add(force.worldPoint().subtract(centre).cross(force.force()));
+        }
+        LAST.put(ship.id(), new double[]{newtons, torque.length(), now});
+    }
+
+    /**
+     * {total newtons, torque about the centre (N m), game tick} of this ship's standing and seated weight as last set, or null
+     * when nothing weighed on it.
+     */
+    public static double[] lastWeight(long shipId) {
+        double[] last = LAST.get(shipId);
+        return last == null ? null : last.clone();
     }
 
     /**
@@ -214,6 +253,7 @@ public final class ShipWeightHandler {
     /** Clears this ship's standing weight (it has no bounds this tick). */
     static void clear(ServerLevel level, ShipRef ship) {
         ShipForces.clearContinuous(level, ship.id(), STANDING);
+        LAST.remove(ship.id());
     }
 
     static boolean isCandidate(Entity entity) {
