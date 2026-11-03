@@ -456,6 +456,11 @@ public class KineticBlockInteractions {
             if (net.camacraft.fullstop.common.physics.collision.CommonCollisionDetector.isLiquidBlock(state)) {
                 continue;
             }
+            // A block that catches bodies (powder snow, a cobweb, a berry bush) is never smashed by the body it catches:
+            // vanilla's fall lands on powder snow's falling shape and sinks in; a break-through met the stone under it.
+            if (net.camacraft.fullstop.common.physics.rules.StuckBlocks.catches(state)) {
+                continue;
+            }
 
             // --- Interaction allowlist ------------------------------------
             if (block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock) {
@@ -1088,6 +1093,7 @@ public class KineticBlockInteractions {
                 || block instanceof DoorBlock || block instanceof TrapDoorBlock || block instanceof FenceGateBlock
                 || block instanceof NoteBlock || block instanceof ButtonBlock || block instanceof BellBlock) return -1;
         if (state.getCollisionShape(level, pos).isEmpty()) return -1;
+        if (net.camacraft.fullstop.common.physics.rules.StuckBlocks.catches(state)) return -1;
         if (ShipCompat.isShipBlock(level, pos)) return -1;
         float hardness = state.getDestroySpeed(level, pos);
         if (hardness < 0) return -1;

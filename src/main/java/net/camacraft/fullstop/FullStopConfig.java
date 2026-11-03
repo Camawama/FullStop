@@ -58,6 +58,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue projectileSlimeMaxSkips;
         public final ForgeConfigSpec.DoubleValue bouncyItemRestitution;
         public final ForgeConfigSpec.BooleanValue foliageNeverHurts;
+        public final ForgeConfigSpec.BooleanValue stuckBlocksCushion;
         public final ForgeConfigSpec.BooleanValue slimeBounceKeepsMomentum;
         public final ForgeConfigSpec.BooleanValue slimeBounceKeepsGlide;
         public final ForgeConfigSpec.DoubleValue sonicBoomRange;
@@ -506,6 +507,15 @@ public class FullStopConfig {
                     .translation(key("foliageNeverHurts"))
                     .comment("Default: true")
                     .define("foliageNeverHurts", true);
+
+            this.stuckBlocksCushion = builder
+                    .comment("A block that holds a body (powder snow, cobwebs, sweet berry bushes: vanilla's makeStuckInBlock, and any",
+                            "mod's block that does the same) takes its speed as a cushion, as vanilla does: no impact damage, sound or",
+                            "g-force from the stop it brings, and the body is measured afresh from where the block holds it. Off, that",
+                            "stop is billed like a floor's (a fall into powder snow hurt as much as one onto stone).")
+                    .translation(key("stuckBlocksCushion"))
+                    .comment("Default: true")
+                    .define("stuckBlocksCushion", true);
 
             this.slimeBounceKeepsMomentum = builder
                     .comment("A body bounced off slime at an angle (a tilted ship's slime, a slime wall) keeps the sideways speed the",

@@ -38,6 +38,12 @@ public final class FullStopTags {
     public static final TagKey<Block> CUSHIONING = blockTag("cushioning");
 
     /**
+     * Blocks that catch a body and hold it (powder snow, cobwebs, sweet berry bushes: vanilla's makeStuckInBlock, and any
+     * mod's block of that kind). Never smashed, cracked or cratered by the body they catch (rules/StuckBlocks).
+     */
+    public static final TagKey<Block> CATCHING = blockTag("catching");
+
+    /**
      * Blocks that living entities moving faster than the configured
      * phaseMinimumSpeed pass through instead of colliding with (leaves, plus
      * everything in {@link #ENGULFING}). No impact damage, no breaking.

@@ -914,6 +914,24 @@ public class FullStopCapability {
             return;
         }
 
+        // Held by a block (vanilla's makeStuckInBlock: powder snow, cobwebs, sweet berry bushes, any mod's block that does
+        // the same) this tick or just before: the block takes the body's speed as a cushion, as vanilla takes it (the fall
+        // distance reset, no fall damage), so nothing of what it took counts as lost or is felt, and the body is measured
+        // afresh from where the block holds it (see StuckBlocks). The 2026-10-31 report: a fall into powder snow hurt.
+        if (net.camacraft.fullstop.common.physics.rules.StuckBlocks.cushions(entity)) {
+            currentPosition = position;
+            previousPosition = currentPosition;
+            velocityMps = Vec3.ZERO;
+            prevVelocityMps = Vec3.ZERO;
+            prevPrevVelocityMps = Vec3.ZERO;
+            frameMotionMps = Vec3.ZERO;
+            prevFrameMotionMps = Vec3.ZERO;
+            prevPrevFrameMotionMps = Vec3.ZERO;
+            pushMps = Vec3.ZERO;
+            acceleration = Vec3.ZERO;
+            return;
+        }
+
         prevPrevVelocityMps = prevVelocityMps;
         prevVelocityMps = velocityMps;
         prevPrevFrameMotionMps = prevFrameMotionMps;

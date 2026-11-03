@@ -391,6 +391,7 @@
   "config.fullstop.projectileSlimeMaxSkips": "Projectile Slime Max Skips",
   "config.fullstop.bouncyItemRestitution": "Bouncy Item Restitution",
   "config.fullstop.foliageNeverHurts": "Foliage Never Hurts",
+  "config.fullstop.stuckBlocksCushion": "Stuck Blocks Cushion",
   "config.fullstop.slimeBounceKeepsMomentum": "Slime Bounce Keeps Momentum",
   "config.fullstop.slimeBounceKeepsGlide": "Slime Bounce Keeps Elytra Glide",
   "config.fullstop.sonicBoomRange": "Sonic Boom Range",
