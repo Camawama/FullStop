@@ -1,6 +1,6 @@
 # FullStop In-Game Testing Checklist
 
-**Build:** working tree, 2026-09-26 (ship weight from WeightRS + ship collisions + physics ownership / MKW compat; 2026-09-27: ship riders keep deck momentum, fast ship hits; later on 2026-09-27: solid hulls, entities hitting ships as two bodies, heavy riders on small rafts, ship velocity debug rays, spin nausea build-up, vehicles and karts in free roam) — new sections **18-33** at the end; the list right below is from 2026-08-09d (shallow slime bounces + stack crushing + pressure-wave sonic boom); round 2 on 2026-09-27: riders on spinning ships, hull strikes swept in the ship's frame (fast rotors), hull friction and lift, frozen ships' debug rays, ships breaking ships by default; round 3 on 2026-09-27: players and fast ships (hull hits judged on the player's client, the player measured with its client's ship carry, ship ray hits only when real, deck jolts must stand), seated riders feel the ship's g-force, debugShipContactLog; round 4 on 2026-09-27: zero and low gravity (sections **34-35**; needs Camafy 0.1.7), slime and honey never fall off ships (section **36**); slime bounces and honey glue on ships (section **37**; needs Camafy 0.1.10)
+**Build:** working tree, 2026-09-26 (ship weight from WeightRS + ship collisions + physics ownership / MKW compat; 2026-09-27: ship riders keep deck momentum, fast ship hits; later on 2026-09-27: solid hulls, entities hitting ships as two bodies, heavy riders on small rafts, ship velocity debug rays, spin nausea build-up, vehicles and karts in free roam) — new sections **18-33** at the end; the list right below is from 2026-08-09d (shallow slime bounces + stack crushing + pressure-wave sonic boom); also 2026-09-27: riders on spinning ships, hull strikes swept in the ship's frame (fast rotors), hull friction and lift, frozen ships' debug rays, ships breaking ships by default; then: players and fast ships (hull hits judged on the player's client, the player measured with its client's ship carry, ship ray hits only when real, deck jolts must stand), seated riders feel the ship's g-force, debugShipContactLog; then: zero and low gravity (sections **34-35**; needs Camafy 0.1.7), slime and honey never fall off ships (section **36**); slime bounces and honey glue on ships (section **37**; needs Camafy 0.1.10)
 
 - [ ] **Hit a long slime wall at a SHALLOW angle (10-30°) at speed, repeatedly.** *Expect:* always deflected OUT along the wall, keeping most forward speed — never mirrored backwards, never a back-and-forth settle. Head-on hits unchanged (full mirror).
 - [ ] **Stack 3+ mobs (or drop an iron golem onto a cow).** *Expect:* the BOTTOM carrier starts taking periodic squish damage ("was squished too much" on death); a single similar-sized rider deals none. The stack sheds from the bottom up as carriers die.
@@ -16,7 +16,7 @@
 
 - [ ] **`/summon minecraft:cow ~ ~1 ~ {Motion:[2.0,0.0,0.0]}` aimed at a wall a few blocks away.** *Expect:* the cow takes wall damage on impact (it was inside a 5-tick spawn immunity before). Falls unchanged.
 - [ ] **Throw the hook at ice and let it LATCH.** *Expect:* exactly ONE crack step per throw — the crack must not deepen further (or break through) while the hook sits anchored. Repeated separate throws still accumulate.
-- [ ] **Fire the tagged grappling hook at an ice WALL.** *Expect:* cracks on lighter hits, breaks through on fast ones (mass floor 0.5 — with your weight-50 config it hits hard). Also try a steep downward shot at floor ice: registers now.
+- [ ] **Fire the tagged grappling hook at an ice WALL.** *Expect:* cracks on lighter hits, breaks through on fast ones (mass floor 0.5 — with a weight-50 config it hits hard). Also try a steep downward shot at floor ice: registers now.
 - [ ] **Fire the hook between two slime walls.** *Expect:* it ricochets off BOTH — no dead stop at the second (bounce refractory reduced to 1 tick).
 - [ ] **Player in a tight slime corridor.** *Expect:* rapid wall-to-wall bounces chain properly; rubbing along a single wall still never bounces (seam guard regression check).
 
@@ -101,7 +101,7 @@
 - [ ] **Walk off the edge of a ship spinning fast (45+ RPM), and of one cruising.** *Expect:* you fly off straight along the edge with the deck's speed, not swung round with it; stand still on the same deck: you stay put.
 - [ ] **Jump on a cruising deck.** *Expect:* you land where you took off (in the deck's frame), as before.
 
-## Slime, booms and fish, 2026-10-13 `[FIX]` `[NEW]` (round 15)
+## Slime, booms and fish, 2026-10-13 `[FIX]` `[NEW]`
 
 - [ ] **Throw a snowball, egg, splash potion and ender pearl straight down at a slime floor, then low along it; shoot an arrow steeply into it and low along it.** *Expect:* every thrown item bounces at any angle (it breaks, splashes, hatches or teleports you only where it finally lands); the arrow skips low and sticks steep.
 - [ ] **Fire a fire charge from a dispenser at a slime wall at an angle, and get a ghast to shoot at slime.** *Expect:* it bounces off and flies away; no fire on the slime, no explosion there.
@@ -192,7 +192,7 @@ Useful setup commands:
 - [ ] **Slime on a ship's underside and sides: jump or get flung up into it, run or get flung into it; roll a slime ship upside down or on its side and land on its slime; stand under a ship with a gravity core in it and fall up onto its slime underside.** *Expect:* each bounces the way the same face of world slime does (the underside sends you back down) `[FIX]`.
 - [ ] **Fall while holding a full stack of passengers is N/A — see §7 for stacks.*
 
-## 2. Elytra impacts — your reported issue `[FIX]` (test thoroughly!)
+## 2. Elytra impacts — reported issue `[FIX]` (test thoroughly!)
 
 - [ ] **Level flight into a flat wall at high speed** (rocket boost). *Expect:* damage EVERY time, scaled to speed. Repeat 10×; note any silent hit.
 - [ ] **CLIMBING (swooping upward) into a cliff face / wall at speed.** *Expect:* damage — this specific case dealt zero before today's fix.
@@ -339,7 +339,7 @@ Useful setup commands:
 
 ## 15. Performance `[PERF]` — the point of this whole exercise
 
-- [ ] **Spark capture, 2 min, same world/conditions as your original profile** (~430 entities): `/spark profiler start --timeout 120`. *Expect:* `PhysicsDispatchServer.onLevelTick` total well under 0.5 ms/tick (was ~1.43). Send me the numbers either way.
+- [ ] **Spark capture, 2 min, same world/conditions as the original profile** (~430 entities): `/spark profiler start --timeout 120`. *Expect:* `PhysicsDispatchServer.onLevelTick` total well under 0.5 ms/tick (was ~1.43).
 - [ ] **Check the breakdown:** `detectBlocks` should be near-invisible; `grabCapability` and `isNoAi` should no longer appear as line items.
 - [ ] **Stress: stand in a mob farm / dense cave** (mobs pressed against walls — worst case for the pre-check). *Expect:* still far below the old cost; TPS stable.
 - [ ] **Item-heavy area (drop farms).** *Expect:* items/XP orbs cost ~nothing.
@@ -562,7 +562,7 @@ Setup: a ship of obsidian (or stone) blocks you can drive or push at 15+ m/s; a 
 - [ ] **`shipVsShipBreaking = FRAGILE`**: only glass-like blocks break; **`NONE`**: nothing breaks, the ships only sound.
 - [ ] **KRUNCH_CLASSIC backend (the VS default).** *Expect:* the same (Camafy's fallback reports ship-against-ship crashes).
 
-## 32. Players and fast ships (round 3) `[VS]` `[FIX]`
+## 32. Players and fast ships `[VS]` `[FIX]`
 
 Setup: Clockwork with a creative motor on a phys bearing, a sub-ship with a flat top and a long arm at body height; the VS backend you play on (KRUNCH_CLASSIC is the default). Diagnostics: open `saves/<world>/serverconfig/fullstop-server.toml`, set `debugShipContactLog = true` under `[Ship Collisions]` (it applies at once), reproduce, set it back to `false`, and send `logs/latest.log` (in single player it holds both the client's and the server's lines, all starting with `[FullStop]`). The raycast debug view helps too: ship blocks show magenta (a real collision), lavender (touching) or blue (only in the ray's way - never an impact).
 
@@ -574,7 +574,7 @@ Setup: Clockwork with a creative motor on a phys bearing, a sub-ship with a flat
 - [ ] **Jump off the spinning rotor.** *Expect:* VS carries you with it for about a second (vanilla VS); FullStop's ship code leaves you alone meanwhile. (If VS's own carry then flings you as it lets go, that is VS, not FullStop.)
 - [ ] **Multiplayer (a second player on a dedicated or LAN server):** the same for the other player, seen from both clients.
 
-## 33. Seated riders feel the ship (round 3) `[VS]`
+## 33. Seated riders feel the ship `[VS]`
 
 - [ ] **Sit in a VS seat (or a Create / Clockwork seat) on the rotor, 3 blocks from the axis, at 24, 64, 128 RPM.** *Expect:* 24: nothing; 64: the vignette creeps in and the sound muffles a little; 128: blackout and nausea (the seat's centripetal pull). The effects fade within a couple of seconds after stopping the motor.
 - [ ] **Sit in a helm and fly a ship through a hard turn, a hard stop (crash) and a fast spin-up.** *Expect:* g-force effects in proportion; cruising and gentle turns give none; no flicker while flying straight.
@@ -582,7 +582,7 @@ Setup: Clockwork with a creative motor on a phys bearing, a sub-ship with a flat
 - [ ] **Stand (not seated) on the same rotor.** *Expect:* unchanged from before this build (no g-force from the spin while standing).
 - [ ] **An MKW kart parked on a ship's deck, in a race.** *Expect:* no g-force effects from the ship (MKW owns them).
 
-## 34. Zero gravity: VS Genesis space, Ad Astra orbit, a Gravity Unbound zero plate (round 4) `[VS]` `[FIX]`
+## 34. Zero gravity: VS Genesis space, Ad Astra orbit, a Gravity Unbound zero plate `[VS]` `[FIX]`
 
 Needs Camafy 0.1.7. Nothing here may change under normal gravity: if in doubt, repeat a step in the overworld.
 
@@ -594,14 +594,14 @@ Needs Camafy 0.1.7. Nothing here may change under normal gravity: if in doubt, r
 - [ ] **Break the block under a slime or honey block in space; knock a dripstone spike sideways.** *Expect:* the slime/honey stays floating in place; the spike breaks off as an item instead of falling.
 - [ ] **A loaded ride stack (cow on cow) in water in an orbit/space.** *Expect:* no forced sinking, no crush damage.
 
-## 35. Low gravity: Ad Astra's Moon (and other planets) (round 4) `[FIX]`
+## 35. Low gravity: Ad Astra's Moon (and other planets) `[FIX]`
 
 - [ ] **Jump off heights on the Moon (5, 12, 30 blocks).** *Expect:* landings far gentler than on Earth (a 12-block drop is harmless); a fast one (elytra dive) still hurts like its speed says. Feather Falling and sprains work as usual.
 - [ ] **Stand on a ship on the Moon; crash it.** *Expect:* the ship carries a sixth of your weight; a stop throws you with little lift (a sixth); braking gently still carries you.
 - [ ] **Get hit sideways by a ship on the Moon.** *Expect:* knocked away with a small hop, not a big lift.
 - [ ] **G-force on the Moon standing still / flying.** *Expect:* nothing at rest; effects from hard manoeuvres as usual.
 
-## 36. Slime and honey on ships (round 4) `[VS]` `[FIX]`
+## 36. Slime and honey on ships `[VS]` `[FIX]`
 
 - [ ] **Build a ship with slime and honey hanging under its hull, a slime block on its deck and a slime-only cluster attached to it; assemble it; fly it around; break the hull blocks next to the slime and honey (by hand, by ramming it into terrain, by ramming another ship into it).** *Expect:* no slime or honey block ever turns into a falling block or drops off the ship (it stays in place in the hull, even hanging from nothing); no falling blocks appear anywhere in the world.
 - [ ] **The same slime under a block in the world, the block broken.** *Expect:* it still falls (unchanged); sand and gravel on ships behave as Valkyrien Skies makes them (unchanged).
@@ -626,7 +626,7 @@ Needs Camafy 0.1.10. Test on the backend you play on (`physicsBackend` in `<worl
 - [ ] **Zero gravity (VS Genesis space / Ad Astra orbit):** a slime ship bounces off a slime wall the same way; honey ships still glue.
 - [ ] **Turn `slimeBounce` or `honeyGlue` off.** *Expect:* ships behave as before this change (VS's own bounce; no glue, existing glue lets go).
 
-## 38. Spinning rotors, jumps and hull hits (round 5) `[VS]` `[FIX]`
+## 38. Spinning rotors, jumps and hull hits `[VS]` `[FIX]`
 
 Needs Camafy 0.1.12. A Clockwork phys bearing driven by a creative motor (or your own engine) is the setup to use: its rotor is what used to slide riders off. Optional: `debugShipContactLog = true` (the client lines "about to strike you", "you left ship N's deck"; the server lines "no physics frame for N s while moving; deck jolts ignored", and with `debugShipCollisionLog` "VS reported ... for a frame in which it moved on as before").
 
@@ -643,7 +643,7 @@ Needs Camafy 0.1.12. A Clockwork phys bearing driven by a creative motor (or you
 - [ ] **Sit in a seat (VS, Create or Clockwork) on a small floating raft.** *Expect:* the raft sinks a little more than without you, as if you stood on it.
 - [ ] **Turn `releaseLeavingRiders` off (Ship Riders).** *Expect:* jumps behave as before (swung round with a rotor while in the air).
 
-## 39. Rotors clashing, slime hulls, the supersonic roar (round 6) `[VS]` `[FIX]`
+## 39. Rotors clashing, slime hulls, the supersonic roar `[VS]` `[FIX]`
 
 Optional: `debugShipCollisionLog = true` (the lines "ships A and B crossed: N blocks ... met ... closing at up to V m/s -> K broken" and "ships A and B (crossed, ...): ... both give").
 
@@ -656,7 +656,7 @@ Optional: `debugShipCollisionLog = true` (the lines "ships A and B crossed: N bl
 - [ ] **Two such rotors clashing (the first item, with longer arms).** *Expect:* the roar goes on through the clash; a rotor slowed for a moment by what it hit doesn't boom again unless it stays below the barrier for a second.
 - [ ] **Turn `shipClashSweep` off.** *Expect:* fast rotors pass through each other as before (VS's own contacts only); slime hulls and the roar are unaffected.
 
-## 40. Craters, projectiles in the debug view, buttons (round 7) `[FIX]`
+## 40. Craters, projectiles in the debug view, buttons `[FIX]`
 
 Optional: `debugImpactLog = true` (the line "<name> crashes at V m/s into the UP face: crater of N blocks in L layer(s) under an F-block footprint").
 
@@ -667,7 +667,7 @@ Optional: `debugImpactLog = true` (the line "<name> crashes at V m/s into the UP
 - [ ] **F3+V while shooting arrows, throwing snowballs and eggs, and near a blaze or a ghast.** *Expect:* every projectile in flight carries a line as thick as its body along the path it moved this tick and a thinner line ahead of it - cyan on arrows and tridents, orange on snowballs, eggs, potions and fireballs - and a grey one on an arrow stuck in a block or a fishing bobber. Nothing on projectiles with `enableProjectileCollisions = false` except grey.
 - [ ] **Shoot arrows and throw snowballs at a stone button and at an oak button; run into a stone button; fling a mob into one.** *Expect:* the stone button never answers a projectile; the oak one does; you and the mob press the stone one.
 
-## 40. The roar you can hear, leaves in a rotor's sweep, ships on buttons and plates (round 7) `[VS]` `[FIX]`
+## 40. The roar you can hear, leaves in a rotor's sweep, ships on buttons and plates `[VS]` `[FIX]`
 
 Optional: `debugShipCollisionLog = true` (the lines "shock train ON/OFF", "no shock train: fastest point ... m/s of 343", "swept N block(s) along its blocks' arcs", "pressed the button at", "rests on the pressure plate at").
 
@@ -677,13 +677,13 @@ Optional: `debugShipCollisionLog = true` (the lines "shock train ON/OFF", "no sh
 - [ ] **A ship set down on a stone or wooden pressure plate.** *Expect:* pressed while it rests there, released once lifted. **A gold plate:** a four-plank raft (2 t) gives 2 (one level per tonne), an obsidian cube 15; **iron:** ten times the mass per level.
 - [ ] **`shipRedstone` off.** *Expect:* ships press nothing; what they held is let go.
 
-## 41. Advancements and the button click (round 8) `[FIX]`
+## 41. Advancements and the button click `[FIX]`
 
 - [ ] **The click:** shoot an arrow into a wooden button, or crash a mob into a stone one. The button's press click plays at once (before, only the release clicked twenty ticks later); a sculk sensor nearby notices the press.
 - [ ] **Advancements tab** (the elytra icon): take a hard landing (*Ouch, that hurts!*); land from 50+ m/s and live (*Terminal velocity*); belly flop into water from high (*Belly flop*); drop onto slime from 20+ blocks (*Bouncy*); land hard enough to dig a crater (*Crater maker*); get hit by a ship and live (*Hit by a ship*); get killed by one (*Flattened*, hidden until then); hear a sonic boom (*Boom*); stand ten seconds within 32 blocks of a supersonic rotor's roar (*Thunderscreech*); shoot two arrows into each other (*Mid-air collision*).
 - [ ] Each toasts once and shows in the advancements screen under FullStop; none fires for a creative player who can't be hurt (the damage ones need damage to land).
 
-## 42. Cracks instead of a roar, tiny ships, pistons (round 8) `[VS]` `[FIX]`
+## 42. Cracks instead of a roar, tiny ships, pistons `[VS]` `[FIX]`
 
 Optional: `debugShipCollisionLog = true` ("shock train ON/OFF", "piston: ship N ... one block along ...", "piston: ship N is too heavy for K piston(s)").
 
@@ -697,7 +697,7 @@ Optional: `debugShipCollisionLog = true` ("shock train ON/OFF", "piston: ship N 
 - [ ] **An obsidian (or any heavy) ship rammed into a floating plank raft at about 20 m/s, once on a quiet world and once while the server is busy** (another big contraption running, or spark showing ticks over 50 ms). *Expect:* planks break at the contact both times (on a busy server the crash used to be judged at the speed of the frames the game happened to see, under 5 m/s, and nothing broke). Needs Camafy 0.1.18.
 - [ ] **`pistonsPushShips` off.** *Expect:* pistons extend into hulls and ships ooze out of them, as VS does by itself.
 
-## 43. Joined ships, pistons that push without breaking (round 9) `[VS]` `[FIX]`
+## 43. Joined ships, pistons that push without breaking `[VS]` `[FIX]`
 
 Optional: `debugShipCollisionLog = true` ("piston: ship N ... 1.00 block(s) along ...", "pushed off ship N by ...").
 
@@ -718,9 +718,9 @@ Optional: `debugShipCollisionLog = true` ("piston: ship N ... 1.00 block(s) alon
 ## When something fails
 
 Note: **section number, what you did, what happened vs. the Expect line**, and if damage-related,
-roughly your speed (elytra? sprint?) and the block/mob involved. That's enough for me to trace it.
+roughly your speed (elytra? sprint?) and the block/mob involved.
 
-## 44. Pistons that set a ship down, slime launchers, quieter cracks (round 10) `[VS]` `[FIX]`
+## 44. Pistons that set a ship down, slime launchers, quieter cracks `[VS]` `[FIX]`
 
 Optional: `debugShipCollisionLog = true` ("piston: ship N ... pulling toward the terrain", "springing off the terrain", "launched off slime").
 
@@ -729,7 +729,7 @@ Optional: `debugShipCollisionLog = true` ("piston: ship N ... pulling toward the
 - [ ] **A world piston with a slime block in front of it, against a raft's side.** *Expect:* the raft is launched and slides several blocks, not one.
 - [ ] **A rotor whose tips pass the speed of sound.** *Expect:* the cracks have no click at their start or end, and are a little quieter than before; `shockTrainVolume` (client config) scales them, 1 = the old level.
 
-## 45. Landing on oobleck (round 10) `[FIX]`
+## 45. Landing on oobleck `[FIX]`
 
 Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you fall onto it.
 
@@ -738,7 +738,7 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Sprint across it.** *Expect:* you run across the top (Flow Fun), and Full Stop counts no impact.
 - [ ] **Drop a mob from high up onto it.** *Expect:* it stops on the surface and is hurt as on stone; the oobleck itself is never cracked or removed by the impact.
 
-## 46. Soft blocks, spectators, punching ships, turning plates, teleports (round 11) `[VS]` `[FIX]` `[NEW]`
+## 46. Soft blocks, spectators, punching ships, turning plates, teleports `[VS]` `[FIX]` `[NEW]`
 
 - [ ] **A wool arm on a bearing at 256 RPM (Create) swinging into an iron golem, then an iron-block arm.** *Expect:* the wool arm shoves the golem hard (nearly as far as the iron one) but takes about 4 health off it, never kills it; the iron arm still does heavy damage. At 64 RPM the wool arm doesn't hurt at all. `softStrikeDamage` (Ship Collisions, 0.1) is the soft block's share; 1 = as hard as before.
 - [ ] **A small wool ship rammed into a mob at speed, then a stone one.** *Expect:* the wool ship pushes the mob away almost as fast as the stone one but barely hurts it.
@@ -748,7 +748,7 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Stand on a bearing's horizontal plate turning at 16 RPM (and lead a pig onto it).** *Expect:* your view turns with the plate smoothly, as on a Valkyrien Skies ship (no stutter per tick), and the pig keeps facing the same way relative to the plate. A windmill or a sideways bearing doesn't turn you. `contraptionRidersTurn` (Create) switches it off.
 - [ ] **Fall, `/tp` yourself 2 blocks against a wall or onto slime, an ender pearl next to a wall, chorus fruit.** *Expect:* the teleport itself never hurts you or bounces you; a real hit right after still does.
 
-## 47. Heavy ships on light ones, TNT on impact, hits with any item (round 12) `[VS]` `[FIX]` `[NEW]`
+## 47. Heavy ships on light ones, TNT on impact, hits with any item `[VS]` `[FIX]` `[NEW]`
 
 - [ ] **A 3x3x3 obsidian ship and a one-plank ship lying on the ground: bring the cube down on the plank from two blocks up or more.** *Expect:* the plank breaks and drops, the obsidian is whole. Setting the cube down on it gently breaks nothing (under `breakMinSpeed`, 5 m/s), as on terrain.
 - [ ] **Push the plank along the ground into a wall with the cube, at a run.** *Expect:* it breaks against the wall.
@@ -759,7 +759,7 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **A one-block plank ship floating in water: click its side with an empty hand, a pickaxe, a stick with Knockback II, a sword with Full Stop's Pullback II.** *Expect:* the fist pushes it slowly away, the pickaxe about twice as fast (an item's attack damage counts, at most double), the Knockback II stick three times as fast as a fist; Pullback II pulls it toward you (harder still: the sword's damage counts too).
 - [ ] **Hold the button on it with a pickaxe; sneak and click with anything.** *Expect:* holding pushes once, then mines without pushing; sneaking never pushes. `punchShipsAnyItem` off: only the empty hand and swords push.
 
-## 48. Projectiles and items on slime, foliage, slime-bounce flight, far booms, shock cones (round 13, 2026-10-10) `[VS]` `[NEW]`
+## 48. Projectiles and items on slime, foliage, slime-bounce flight, far booms, shock cones (2026-10-10) `[VS]` `[NEW]`
 - [ ] **Shoot arrows at a slime floor from a few blocks off, low (under ~30 degrees) and then steeply; shoot one straight at a slime wall.** *Expect:* the low ones skip off, each skip lower and slower, and stick after at most six; the steep ones and the one straight into the wall stick as in any block. Same on a ship's slime deck. A trident thrown low skips too.
 - [ ] **Fire a firework rocket from a crossbow at a slime wall; launch one straight up under a slime ceiling.** *Expect:* both bounce back off the slime (a stone wall or ceiling: no bounce, no explosion on contact).
 - [ ] **Drop a slime ball and a slime block from a tower onto stone; drop cobblestone beside them.** *Expect:* the slime items bounce a few times, each lower, then lie still; the cobblestone just lands.
@@ -767,5 +767,5 @@ Needs Flow Fun. Optional: F3+V shows a red ray on the oobleck's surface as you f
 - [ ] **Fall onto a ship's slime deck tilted 30 degrees (or onto a slime wall at an angle).** *Expect:* you fly off sideways along the tilt and keep that speed through the air, landing well away from where you hit; `slimeBounceKeepsMomentum` off: the old drop back near the spot.
 - [ ] **Get something supersonic (a rotor ship's tips, a Create arm, a ship flying fast) while standing 300-700 blocks away, then close by.** *Expect:* far off a deep, muffled but still loud boom when the shock reaches you; close by a sharp crack. Standing by the tip end of a long rotor ship, its cracks come from the tips beside you. A faint foggy cone trails each supersonic tip (or the whole ship or entity), narrower the faster it goes; client `machCones` off hides them.
 
-## 49. Jumping on a moving ship (round 14, 2026-10-12) `[VS]` `[FIX]`
+## 49. Jumping on a moving ship (2026-10-12) `[VS]` `[FIX]`
 - [ ] **Stand on a slanted ship that moves slowly (a few m/s) and hold the jump key for ten seconds; then do the same on a flat moving ship and on a slanted ship at rest.** *Expect:* you keep landing about where you took off on the deck (a few tenths of a block of wander at most) and never walk off the edge or down the slope; at rest you don't move at all. Ship Riders `relandingTakesDeckMotionOut` off: on the moving ships you creep forward with every landing.
