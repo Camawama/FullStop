@@ -128,6 +128,19 @@ public class KineticDamageCalculator {
                     : 0;
         }
 
+        // A belly flop: a body plunging into water flat (the swim pose, a crawl or a prone carried into the fall, or
+        // sprinting, which vanilla turns into swimming the moment it is in) is stopped by the water like a floor, so
+        // the whole approach speed counts, as for a solid landing. Water's drag spreads a dive's stop over several
+        // ticks (a 30-block fall sheds 8 of its 23.5 m/s in the entry tick), so the per-tick stopping force never
+        // reaches the threshold on its own and a clean dive costs nothing at the surface.
+        if (!blockImpact && isDownwardImpact && isBellyFlop(entity)) {
+            double entryMps = Math.max(0.0, -fullstop.getFrame().vertical(fullstop.getPreImpactWorldVelocity()));
+            double entryExceedance = vanillaParity
+                    ? Math.max(VanillaFall.equivalentFallDistance(entryMps) - VanillaFall.SAFE_FALL_DISTANCE - jumpBonus, 0)
+                    : Math.max(entryMps - (weightless ? SERVER.velocityDamageThresholdHorizontal.get() : verticalThresholdMps()), 0);
+            verticalExceedance = Math.max(verticalExceedance, entryExceedance);
+        }
+
         // A pointed block (data: PointedBlocks - pointed dripstone, Supplementaries' spikes, any pack's) met at its
         // point hurts from the first block of exceedance, more the faster; rammed on its side, its flat side damage.
         // Only on real contact with real deceleration: the one-tick-lookahead ray sees points BEFORE contact, and
@@ -202,10 +215,10 @@ public class KineticDamageCalculator {
             }
         }
 
-        // Hitting water flat in the prone/swim pose is a belly flop — the water
-        // may as well be pavement. A clean feet-first dive keeps almost nothing.
+        // Hitting water flat in the prone/swim pose is a belly flop: the water may as well be pavement
+        // (bellyFlopFactor, on the whole entry speed, see calculateDamage). A clean feet-first dive keeps almost nothing.
         if (hitWater && isDownwardImpact) {
-            damage *= isBellyFlop(entity) ? 1.2 : 0.05;
+            damage *= isBellyFlop(entity) ? SERVER.bellyFlopFactor.get() : 0.05;
         }
 
         for (BlockState state : blockStates) {
@@ -336,13 +349,15 @@ public class KineticDamageCalculator {
     }
 
     /**
-     * A prone (swim-pose) body hitting water flat. isSwimming covers the common
-     * case — the player holding sprint into the water is already sprint-swimming
-     * on the tick the impact damage lands; isVisuallySwimming also catches the
-     * crawl pose carried into the fall.
+     * A body hitting water flat: in the swim pose (a crawl, or a prone a mod such as GoProne carries into the fall;
+     * isVisuallySwimming), sprint-swimming already (isSwimming), or sprinting into the water (sprintingBellyFlops):
+     * the water entry is billed on the lookahead tick, while the body is still in the air, when vanilla hasn't yet
+     * turned the sprint into swimming. A bellyFlopFactor of 0 turns belly flops off.
      */
     public static boolean isBellyFlop(Entity entity) {
         if (!(entity instanceof LivingEntity living)) return false;
-        return living.isSwimming() || living.isVisuallySwimming();
+        if (SERVER.bellyFlopFactor.get() <= 0) return false;
+        return living.isSwimming() || living.isVisuallySwimming()
+                || (SERVER.sprintingBellyFlops.get() && living.isSprinting());
     }
 }

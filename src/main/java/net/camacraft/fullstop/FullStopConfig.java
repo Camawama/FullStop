@@ -81,6 +81,8 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue kineticDamageMultiplier;
         public final ForgeConfigSpec.BooleanValue hardnessAffectsDamage;
         public final ForgeConfigSpec.DoubleValue minimumSolidImpactDamage;
+        public final ForgeConfigSpec.DoubleValue bellyFlopFactor;
+        public final ForgeConfigSpec.BooleanValue sprintingBellyFlops;
         public final ForgeConfigSpec.IntValue crackHealSeconds;
         public final ForgeConfigSpec.BooleanValue impactCraters;
         public final ForgeConfigSpec.IntValue impactCraterMaxRadius;
@@ -596,6 +598,19 @@ public class FullStopConfig {
                     .translation(key("minimumSolidImpactDamage"))
                     .comment("Default: 2.0")
                     .defineInRange("minimumSolidImpactDamage", 2.0, 0.0, 100.0);
+
+            this.bellyFlopFactor = builder
+                    .comment("A belly flop (a body plunging into water in the swim pose - a crawl or a prone carried into the fall - or sprinting) is stopped by the water like a floor: the whole entry speed counts as for a solid landing, times this.",
+                            "A clean feet-first dive keeps 5% of the stopping force's damage, which the water's drag makes nothing. 0 turns belly flops off.")
+                    .translation(key("bellyFlopFactor"))
+                    .comment("Default: 1.2")
+                    .defineInRange("bellyFlopFactor", 1.2, 0.0, 10.0);
+
+            this.sprintingBellyFlops = builder
+                    .comment("Whether a body sprinting into water belly flops (vanilla makes it swim the moment it is in, so it lands flat).")
+                    .translation(key("sprintingBellyFlops"))
+                    .comment("Default: true")
+                    .define("sprintingBellyFlops", true);
 
             this.kineticBlockBreaking = builder
                     .comment("When enabled, entities hitting blocks at high speeds can crack or break them.")

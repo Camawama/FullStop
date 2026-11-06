@@ -16,6 +16,8 @@
   "config.fullstop.kineticDamageMultiplier": "Kinetic Damage Multiplier",
   "config.fullstop.hardnessAffectsDamage": "Block Hardness Affects Damage",
   "config.fullstop.minimumSolidImpactDamage": "Minimum Solid Impact Damage",
+  "config.fullstop.bellyFlopFactor": "Belly Flop Factor",
+  "config.fullstop.sprintingBellyFlops": "Sprinting Belly Flops",
   "config.fullstop.crackHealSeconds": "Crack Heal Time (seconds, 0 = never heal)",
   "config.fullstop.impactCraters": "Impact Craters (a wide body breaks its whole footprint)",
   "config.fullstop.impactCraterMaxRadius": "Impact Crater Max Radius (blocks)",

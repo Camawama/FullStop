@@ -46,7 +46,7 @@ public final class WaterLandingTests {
     private static final int HALF = 2;
     /** Health the pigs get (vanilla caps max health at 1024): enough to live through every landing. */
     private static final float HEALTH = 1000.0f;
-    /** What a pig's feet-first water entry from 30 blocks costs by itself (measured: 2.0), with a margin. */
+    /** What a pig's feet-first 30-block fall into deep water costs: nothing at the entry, the 2.0 solid-impact floor at the bottom; with a margin. */
     private static final double SURFACE_ENTRY = 2.5;
 
     private WaterLandingTests() {
@@ -104,15 +104,61 @@ public final class WaterLandingTests {
     }
 
     /**
-     * Eight blocks of water stop the fall before the bottom: nothing beyond the water entry itself
-     * (2 health for a pig entering feet first at about 24 m/s, the same at every depth before the
-     * fix: the surface hit is unchanged).
+     * Eight blocks of water take almost all of the fall: the feet-first entry costs nothing (the water's drag spreads
+     * the stop over several ticks, each under the threshold), and the bottom, reached at under 10 m/s, costs only
+     * the solid-impact floor (2 health for a pig from 30 blocks).
      */
     @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
     public static void aFallIntoWaterEightBlocksDeepHurtsOnlyAtTheSurface(GameTestHelper helper) {
         landing(helper, 4, 8, lost -> helper.assertTrue(lost <= SURFACE_ENTRY,
                 String.format(Locale.ROOT, "an 8-deep pool cost %.1f health, more than the water entry's %.1f (a 30-block fall)",
                         lost, SURFACE_ENTRY)));
+    }
+
+    /**
+     * A belly flop: a body plunging into deep water flat, in the swim pose (a crawl or a prone carried into the fall)
+     * or sprinting (vanilla swims it the moment it is in), is stopped by the water like a floor, so the whole entry
+     * speed counts; the feet-first dive beside it costs only the bottom touch. The flop is billed on the entry tick,
+     * when the body is still in the air, so the pose and the sprint flag are read there.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void aBellyFlopIntoDeepWaterHurtsFarMoreThanADive(GameTestHelper helper) {
+        ServerLevel level = helper.getLevel();
+        BlockPos[] lanes = {lane(helper, 5), lane(helper, 6), lane(helper, 7)};
+        int[] surfaces = new int[3];
+        for (int i = 0; i < 3; i++) surfaces[i] = pool(level, lanes[i], 8);
+        LivingEntity[] pigs = new LivingEntity[3];
+        boolean[] held = {true, true};
+        int[] wet = {0};
+        whenTicking(helper, lanes[0], lanes[2])
+                .thenExecute(() -> {
+                    for (int i = 0; i < 3; i++) pigs[i] = pig(level, air(lanes[i], surfaces[i] + DROP));
+                    pigs[1].setPose(net.minecraft.world.entity.Pose.SWIMMING);
+                    pigs[2].setSprinting(true);
+                })
+                .thenWaitUntil(() -> {
+                    if (!pigs[1].isInWater() && pigs[1].getPose() != net.minecraft.world.entity.Pose.SWIMMING) held[0] = false;
+                    if (!pigs[2].isInWater() && !pigs[2].isSprinting()) held[1] = false;
+                    boolean allWet = true;
+                    for (LivingEntity pig : pigs) allWet &= pig.isInWater();
+                    if (allWet) wet[0]++;
+                    helper.assertTrue(wet[0] >= 30, "the pigs haven't been in the water for 30 ticks");
+                })
+                .thenExecute(() -> {
+                    double dive = lost(pigs[0]);
+                    double flop = lost(pigs[1]);
+                    double sprint = lost(pigs[2]);
+                    report("30-block falls into 8-deep water: feet first, in the swim pose, sprinting", String.format(Locale.ROOT,
+                            "dive %.1f, belly flop %.1f, sprinting %.1f health lost (pose held: %s, sprint held: %s)",
+                            dive, flop, sprint, held[0], held[1]));
+                    helper.assertTrue(held[0], "the swim pose didn't hold through the fall");
+                    helper.assertTrue(held[1], "the sprint flag didn't hold through the fall");
+                    helper.assertTrue(dive <= SURFACE_ENTRY, String.format(Locale.ROOT, "the feet-first dive cost %.1f", dive));
+                    helper.assertTrue(flop >= 10.0, String.format(Locale.ROOT, "a belly flop in the swim pose cost only %.1f health", flop));
+                    helper.assertTrue(sprint >= 10.0, String.format(Locale.ROOT, "a sprinting belly flop cost only %.1f health", sprint));
+                    for (LivingEntity pig : pigs) pig.discard();
+                })
+                .thenSucceed();
     }
 
     // ------------------------------------------------------------------
