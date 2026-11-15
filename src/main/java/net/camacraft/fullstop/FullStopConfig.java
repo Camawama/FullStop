@@ -112,6 +112,9 @@ public class FullStopConfig {
         public final ForgeConfigSpec.IntValue deepWaterStartLevel;
         public final ForgeConfigSpec.DoubleValue deepWaterAirLossMultiplier;
         public final ForgeConfigSpec.IntValue pressureDamageStartDepth;
+        public final ForgeConfigSpec.IntValue deepWaterStartDepth;
+        public final ForgeConfigSpec.IntValue pressureDamageDepth;
+        public final ForgeConfigSpec.BooleanValue pressureByWeight;
         public final ForgeConfigSpec.DoubleValue pressureDamageAmount;
         public final ForgeConfigSpec.IntValue pressureDamageTickRate;
         public final ForgeConfigSpec.DoubleValue dripstoneDamageMultiplier;
@@ -805,18 +808,44 @@ public class FullStopConfig {
                     .translation(key("vacuumFreezing"))
                     .define("vacuumFreezing", true);
 
-            this.deepWaterStartLevel = builder
-                    .comment("The Y-level below which entities lose air faster underwater.")
-                    .translation(key("deepWaterStartLevel"))
-                    .defineInRange("deepWaterStartLevel", 0, -64, 320);
+            this.deepWaterStartDepth = builder
+                    .comment("Blocks of water over a body's eyes from which it loses air faster. The depth is measured to the surface",
+                            "of the still water the body is in (the highest water joined to it), wherever in the world that is: a pool",
+                            "three blocks deep is three deep at any height, and under an overhang deep in the sea the sea still counts.",
+                            "63 is the old Y 0 under a sea at Y 63.")
+                    .translation(key("deepWaterStartDepth"))
+                    .comment("Default: 63")
+                    .defineInRange("deepWaterStartDepth", 63, 1, 4096);
 
             this.deepWaterAirLossMultiplier = builder
-                    .comment("Extra air lost per tick (on top of vanilla drowning) below the deep water start level.")
+                    .comment("Extra air lost per tick (on top of vanilla drowning) at the deep water start depth and below.")
                     .translation(key("deepWaterAirLossMultiplier"))
                     .defineInRange("deepWaterAirLossMultiplier", 2.0, 1.0, 20.0);
 
+            this.pressureDamageDepth = builder
+                    .comment("Blocks of water over a body's eyes from which the pressure hurts it. Measured as deepWaterStartDepth is.",
+                            "95 is the old Y -32 under a sea at Y 63.")
+                    .translation(key("pressureDamageDepth"))
+                    .comment("Default: 95")
+                    .defineInRange("pressureDamageDepth", 95, 1, 4096);
+
+            this.pressureByWeight = builder
+                    .comment("The pressure is the weight of the liquid overhead: its depth times its density (water 1; a liquid twice as",
+                            "dense presses at half the depth) times the gravity there (1 on the overworld, less on a moon). Off: the",
+                            "depth in blocks alone, whatever the liquid and the world.")
+                    .translation(key("pressureByWeight"))
+                    .comment("Default: true")
+                    .define("pressureByWeight", true);
+
+            this.deepWaterStartLevel = builder
+                    .comment("From before 2.0.1, when depth was a Y level; not a setting any more. A value other than 0 here is carried",
+                            "over as a depth under a sea at Y 63 while deepWaterStartDepth is still 63. Set deepWaterStartDepth instead.")
+                    .translation(key("deepWaterStartLevel"))
+                    .defineInRange("deepWaterStartLevel", 0, -64, 320);
+
             this.pressureDamageStartDepth = builder
-                    .comment("The Y-level where entities start taking pressure damage underwater.")
+                    .comment("From before 2.0.1, when depth was a Y level; not a setting any more. A value other than -32 here is carried",
+                            "over as a depth under a sea at Y 63 while pressureDamageDepth is still 95. Set pressureDamageDepth instead.")
                     .translation(key("pressureDamageStartDepth"))
                     .defineInRange("pressureDamageStartDepth", -32, -64, 0);
 

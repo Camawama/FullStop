@@ -161,8 +161,59 @@ public class PressureHandler {
         return net.camacraft.camafy.world.Dimensions.matches(level, FullStopConfig.SERVER.highAltitudeDimensions.get());
     }
 
+    /** The sea level the old Y settings are read against. */
+    private static final int LEGACY_SEA_LEVEL = 63;
+    /** Gravity counts up to this many times vanilla's toward the weight of the liquid overhead. */
+    private static final double MAX_GRAVITY_FACTOR = 4.0;
+
+    /**
+     * Blocks of water overhead from which a body loses air faster: {@code deepWaterStartDepth}, or the old
+     * {@code deepWaterStartLevel} (a Y level) taken under a sea at Y 63 while only that one was ever changed.
+     */
+    public static int deepWaterDepth() {
+        int depth = FullStopConfig.SERVER.deepWaterStartDepth.get();
+        int legacy = FullStopConfig.SERVER.deepWaterStartLevel.get();
+        if (depth == FullStopConfig.SERVER.deepWaterStartDepth.getDefault() && legacy != FullStopConfig.SERVER.deepWaterStartLevel.getDefault()) {
+            return Math.max(1, LEGACY_SEA_LEVEL - legacy);
+        }
+        return depth;
+    }
+
+    /** Blocks of water overhead from which the pressure hurts: {@code pressureDamageDepth}, or the old Y setting as above. */
+    public static int pressureDamageDepth() {
+        int depth = FullStopConfig.SERVER.pressureDamageDepth.get();
+        int legacy = FullStopConfig.SERVER.pressureDamageStartDepth.get();
+        if (depth == FullStopConfig.SERVER.pressureDamageDepth.getDefault() && legacy != FullStopConfig.SERVER.pressureDamageStartDepth.getDefault()) {
+            return Math.max(1, LEGACY_SEA_LEVEL - legacy);
+        }
+        return depth;
+    }
+
+    /**
+     * The water overhead, in blocks of water under vanilla's gravity: the depth of the liquid over {@code living}'s
+     * eyes ({@link LiquidDepth}) times the liquid's density and the gravity there ({@code pressureByWeight}), or the
+     * depth alone. 0 where its eyes are in no liquid or nothing pulls.
+     */
+    public static double waterOverhead(LivingEntity living) {
+        if (living.getEyeInFluidType().isAir()) return 0.0;
+        boolean byWeight = FullStopConfig.SERVER.pressureByWeight.get();
+        // Water pressure is the weight of the water overhead: none where nothing pulls (VS
+        // Genesis's space, an Ad Astra orbit).
+        double gravity = Gravity.ambientStrength(living);
+        if (gravity < Gravity.WEIGHTLESS_BELOW) return 0.0;
+        gravity = byWeight ? Math.min(gravity, MAX_GRAVITY_FACTOR) : 1.0;
+        int deepest = Math.max(deepWaterDepth(), pressureDamageDepth());
+        int limit = (int) Math.min(LiquidDepth.MAX_LIMIT, Math.ceil(deepest / gravity) + 8);
+        LiquidDepth.Reading reading = LiquidDepth.of(living, limit);
+        if (!reading.submerged()) return 0.0;
+        return reading.depth() * gravity * (byWeight ? reading.relativeDensity() : 1.0);
+    }
+
     private static void handleDepth(LivingEntity living) {
-        if (!living.isUnderWater()) return;
+        // only in a liquid the body can drown in (water for all but water breathers, a mod's liquid by its own rule;
+        // not lava)
+        net.minecraftforge.fluids.FluidType eyes = living.getEyeInFluidType();
+        if (eyes.isAir() || !living.canDrownInFluidType(eyes)) return;
 
         // The extra deep-water drain must honor the same protections as vanilla
         // drowning — Water Breathing, Conduit Power, and Respiration previously
@@ -170,21 +221,22 @@ public class PressureHandler {
         if (living.hasEffect(MobEffects.WATER_BREATHING) || living.hasEffect(MobEffects.CONDUIT_POWER)) return;
         if (respirationSpares(living)) return;
 
-        int deepWaterStart = FullStopConfig.SERVER.deepWaterStartLevel.get();
-        int damageDepth = FullStopConfig.SERVER.pressureDamageStartDepth.get();
-        if (living.getY() >= deepWaterStart && living.getY() >= damageDepth) return;
-        // Water pressure is the weight of the water overhead: none where nothing pulls (VS
-        // Genesis's space, an Ad Astra orbit).
-        if (Gravity.ambientStrength(living) < Gravity.WEIGHTLESS_BELOW) return;
+        // How deep is the liquid over the body, not where in the world the body is: a pool three blocks deep at the
+        // bottom of a flat world presses no more than one on a mountain.
+        double overhead = waterOverhead(living);
+        if (overhead <= 0.0) return;
 
-        if (living.getY() < deepWaterStart) {
+        if (overhead >= deepWaterDepth()) {
             // Config-named "multiplier" but applied as extra air lost per tick on
-            // top of vanilla drowning below the start level.
+            // top of vanilla drowning from the start depth down.
             int extraAirLossPerTick = (int) (double) FullStopConfig.SERVER.deepWaterAirLossMultiplier.get();
-            living.setAirSupply(Math.max(living.getAirSupply() - extraAirLossPerTick, -20));
+            // Never below -19: vanilla's own step this tick takes one more and drowns at exactly -20; an air supply
+            // set to -20 here went to -21 there and the body never drowned at all.
+            int air = living.getAirSupply();
+            if (air > -19) living.setAirSupply(Math.max(air - extraAirLossPerTick, -19));
         }
 
-        if (living.getY() < damageDepth) {
+        if (overhead >= pressureDamageDepth()) {
             int tickRate = FullStopConfig.SERVER.pressureDamageTickRate.get();
             if (living.tickCount % tickRate == 0) {
                 float damage = FullStopConfig.SERVER.pressureDamageAmount.get().floatValue();
