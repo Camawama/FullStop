@@ -40,7 +40,7 @@ public final class FullStopCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("fullstop")
-                .requires(source -> source.hasPermission(2))
+                .requires(net.camacraft.camafy.permission.Permissions.require("fullstop", "command.fullstop", 2))
                 .then(Commands.literal("weigh")
                         .then(Commands.literal("held").executes(FullStopCommand::weighHeld))
                         .then(Commands.argument("targets", EntityArgument.entities())
@@ -50,7 +50,7 @@ public final class FullStopCommand {
 
         if (!ShipCompat.WEIGHTRS_PRESENT) {
             LiteralArgumentBuilder<CommandSourceStack> alias = Commands.literal("weightrs")
-                    .requires(source -> source.hasPermission(2))
+                    .requires(net.camacraft.camafy.permission.Permissions.require("fullstop", "command.fullstop", 2))
                     .then(Commands.literal("weigh")
                             .then(Commands.argument("targets", EntityArgument.entities())
                                     .executes(FullStopCommand::weighTargets)))

@@ -467,6 +467,9 @@ public final class ShipEntityImpacts {
         if (!(player.level() instanceof ServerLevel level) || !ShipCompat.collisionsActive()) return;
         boolean log = SERVER.debugShipContactLog.get() || SERVER.debugShipCollisionLog.get();
         long now = level.getGameTime();
+        // a report is the client's word: a few a tick, and its own speed no more than the server saw it move at
+        if (!ContactReports.admit(player, now)) return;
+        double ownMps = ContactReports.ownMps(player, report.ownMps().length());
         ShipRef ship = Ships.byId(level, report.shipId());
         if (ship == null || !ship.isLoaded()) {
             if (log) LOGGER.info("[FullStop] {} reported a hit by ship {}: no such ship loaded, ignored",
@@ -497,7 +500,7 @@ public final class ShipEntityImpacts {
             // away (no damage, no push back on the ship). Its distance from the ship's centre, which no turning
             // changes, is what must match the player's; the ship's travel and the player's own are allowed for.
             Vec3 centre = player.getBoundingBox().getCenter();
-            double slack = 4.0 + report.ownMps().length() * 0.25 + v.length() * 0.25;
+            double slack = 4.0 + ownMps * 0.25 + v.length() * 0.25;
             double off = Math.abs(point.distanceTo(com) - centre.distanceTo(com));
             AABB hullBox = ship.worldAabb();
             if (off > slack) why = "too far from the player (" + fmt(off) + " blocks off the hull's reach)";
@@ -514,14 +517,18 @@ public final class ShipEntityImpacts {
         // Plausibility: nowhere can the hull move faster than its centre plus its spin at that
         // distance (and the ship's pose on the client is a little behind: room for a turn's worth).
         double hullBound = v.length() + w.length() * (point.distanceTo(com) + 2.0) + 5.0;
-        double approach = Mth.clamp(report.closing(), 0.0, hullBound + report.ownMps().length());
+        double approach = Mth.clamp(report.closing(), 0.0, hullBound + ownMps);
         boolean cooling = !report.hit() || (cap != null && cap.isShipHitOnCooldown(ship.id(), now));
 
         double mass = ship.isStatic() ? Double.POSITIVE_INFINITY : ship.physicalMass();
         if (!(mass > 0.0)) mass = Double.POSITIVE_INFINITY;
         double effective = ShipInertia.effectiveMassKg(ship, mass, point, normal);
         boolean weightless = Gravity.isWeightless(player);
-        BlockState hull = level.getBlockState(report.block());
+        // the block is read only where it is one of this ship's and loaded: read wherever the client said, it loaded
+        // (or generated) a chunk anywhere in the world on the server thread, once a packet
+        net.minecraft.world.level.levelgen.structure.BoundingBox own = ship.shipyardBlocks();
+        BlockState hull = own != null && own.isInside(report.block()) && level.isLoaded(report.block())
+                ? level.getBlockState(report.block()) : net.minecraft.world.level.block.Blocks.AIR.defaultBlockState();
         if (hull.isAir()) hull = net.minecraft.world.level.block.Blocks.STONE.defaultBlockState();
         ShipContactPhysics.Exchange exchange = ShipContactPhysics.resolve(approach, ShipContactPhysics.bodyKg(player), effective,
                 ShipContactPhysics.restitution(report.normal(), frame, weightless, hull));
@@ -545,6 +552,10 @@ public final class ShipEntityImpacts {
         if (SERVER.reactionImpulses.get() && !pinned) {
             // the contact force back on the ship: normal and the friction the client gave itself
             Vec3 tangential = applied.subtract(report.normal().scale(appliedNormal));
+            // friction drags a body no faster than the two slid past each other, and that is no more than the hull's
+            // speed there and the player's own together (the client's figure alone pushed the ship by whatever it said)
+            double slipBound = hullBound + ownMps;
+            if (tangential.length() > slipBound) tangential = tangential.normalize().scale(slipBound);
             // the lift is no contact force; in zero gravity the client gave none, so the whole
             // tangential part is friction
             if (!weightless) {
