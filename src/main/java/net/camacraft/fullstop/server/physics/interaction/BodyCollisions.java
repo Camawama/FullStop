@@ -623,6 +623,8 @@ public final class BodyCollisions {
      */
     private static boolean ride(ServerLevel level, Contact c, Body upper, Body lower, Vec3 up, EntityRiding.Rules riding) {
         if (!riding.mayRide(upper.root) || !riding.mounts(c.closing())) return false;
+        // Stomp boots come down on it instead when the landing would hurt (a gentler hop still rides)
+        if (net.camacraft.fullstop.server.physics.damage.Stomp.stompsInsteadOfRiding(upper.root, c.closing())) return false;
         if (!EntityRiding.mount(upper.root, lower.root, upper.kg, lower.kg)) return false;
         long tick = level.getGameTime();
         LAST.put(upper.root, new Record(tick, lower.root, up, c.closing(), 0.0, upper.kg, lower.kg, upper.carried, Vec3.ZERO,
@@ -650,7 +652,11 @@ public final class BodyCollisions {
      */
     private static void crush(ServerLevel level, Contact c, Body upper, Body lower, Vec3 up) {
         double lost = c.closing() * upper.kg / lower.kg;
-        double damage = hurt(lower, upper, up.scale(-1.0), c.closing(), lost);
+        // Stomp boots pass part of the lander's own landing to the body under it, in the same hit
+        double stomp = net.camacraft.fullstop.server.physics.damage.Stomp.stomp(upper.root, lower.root, c.closing());
+        double damage = hurt(lower, upper, up.scale(-1.0), c.closing(), lost, stomp);
+        // a stomp that didn't land (an immune body, a hurt turned away) spares the stomper nothing
+        if (stomp > 0.0 && damage <= 0.0) net.camacraft.fullstop.server.physics.damage.Stomp.forget(upper.root);
         effects(level, c);
         long tick = level.getGameTime();
         LAST.put(lower.root, new Record(tick, upper.root, up.scale(-1.0), c.closing(), 0.0, lower.kg, upper.kg, lower.carried,
@@ -669,8 +675,13 @@ public final class BodyCollisions {
      * @return the damage dealt (before armour), 0 when none
      */
     private static double hurt(Body victim, Body other, Vec3 n, double closing, double lost) {
+        return hurt(victim, other, n, closing, lost, 0.0);
+    }
+
+    /** As above, with {@code extra} damage in the same hit (a stomp passed on by the body that came down on it). */
+    private static double hurt(Body victim, Body other, Vec3 n, double closing, double lost, double extra) {
         double multiplier = SERVER.entityCollisionDamageMultiplier.get();
-        if (!(multiplier > 0.0)) return 0.0;
+        if (!(multiplier > 0.0) && !(extra > 0.0)) return 0.0;
         Entity root = victim.root;
         if (PhysicsClaims.handsOff(root, PhysicsAspect.IMPACT)) return 0.0;
         double up = victim.frame.vertical(n);
@@ -678,7 +689,9 @@ public final class BodyCollisions {
         boolean fromBelow = up > ON_TOP;  // it came down on the other
         // at the victim's own size (a 1/16 body losing 1 m/s loses sixteen of its own lengths a second)
         double damage = KineticDamageCalculator.damageForSpeedLost(root, ShipContactPhysics.atOwnScale(root, lost),
-                fromAbove || fromBelow, List.of()) * multiplier;
+                fromAbove || fromBelow, List.of()) * Math.max(0.0, multiplier);
+        if (damage < 1.0) damage = 0.0;
+        damage += Math.max(0.0, extra);
         if (damage < 1.0) return 0.0;
 
         // Who brought the speed: the victim running into the other, the other into it, or both.

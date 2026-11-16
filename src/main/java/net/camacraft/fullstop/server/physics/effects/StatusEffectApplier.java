@@ -102,7 +102,9 @@ public class StatusEffectApplier {
         if (entity.isInvulnerable()) return;
 
         int fallProtLevel = livingEntity.getItemBySlot(EquipmentSlot.FEET).getEnchantmentLevel(Enchantments.FALL_PROTECTION);
-        double scale = 1.0 - fallProtLevel * 0.2;
+        // a landing Acrobat rolled out of sprains by its share (a perfect one deals nothing and never gets here)
+        double scale = (1.0 - fallProtLevel * 0.2)
+                * net.camacraft.fullstop.server.physics.damage.Acrobat.recentShare(livingEntity);
         if (scale <= 0) return;
 
         // Clamp: unclamped, a 20-damage survivable landing handed out Slowness X+

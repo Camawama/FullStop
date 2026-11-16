@@ -105,7 +105,18 @@ public class KineticDamageApplier {
             float crushFactor = (float) (totalMass / selfMass);
             float selfDamage = (float) damage * crushFactor;
 
+            double reboundShare = 0.0;
             if (entity instanceof LivingEntity living) {
+                if (fall) {
+                    // Stomp: the body it came down on just before took this share of the landing
+                    selfDamage *= (float) (1.0 - Stomp.spared(living));
+                    // Rebound: the landing that ends a bounce counts only the fall below the bounce's start; then the
+                    // share of the landing's energy given back as a new bounce (off the raw landing, before the boots and
+                    // Feather Falling; Acrobat and Kinetic Protection come after, in the hurt)
+                    Rebound.Landing landing = Rebound.landing(living, fullstop, collision);
+                    reboundShare = landing.share();
+                    selfDamage *= (float) (landing.counted() * (1.0 - reboundShare));
+                }
                 selfDamage = DamageMitigation.applyArmorReduction(living, selfDamage, true, false, fall);
             }
             if (selfDamage > 0) {
@@ -113,6 +124,10 @@ public class KineticDamageApplier {
                 if (waterFlop && anyHurt && entity instanceof net.minecraft.server.level.ServerPlayer player && player.isAlive()) {
                     net.camacraft.fullstop.advancement.FullStopTriggers.BELLY_FLOP.trigger(player);
                 }
+            }
+            // the bounce after the hurt: a landing Acrobat stuck perfectly doesn't bounce
+            if (reboundShare > 0.0 && entity instanceof LivingEntity living && living.isAlive()) {
+                Rebound.bounce(living, fullstop);
             }
 
             float passengerDamage = (float) damage * 0.5f;

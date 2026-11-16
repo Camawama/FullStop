@@ -263,6 +263,15 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue contraptionSonicBooms;
         // Iron's Spells 'n Spellbooks (compat/irons): its Airborne effect's slam damage beside FullStop's impacts
         public final ForgeConfigSpec.BooleanValue ironsSpellbooksSlamDamage;
+        // Acrobat (server/physics/damage/Acrobat): its chances, per level
+        public final ForgeConfigSpec.DoubleValue acrobatPerfectLandingChance;
+        public final ForgeConfigSpec.DoubleValue acrobatRollChance;
+        public final ForgeConfigSpec.DoubleValue acrobatRollDamage;
+        // Stomp and Rebound (server/physics/damage/Stomp, Rebound)
+        public final ForgeConfigSpec.DoubleValue stompShare;
+        public final ForgeConfigSpec.DoubleValue reboundBaseRestitution;
+        public final ForgeConfigSpec.DoubleValue reboundRestitutionPerLevel;
+        public final ForgeConfigSpec.DoubleValue reboundMaxSpeed;
         public final ForgeConfigSpec.BooleanValue contraptionRidersTurn;
         // Create: spinning gears and water wheels (compat/create/kinetic)
         public final ForgeConfigSpec.BooleanValue gearHazards;
@@ -2136,6 +2145,51 @@ public class FullStopConfig {
                     .translation(key("ironsSpellbooksSlamDamage"))
                     .comment("Default: false")
                     .define("ironsSpellbooksSlamDamage", false);
+            builder.pop();
+
+            builder.comment("Enchantments").push("Enchantments");
+
+            this.acrobatPerfectLandingChance = builder
+                    .comment("Acrobat (boots, I to III): the chance per level that a fall that would hurt is landed perfectly and",
+                            "deals nothing (no sprain either), rolled once per landing. 0.02: 2, 4 and 6 percent.")
+                    .translation(key("acrobatPerfectLandingChance"))
+                    .comment("Default: 0.02")
+                    .defineInRange("acrobatPerfectLandingChance", 0.02, 0.0, 0.33);
+            this.acrobatRollChance = builder
+                    .comment("Acrobat: the chance per level that a landing not stuck perfectly is rolled out of, dealing",
+                            "acrobatRollDamage of its damage (and of its sprain). 0.1: 10, 20 and 30 percent.")
+                    .translation(key("acrobatRollChance"))
+                    .comment("Default: 0.1")
+                    .defineInRange("acrobatRollChance", 0.1, 0.0, 0.33);
+            this.acrobatRollDamage = builder
+                    .comment("Acrobat: the share of a landing's damage taken when it is rolled out of.")
+                    .translation(key("acrobatRollDamage"))
+                    .comment("Default: 0.5")
+                    .defineInRange("acrobatRollDamage", 0.5, 0.0, 1.0);
+            this.stompShare = builder
+                    .comment("Stomp (boots, I to III): the share per level of the stomper's landing damage that a landing on a",
+                            "standing body passes to it (on top of the crush) and spares the stomper. 0.2: 20, 40 and 60 percent.")
+                    .translation(key("stompShare"))
+                    .comment("Default: 0.2")
+                    .defineInRange("stompShare", 0.2, 0.0, 0.33);
+            this.reboundBaseRestitution = builder
+                    .comment("Rebound (boots, I to III): a hard landing on solid ground springs back up at this share of its speed,",
+                            "plus reboundRestitutionPerLevel a level (0.4, 0.5 and 0.6), and the energy it gives back (that",
+                            "share squared: 16, 25 and 36 percent) is taken off the landing's damage. Sneaking lands normally.")
+                    .translation(key("reboundBaseRestitution"))
+                    .comment("Default: 0.3")
+                    .defineInRange("reboundBaseRestitution", 0.3, 0.0, 0.9);
+            this.reboundRestitutionPerLevel = builder
+                    .comment("Rebound: the share of the landing speed added per level.")
+                    .translation(key("reboundRestitutionPerLevel"))
+                    .comment("Default: 0.1")
+                    .defineInRange("reboundRestitutionPerLevel", 0.1, 0.0, 0.3);
+            this.reboundMaxSpeed = builder
+                    .comment("Rebound: the fastest bounce (m/s; 25 is about 20 blocks up). A landing faster than that gives back",
+                            "less, and is spared less.")
+                    .translation(key("reboundMaxSpeed"))
+                    .comment("Default: 25.0")
+                    .defineInRange("reboundMaxSpeed", 25.0, 0.0, 100.0);
             builder.pop();
         }
 

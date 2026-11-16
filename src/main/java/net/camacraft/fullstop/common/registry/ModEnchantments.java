@@ -1,7 +1,9 @@
 package net.camacraft.fullstop.common.registry;
 
 import net.camacraft.fullstop.FullStop;
+import net.camacraft.fullstop.common.enchantment.AcrobatEnchantment;
 import net.camacraft.fullstop.common.enchantment.KineticProtectionEnchantment;
+import net.camacraft.fullstop.common.enchantment.LandingEnchantment;
 import net.camacraft.fullstop.common.enchantment.PullbackEnchantment;
 import net.camacraft.fullstop.common.enchantment.ReflectiveEnchantment;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -30,6 +32,18 @@ public class ModEnchantments {
             ENCHANTMENTS.register("pullback",
                     () -> new PullbackEnchantment(Enchantment.Rarity.RARE,
                             EnchantmentCategory.WEAPON, EquipmentSlot.MAINHAND));
+
+    /** Boots: a chance to roll out of a landing, or rarely stick it (server/physics/damage/Acrobat). */
+    public static final RegistryObject<Enchantment> ACROBAT =
+            ENCHANTMENTS.register("acrobat", () -> new AcrobatEnchantment(Enchantment.Rarity.RARE));
+
+    /** Boots: landing on a body passes part of the landing to it (server/physics/damage/Stomp). */
+    public static final RegistryObject<Enchantment> STOMP =
+            ENCHANTMENTS.register("stomp", () -> new LandingEnchantment(Enchantment.Rarity.RARE, 5, 10));
+
+    /** Boots: a hard landing gives part of itself back as a bounce (server/physics/damage/Rebound). */
+    public static final RegistryObject<Enchantment> REBOUND =
+            ENCHANTMENTS.register("rebound", () -> new LandingEnchantment(Enchantment.Rarity.UNCOMMON, 5, 8));
 
     public static void register(IEventBus eventBus) {
         ENCHANTMENTS.register(eventBus);
