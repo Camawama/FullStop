@@ -289,7 +289,7 @@ Useful setup commands:
 - [ ] **Above Y 200 in VS Genesis's space (the Great Unknown), on the Nether roof, in the End.** *Expect:* no air loss at all (`highAltitudeDimensions` is the overworld only); the overworld unchanged.
 - [ ] **Same spot with Respiration helmet.** *Expect:* noticeably slower drain.
 - [ ] **Zombie/skeleton at high altitude** (`altitudePressureAffectsMobs=true`). *Expect:* undead never suffocate.
-- [ ] **Deep dive below Y=0.** *Expect:* faster air loss than normal drowning; below Y=-32, periodic pressure damage; "crushed by the depths" on death.
+- [ ] **Deep dive** (pressure goes by the still water over you, not by Y: `deepWaterStartDepth` 63, `pressureDamageDepth` 95). *Expect:* a pool three deep never presses, at any height; under 63 blocks of water the air drains faster than normal drowning and you can drown; under 95, periodic pressure damage and "crushed by the depths" on death; the same depth in a flooded shaft and the open sea presses the same; a lake on a mountain presses by its own depth.
 - [ ] **Deep dive with Water Breathing or Conduit Power.** *Expect:* NO extra deep-water air loss `[FIX]`.
 - [ ] **Creative/spectator at any altitude/depth.** *Expect:* untouched.
 
