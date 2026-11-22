@@ -56,7 +56,6 @@ Full Stop! makes velocity dangerous. Every sprint, dive, crash, and fall is meas
   - **Kinetic Protection:** Specialized armor protection against high-velocity impacts.
   - **Acrobat (boots, I to III):** A chance to roll out of a landing and take half its damage, or rarely to land perfectly and take none (2/4/6 percent perfect, then 10/20/30 percent rolled). A chance where Feather Falling and Kinetic Protection take a steady share; it comes after them, so all three stack. Falls only: side impacts stay Kinetic Protection's. Tunable in the server config (`Enchantments`).
   - **Stomp (boots, I to III):** Land on a creature and it takes 20/40/60 percent of your landing's damage, which you are spared. A hard landing on a mob stomps it instead of riding it. Never your own pets or mount; minigame and team rules apply as to any hit.
-  - **Rebound (boots, I to III):** A hard landing springs you back up at 40/50/60 percent of its speed, and the energy it gives back comes off the damage. Sneak to land normally. Works with any gravity direction.
 
 ### Quality of Life
 - 💀 **Detailed Death Messages:** Death messages report the exact speed of the fatal impact.

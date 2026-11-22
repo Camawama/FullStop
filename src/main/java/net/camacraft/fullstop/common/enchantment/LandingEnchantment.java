@@ -5,10 +5,9 @@ import net.minecraft.world.item.enchantment.Enchantment;
 import net.minecraft.world.item.enchantment.EnchantmentCategory;
 
 /**
- * A boots enchantment about landings, I to III, compatible with every other (Stomp and Rebound; Acrobat has its own
- * class). Each acts at its own point of a landing (the body landed on, what the ground gives back), so none of them
- * shuts another out: the numbers keep them in balance. What they do is {@code server.physics.damage.Stomp} and
- * {@code Rebound}.
+ * A boots enchantment about landings, I to III, compatible with every other (Stomp; Acrobat has its own class). It
+ * acts at its own point of a landing (the body landed on), so it shuts no other enchantment out: the numbers keep
+ * them in balance. What it does is {@code server.physics.damage.Stomp}.
  */
 public class LandingEnchantment extends Enchantment {
     private final int baseCost;

@@ -83,12 +83,6 @@ public final class Acrobat {
         return damageShare(held.outcome);
     }
 
-    /** Whether this body's landing of the last few ticks was stuck perfectly (Rebound doesn't bounce one). */
-    public static boolean landedPerfectly(LivingEntity entity) {
-        Held held = HELD.get(entity);
-        return held != null && held.outcome == Outcome.PERFECT && entity.level().getGameTime() - held.tick <= HOLD_TICKS;
-    }
-
     public static int level(LivingEntity entity) {
         return EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.ACROBAT.get(), entity.getItemBySlot(EquipmentSlot.FEET));
     }

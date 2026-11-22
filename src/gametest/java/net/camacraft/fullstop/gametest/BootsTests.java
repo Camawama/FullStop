@@ -1,16 +1,15 @@
 package net.camacraft.fullstop.gametest;
 
 import com.mojang.logging.LogUtils;
-import net.camacraft.camafy.physics.PhysicsAspect;
-import net.camacraft.camafy.physics.PhysicsOwnership;
 import net.camacraft.fullstop.FullStop;
 import net.camacraft.fullstop.common.registry.ModEnchantments;
-import net.camacraft.fullstop.server.physics.damage.Acrobat;
-import net.camacraft.fullstop.server.physics.damage.Rebound;
 import net.camacraft.fullstop.server.physics.damage.Stomp;
 import net.minecraft.core.BlockPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -22,21 +21,23 @@ import net.minecraft.world.entity.npc.Villager;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.enchantment.Enchantment;
+import net.minecraft.world.item.enchantment.EnchantmentHelper;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.gametest.GameTestHolder;
 import net.minecraftforge.gametest.PrefixGameTestTemplate;
+import net.minecraftforge.registries.ForgeRegistries;
 import org.slf4j.Logger;
 
 import java.util.Locale;
+import java.util.Map;
 
 /**
- * Stomp and Rebound (boots, I to III): their numbers, who may be stomped, and real landings under Full Stop beside
- * villagers in plain boots: a stomp onto a penned pig (it takes part of the stomper's landing, the stomper is spared that
- * part), a Rebound landing (it springs back up, takes the damage less the energy given back, and its bounce is claimed
- * with Camafy), a sneaking one (lands as plain boots do), and Rebound beside a forced Acrobat outcome (a perfect landing
- * doesn't bounce, a roll still does). Opt-in with the rest: {@code gradlew runGameTestServer -PshipTests -PtestOnly=BootsTests}.
+ * Stomp (boots, I to III): its numbers, who may be stomped, and a real landing under Full Stop beside a villager in plain
+ * boots: a stomp onto a penned pig (it takes part of the stomper's landing, the stomper is spared that part). Also that
+ * the Rebound enchantment of 2.0.2 is gone (2.0.3) and boots that still hold it in their data read their other
+ * enchantments as before. Opt-in with the rest: {@code gradlew runGameTestServer -PshipTests -PtestOnly=BootsTests}.
  */
 @GameTestHolder(FullStop.MODID)
 @PrefixGameTestTemplate(false)
@@ -47,19 +48,39 @@ public final class BootsTests {
     private BootsTests() {
     }
 
-    /** Stomp passes 20/40/60 percent; Rebound springs at 0.4/0.5/0.6 and is spared that squared, held under its cap. */
+    /** Stomp passes 20/40/60 percent. */
     @GameTest(template = FLAT, batch = "fullstop_boots", timeoutTicks = 20)
     public static void theNumbers(GameTestHelper helper) {
-        String out = String.format(Locale.ROOT, "stomp %.2f/%.2f/%.2f; rebound at 20 m/s: %s / %s / %s; at 50 m/s III: %s; level 0: %s",
-                Stomp.share(1), Stomp.share(2), Stomp.share(3), pair(Rebound.bounceOf(1, 20, 25)), pair(Rebound.bounceOf(2, 20, 25)),
-                pair(Rebound.bounceOf(3, 20, 25)), pair(Rebound.bounceOf(3, 50, 25)), pair(Rebound.bounceOf(0, 20, 25)));
-        report("Stomp's and Rebound's numbers", out);
+        String out = String.format(Locale.ROOT, "stomp %.2f/%.2f/%.2f", Stomp.share(1), Stomp.share(2), Stomp.share(3));
+        report("Stomp's numbers", out);
         helper.assertTrue(near(Stomp.share(1), 0.2) && near(Stomp.share(2), 0.4) && near(Stomp.share(3), 0.6), "Stomp's shares: " + out);
-        double[] r3 = Rebound.bounceOf(3, 20, 25);
-        helper.assertTrue(near(r3[0], 12.0) && near(r3[1], 0.36), "Rebound III at 20 m/s: " + out);
-        double[] capped = Rebound.bounceOf(3, 50, 25);
-        helper.assertTrue(near(capped[0], 25.0) && near(capped[1], 0.25), "Rebound's cap: " + out);
-        helper.assertTrue(Rebound.bounceOf(0, 20, 25)[0] == 0.0, "level 0 bounced: " + out);
+        helper.succeed();
+    }
+
+    /**
+     * Rebound (2.0.2) is no longer registered, and boots enchanted with it before keep their other enchantments: vanilla
+     * reads an item's enchantments by id and skips one no mod registers, leaving the entry in the item's data.
+     */
+    @GameTest(template = FLAT, batch = "fullstop_boots", timeoutTicks = 20)
+    public static void bootsThatStillHoldReboundKeepTheirOtherEnchantments(GameTestHelper helper) {
+        ResourceLocation rebound = new ResourceLocation(FullStop.MODID + ":rebound");
+        boolean registered = ForgeRegistries.ENCHANTMENTS.containsKey(rebound);
+        ItemStack boots = new ItemStack(Items.IRON_BOOTS);
+        ListTag list = new ListTag();
+        list.add(entry(rebound, 3));
+        list.add(entry(ForgeRegistries.ENCHANTMENTS.getKey(ModEnchantments.STOMP.get()), 2));
+        list.add(entry(new ResourceLocation("minecraft:feather_falling"), 4));
+        boots.getOrCreateTag().put(ItemStack.TAG_ENCH, list);
+        Map<Enchantment, Integer> read = EnchantmentHelper.getEnchantments(boots);
+        int stomp = EnchantmentHelper.getItemEnchantmentLevel(ModEnchantments.STOMP.get(), boots);
+        int featherFalling = EnchantmentHelper.getItemEnchantmentLevel(net.minecraft.world.item.enchantment.Enchantments.FALL_PROTECTION, boots);
+        int kept = boots.getEnchantmentTags().size();
+        String out = String.format(Locale.ROOT, "rebound registered %s; read %d enchantments (Stomp %d, Feather Falling %d) of %d entries kept in the data",
+                registered, read.size(), stomp, featherFalling, kept);
+        report("boots that still hold Rebound", out);
+        helper.assertFalse(registered, "Rebound is still registered: " + out);
+        helper.assertTrue(read.size() == 2 && stomp == 2 && featherFalling == 4, "the other enchantments weren't read: " + out);
+        helper.assertTrue(kept == 3, "the item's data was changed by reading it: " + out);
         helper.succeed();
     }
 
@@ -150,180 +171,15 @@ public final class BootsTests {
         });
     }
 
-    /**
-     * Three villagers dropped 12 blocks onto stone: Rebound III, Rebound III sneaking, plain boots. The Rebound one rises
-     * clear of the ground (over 0.8 of a block) after landing, takes about 64 percent of the plain one's damage, and its bounce is claimed
-     * (Camafy, BOUNCE); the sneaking one lands as the plain one does and doesn't rise.
-     */
-    @GameTest(template = FLAT, batch = "fullstop_boots_rebound", timeoutTicks = 220)
-    public static void aReboundLandingSpringsBackUp(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        BlockPos o = lane(helper, 2);
-        floor(level, o);
-        Acrobat.forceOutcomeForTests(null);
-        Body rebound = new Body(villager(level, new Vec3(o.getX() + 2.5, o.getY() + 13.0, o.getZ() + 2.5), boots(ModEnchantments.REBOUND.get(), 3)));
-        Body sneaking = new Body(villager(level, new Vec3(o.getX() + 5.5, o.getY() + 13.0, o.getZ() + 2.5), boots(ModEnchantments.REBOUND.get(), 3)));
-        Body plain = new Body(villager(level, new Vec3(o.getX() + 8.5, o.getY() + 13.0, o.getZ() + 2.5), new ItemStack(Items.IRON_BOOTS)));
-        sneaking.body.setShiftKeyDown(true);
-        double ground = o.getY() + 1.0;
-        helper.onEachTick(() -> {
-            sneaking.body.setShiftKeyDown(true);
-            for (Body b : new Body[] {rebound, sneaking, plain}) b.record(ground);
-        });
-        helper.runAfterDelay(160, () -> {
-            String out = String.format(Locale.ROOT, "Rebound III: %s; sneaking: %s; plain: %s", rebound.describe(), sneaking.describe(), plain.describe());
-            report("12-block drop onto stone, Rebound III, Rebound III sneaking, plain boots", out);
-            helper.assertTrue(plain.lost > 2.0, "the plain landing too small to compare: " + out);
-            helper.assertTrue(rebound.riseAfterLanding > 0.8, "the Rebound landing didn't spring up: " + out);
-            double share = rebound.lost / plain.lost;
-            helper.assertTrue(share > 0.5 && share < 0.78, "the Rebound landing's damage isn't about 64 percent: " + out);
-            helper.assertTrue(rebound.claimedBounce, "the bounce wasn't claimed with Camafy: " + out);
-            helper.assertTrue(sneaking.riseAfterLanding < 0.3, "the sneaking landing sprang up: " + out);
-            helper.assertTrue(Math.abs(sneaking.lost - plain.lost) < 0.15 * plain.lost, "the sneaking landing wasn't a plain one: " + out);
-            for (Body b : new Body[] {rebound, sneaking, plain}) b.body.discard();
-            helper.succeed();
-        });
-    }
-
-    /** Rebound III with Acrobat III, every landing stuck perfectly: no damage and no bounce. */
-    @GameTest(template = FLAT, batch = "fullstop_boots_perfect", timeoutTicks = 220)
-    public static void aPerfectLandingDoesNotBounce(GameTestHelper helper) {
-        acrobatWithRebound(helper, 3, Acrobat.Outcome.PERFECT);
-    }
-
-    /** Rebound III with Acrobat III, every landing rolled: about a third of the plain damage (0.64 x 0.5), and it bounces. */
-    @GameTest(template = FLAT, batch = "fullstop_boots_roll", timeoutTicks = 220)
-    public static void aRolledLandingStillBounces(GameTestHelper helper) {
-        acrobatWithRebound(helper, 4, Acrobat.Outcome.ROLL);
-    }
-
-    /**
-     * From 16 blocks the bounce rises some three blocks; the landing that ends it is spared that height: Rebound III and
-     * plain villagers dropped 16 blocks onto stone, the Rebound one hurt once (the landing, about 64 percent of the plain
-     * one) and never by coming back down, and its bounce's start let go after.
-     */
-    @GameTest(template = FLAT, batch = "fullstop_boots_spared", timeoutTicks = 260)
-    public static void theLandingThatEndsABounceIsSpared(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        BlockPos o = lane(helper, 5);
-        floor(level, o);
-        Acrobat.forceOutcomeForTests(null);
-        Body rebound = new Body(villager(level, new Vec3(o.getX() + 2.5, o.getY() + 17.0, o.getZ() + 2.5), boots(ModEnchantments.REBOUND.get(), 3)));
-        Body plain = new Body(villager(level, new Vec3(o.getX() + 7.5, o.getY() + 17.0, o.getZ() + 2.5), new ItemStack(Items.IRON_BOOTS)));
-        double ground = o.getY() + 1.0;
-        helper.onEachTick(() -> {
-            rebound.record(ground);
-            plain.record(ground);
-        });
-        helper.runAfterDelay(200, () -> {
-            boolean startLeft = Rebound.hasStart(rebound.body);
-            String out = String.format(Locale.ROOT, "Rebound III: %s, a start still held %s; plain: %s", rebound.describe(), startLeft, plain.describe());
-            report("16-block drop, the bounce's own landing", out);
-            helper.assertTrue(plain.lost > 2.0, "the plain landing too small to compare: " + out);
-            helper.assertTrue(rebound.riseAfterLanding > 1.5, "it didn't bounce high enough to come down hard: " + out);
-            helper.assertTrue(rebound.hits.size() == 1, "coming back down from its own bounce hurt: " + out);
-            double share = rebound.lost / plain.lost;
-            helper.assertTrue(share > 0.58 && share < 0.70, "the landing isn't about 64 percent: " + out);
-            helper.assertFalse(startLeft, "the bounce's start was never let go: " + out);
-            rebound.body.discard();
-            plain.body.discard();
-            helper.succeed();
-        });
-    }
-
-    /**
-     * A bounce that carries the body off a ledge: a Rebound III villager dropped 16 blocks onto a 3x3 platform 12 blocks
-     * above the floor, steered sideways in the air after its bounce, falls the 12 blocks to the floor; that landing counts the fall
-     * below the bounce's start, about what a Rebound III villager dropped 12 blocks from rest takes.
-     */
-    @GameTest(template = FLAT, batch = "fullstop_boots_ledge", timeoutTicks = 320)
-    public static void aBounceOffALedgeIsHurtByTheDropBelowItsStart(GameTestHelper helper) {
-        ServerLevel level = helper.getLevel();
-        BlockPos o = lane(helper, 6);
-        floor(level, o);
-        Acrobat.forceOutcomeForTests(null);
-        BlockPos top = o.offset(2, 12, 2);
-        for (BlockPos p : BlockPos.betweenClosed(top.offset(-1, 0, -1), top.offset(1, 0, 1))) {
-            level.setBlock(p, Blocks.STONE.defaultBlockState(), Block.UPDATE_ALL);
-        }
-        Body ledge = new Body(villager(level, new Vec3(top.getX() + 0.5, top.getY() + 17.0, top.getZ() + 0.5), boots(ModEnchantments.REBOUND.get(), 3)));
-        Body fresh = new Body(villager(level, new Vec3(o.getX() + 9.5, o.getY() + 13.0, o.getZ() + 2.5), boots(ModEnchantments.REBOUND.get(), 3)));
-        boolean[] pushed = {false};
-        double platform = top.getY() + 1.0;
-        helper.onEachTick(() -> {
-            ledge.record(platform);
-            fresh.record(o.getY() + 1.0);
-            // carried off the edge: steered sideways each tick while it is in the air after the bounce, as a player
-            // steers, until it is past the platform's edge
-            if (ledge.landed && !ledge.body.onGround() && ledge.body.getX() < top.getX() + 2.6) {
-                Vec3 v = ledge.body.getDeltaMovement();
-                ledge.body.setDeltaMovement(0.3, v.y, 0.0);
-                pushed[0] = true;
-            }
-        });
-        helper.runAfterDelay(260, () -> {
-            String out = String.format(Locale.ROOT, "off the ledge: %s, pushed %s, at y %.1f (floor %d); from rest 12 blocks: %s",
-                    ledge.describe(), pushed[0], ledge.body.getY(), o.getY() + 1, fresh.describe());
-            report("a bounce off a ledge into a 12-block drop", out);
-            helper.assertTrue(pushed[0] && ledge.body.getY() < o.getY() + 2.0, "the villager never left the platform: " + out);
-            helper.assertTrue(ledge.hits.size() >= 2, "the drop off the ledge didn't hurt: " + out);
-            helper.assertTrue(!fresh.hits.isEmpty(), "the fresh 12-block landing didn't hurt: " + out);
-            // the floor landing (its two ticks, when Full Stop tops it up) against the fresh fall's
-            double floor = 0.0;
-            for (int i = 1; i < ledge.hits.size(); i++) floor += ledge.hits.get(i);
-            double ratio = floor / fresh.lost;
-            helper.assertTrue(ratio > 0.6 && ratio < 1.4, "the drop off the ledge isn't about a 12-block fall: " + out);
-            ledge.body.discard();
-            fresh.body.discard();
-            helper.succeed();
-        });
-    }
-
     // ------------------------------------------------------------------
 
-    private static void acrobatWithRebound(GameTestHelper helper, int laneNo, Acrobat.Outcome outcome) {
-        ServerLevel level = helper.getLevel();
-        BlockPos o = lane(helper, laneNo);
-        floor(level, o);
-        Acrobat.forceOutcomeForTests(outcome);
-        ItemStack both = boots(ModEnchantments.REBOUND.get(), 3);
-        both.enchant(ModEnchantments.ACROBAT.get(), 3);
-        Body body = new Body(villager(level, new Vec3(o.getX() + 2.5, o.getY() + 13.0, o.getZ() + 2.5), both));
-        Body plain = new Body(villager(level, new Vec3(o.getX() + 6.5, o.getY() + 13.0, o.getZ() + 2.5), new ItemStack(Items.IRON_BOOTS)));
-        double ground = o.getY() + 1.0;
-        helper.onEachTick(() -> {
-            body.record(ground);
-            plain.record(ground);
-        });
-        helper.runAfterDelay(160, () -> {
-            Acrobat.forceOutcomeForTests(null);
-            String out = String.format(Locale.ROOT, "Rebound III + Acrobat III forced %s: %s; plain: %s", outcome, body.describe(), plain.describe());
-            report("12-block drop, Rebound with Acrobat " + outcome, out);
-            helper.assertTrue(plain.lost > 2.0, "the plain landing too small to compare: " + out);
-            if (outcome == Acrobat.Outcome.PERFECT) {
-                helper.assertTrue(body.lost == 0.0, "the perfect landing hurt: " + out);
-                helper.assertTrue(body.riseAfterLanding < 0.3, "the perfect landing bounced: " + out);
-            } else {
-                double share = body.lost / plain.lost;
-                helper.assertTrue(share > 0.2 && share < 0.45, "the rolled Rebound landing isn't about a third: " + out);
-                helper.assertTrue(body.riseAfterLanding > 0.8, "the rolled landing didn't bounce: " + out);
-            }
-            body.body.discard();
-            plain.body.discard();
-            helper.succeed();
-        });
-    }
-
-    /** A body: health lost, the highest it rose above the ground after first touching it, whether a bounce was claimed. */
+    /** A body: health lost, hit by hit. */
     private static final class Body {
         final LivingEntity body;
         final float health;
         double lost;
         float lastHp;
         final java.util.List<Double> hits = new java.util.ArrayList<>();
-        boolean landed;
-        double riseAfterLanding;
-        boolean claimedBounce;
 
         Body(LivingEntity body) {
             this.body = body;
@@ -337,20 +193,13 @@ public final class BootsTests {
             if (hp < lastHp - 1.0e-4f) hits.add((double) (lastHp - hp));
             lastHp = hp;
         }
+    }
 
-        void record(double ground) {
-            record();
-            if (body.onGround() || body.getY() < ground + 0.05) landed = true;
-            if (landed) riseAfterLanding = Math.max(riseAfterLanding, body.getY() - ground);
-            if (PhysicsAspect.BOUNCE.in(PhysicsOwnership.claims(body))) claimedBounce = true;
-        }
-
-        String describe() {
-            StringBuilder h = new StringBuilder();
-            for (double d : hits) h.append(String.format(Locale.ROOT, "%.2f ", d));
-            return String.format(Locale.ROOT, "lost %.2f (hits %s), rose %.2f after landing, bounce claimed %s", lost, h.toString().trim(),
-                    riseAfterLanding, claimedBounce);
-        }
+    private static CompoundTag entry(ResourceLocation id, int level) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString("id", id.toString());
+        tag.putShort("lvl", (short) level);
+        return tag;
     }
 
     private static void floor(ServerLevel level, BlockPos o) {
@@ -381,10 +230,6 @@ public final class BootsTests {
 
     private static boolean near(double a, double b) {
         return Math.abs(a - b) < 1.0e-6;
-    }
-
-    private static String pair(double[] p) {
-        return String.format(Locale.ROOT, "%.2f m/s (%.2f off)", p[0], p[1]);
     }
 
     private static void report(String what, String result) {

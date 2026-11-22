@@ -41,10 +41,6 @@ public class ModEnchantments {
     public static final RegistryObject<Enchantment> STOMP =
             ENCHANTMENTS.register("stomp", () -> new LandingEnchantment(Enchantment.Rarity.RARE, 5, 10));
 
-    /** Boots: a hard landing gives part of itself back as a bounce (server/physics/damage/Rebound). */
-    public static final RegistryObject<Enchantment> REBOUND =
-            ENCHANTMENTS.register("rebound", () -> new LandingEnchantment(Enchantment.Rarity.UNCOMMON, 5, 8));
-
     public static void register(IEventBus eventBus) {
         ENCHANTMENTS.register(eventBus);
     }
