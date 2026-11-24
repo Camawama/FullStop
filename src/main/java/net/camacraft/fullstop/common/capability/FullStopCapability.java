@@ -1878,10 +1878,13 @@ public class FullStopCapability {
         slowingClearTick = now;
     }
 
-    /** Cached {@link Mob#isNoAi()}, refreshed once a second. See {@link #NO_AI_REFRESH_TICKS}. */
+    /**
+     * Cached {@link Mob#isNoAi()}, refreshed once a second (see {@link #NO_AI_REFRESH_TICKS}); a NoAI mob another mod moves
+     * itself, tagged {@link net.camacraft.fullstop.common.physics.rules.DamageImmunityRules#BODY_WITHOUT_AI_TAG}, reads false (2.0.6).
+     */
     public boolean isNoAiCached(Mob mob) {
         if (--noAiRefreshIn <= 0) {
-            cachedNoAi = mob.isNoAi();
+            cachedNoAi = net.camacraft.fullstop.common.physics.rules.DamageImmunityRules.staticWithoutAi(mob);
             noAiRefreshIn = NO_AI_REFRESH_TICKS;
         }
         return cachedNoAi;

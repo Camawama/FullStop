@@ -33,7 +33,20 @@ public class GforceEffectsRenderer {
 
     private static final ResourceLocation POWDER_SNOW_OUTLINE_LOCATION = new ResourceLocation("textures/misc/powder_snow_outline.png");
     private static float currentIntensity = 0.0f;
-    private static float currentFovModifier = 1.0f;
+    /**
+     * The FOV factor shown, easing toward the g-force's target each frame. A double: as a float
+     * the ease stalled a few units of the last place short of 1 at high frame rates, where each
+     * frame's step is smaller than a float can add to 1.
+     */
+    private static double currentFovModifier = 1.0;
+    /**
+     * The slowest the factor moves (per tick) while it eases: where the ease's own step would be smaller, it glides the
+     * rest of the way at this speed and stops on the target. 2e-5 of the view angle a tick is about a pixel a second at
+     * the edge of a 3440-pixel-wide picture. The ease used to stop applying the factor below a thousandth, so the last
+     * thousandth (two to three pixels at the edges of a wide screen) came off in one frame, twenty to a hundred times
+     * the frames' steps before it.
+     */
+    private static final double FOV_GLIDE_PER_TICK = 2.0e-5;
 
     /** True when the effect should run: in a world, config loaded, not creative/spectator. */
     private static LocalPlayer effectTarget() {
@@ -53,11 +66,11 @@ public class GforceEffectsRenderer {
 
         LocalPlayer player = effectTarget();
         if (player == null || !FullStopConfig.SERVER.enableGForceEffects.get()) {
-            currentFovModifier = 1.0f;
+            currentFovModifier = 1.0;
             return;
         }
 
-        float targetFovModifier = 1.0f;
+        double targetFovModifier = 1.0;
 
         FullStopCapability cap = FullStopCapability.grabCapability(player);
         // Nothing while another mod owns the felt g (an MKW racer): it eases back to 1.
@@ -66,15 +79,22 @@ public class GforceEffectsRenderer {
             // Capped: sustained g-force (spinning fast in circles) used to grow
             // this unbounded until the FOV crossed 180° and the view flipped
             // upside down.
-            targetFovModifier = Math.min(1.0f + (float) Math.pow(gForce / 15.0, 2), 1.8f);
+            targetFovModifier = Math.min(1.0 + Math.pow(gForce / 15.0, 2), 1.8);
         }
 
         // Frame-time-scaled so the ramp speed doesn't depend on FPS
         // (0.15/tick ≈ the old 0.05/frame at 60 fps).
-        float fovStep = Math.min(1.0f, 0.15f * Minecraft.getInstance().getDeltaFrameTime());
-        currentFovModifier = currentFovModifier + (targetFovModifier - currentFovModifier) * fovStep;
+        double frameTicks = Minecraft.getInstance().getDeltaFrameTime();
+        double fovStep = Math.min(1.0, 0.15 * frameTicks);
+        double left = targetFovModifier - currentFovModifier;
+        double step = left * fovStep;
+        // Eased all the way: the last of it glides in at FOV_GLIDE_PER_TICK, so no frame's step is
+        // larger than the ones before it and the factor stops on the target.
+        double glide = FOV_GLIDE_PER_TICK * frameTicks;
+        if (Math.abs(step) < glide) step = Math.copySign(Math.min(Math.abs(left), glide), left);
+        currentFovModifier += step;
 
-        if (Math.abs(currentFovModifier - 1.0f) > 0.001f) {
+        if (currentFovModifier != 1.0) {
             // Hard ceiling well below 180°: other FOV modifiers (speed effect,
             // sprinting) stack on top of ours, and past 180° the projection
             // renders the world mirrored/upside down.

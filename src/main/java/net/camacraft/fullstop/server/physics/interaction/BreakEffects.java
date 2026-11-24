@@ -97,6 +97,8 @@ public final class BreakEffects {
     public static boolean destroy(ServerLevel level, BlockPos pos, boolean drops, @Nullable Entity cause) {
         BlockState state = level.getBlockState(pos);
         Effect effect = state.isAir() ? Effect.NONE : effect(level, pos);
+        // a body is no tool: a block whose drops need one drops nothing (ImpactDrops)
+        drops = net.camacraft.fullstop.common.physics.rules.ImpactDrops.drops(state, drops);
         boolean wasQuiet = quiet, wasGathering = gathering;
         quiet = effect != Effect.FULL;
         gathering = drops && SERVER.mergeBreakDrops.get();

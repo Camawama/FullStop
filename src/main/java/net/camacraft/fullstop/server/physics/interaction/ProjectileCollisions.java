@@ -3,6 +3,7 @@ package net.camacraft.fullstop.server.physics.interaction;
 import com.mojang.logging.LogUtils;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.camacraft.camafy.physics.PhysicsAspect;
 import net.camacraft.camafy.weight.Weights;
@@ -12,6 +13,8 @@ import net.camacraft.fullstop.common.mixin.ProjectileHitInvoker;
 import net.camacraft.fullstop.common.physics.math.SweptBoxes;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
 import net.camacraft.fullstop.common.physics.rules.PhysicsClaims;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.SectionPos;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.protocol.game.ClientboundTeleportEntityPacket;
 import net.minecraft.server.level.ServerLevel;
@@ -73,6 +76,12 @@ import static net.camacraft.fullstop.FullStopConfig.SERVER;
  * ones stuck in a block, returning tridents and other no-clip ones, riders and vehicles, and the
  * {@code #fullstop:no_projectile_collision} tag (fishing bobbers, firework rockets, grappling
  * hooks: their hits are their own business), and anything whose contacts another mod owns.
+ *
+ * <p>The pass pairs this tick's projectiles among themselves, filed by the cells (16 blocks a side) their paths
+ * cross, never through the level's entity sections. A pile-up (more than {@value #PILE_UP} in flight round one path,
+ * or over {@value #MAX_PAIRS} pairs in one tick) is left alone and logged once a minute with its place: a trap that
+ * shot for an hour into a chunk whose entities didn't tick left 11,641 darts that all moved in the tick the chunk
+ * began to tick, and the pass of 2.0.4 took 60 s on them (the owner's server, 2026-11-23).
  */
 public final class ProjectileCollisions {
 
@@ -91,7 +100,14 @@ public final class ProjectileCollisions {
     /** What a projectile Camafy has no weight for weighs (an arrow). */
     private static final double DEFAULT_KG = 0.05;
 
-    private static final Map<ServerLevel, Long2LongOpenHashMap> COOLING = Collections.synchronizedMap(new WeakHashMap<>());
+    /** More projectiles than this in flight round one path is a pile-up: that projectile collides with none of them this tick. */
+    private static final int PILE_UP = 400;
+    /** Pairs swept per level and tick before the rest of the pass is dropped. */
+    private static final int MAX_PAIRS = 100_000;
+    /** A pile-up is logged this often at most, per level. */
+    private static final long PILE_UP_LOG_NANOS = 60_000_000_000L;
+
+    private static final Map<ServerLevel, Stats> STATS = Collections.synchronizedMap(new WeakHashMap<>());
     private static final Map<Entity, Record> LAST = Collections.synchronizedMap(new WeakHashMap<>());
 
     private ProjectileCollisions() {
@@ -116,6 +132,34 @@ public final class ProjectileCollisions {
      */
     public record Record(long tick, Entity other, Vec3 normal, double closing, double restitution, double kg, double otherKg,
                          Vec3 before, Vec3 change, boolean broke) {
+    }
+
+    /**
+     * A pile-up the pass left alone: {@code leftAlone} projectiles collided with nothing this tick, the worst of them
+     * with {@code round} in flight round its path at {@code at}; {@code budgetSpent} when the tick's pairs ran out too.
+     */
+    public record PileUp(long tick, int leftAlone, int round, BlockPos at, boolean budgetSpent) {
+    }
+
+    private static final class Stats {
+        final Long2LongOpenHashMap cooling = new Long2LongOpenHashMap();
+        @Nullable PileUp pileUp;
+        long passNanos;
+        boolean logged;
+        long lastLogNanos;
+    }
+
+    /** The last pile-up the pass in {@code level} left alone, or null when there was none this run. */
+    @Nullable
+    public static PileUp lastPileUp(ServerLevel level) {
+        Stats stats = STATS.get(level);
+        return stats == null ? null : stats.pileUp;
+    }
+
+    /** How long the last pass in {@code level} took (ns). */
+    public static long lastPassNanos(ServerLevel level) {
+        Stats stats = STATS.get(level);
+        return stats == null ? 0L : stats.passNanos;
     }
 
     /** The last mid-air collision {@code projectile} had, or null. */
@@ -179,9 +223,11 @@ public final class ProjectileCollisions {
     /** This tick's mid-air projectile collisions in {@code level}, after every entity has moved. */
     public static void tick(ServerLevel level) {
         if (!enabled()) {
-            COOLING.remove(level);
+            STATS.remove(level);
             return;
         }
+        long start = System.nanoTime();
+        Stats stats = STATS.computeIfAbsent(level, l -> new Stats());
         Int2ObjectOpenHashMap<Flying> flying = new Int2ObjectOpenHashMap<>();
         double longestMove = 0.0;
         for (Entity entity : level.getAllEntities()) {
@@ -194,25 +240,74 @@ public final class ProjectileCollisions {
             longestMove = Math.max(longestMove, move.length());
         }
         long now = level.getGameTime();
-        Long2LongOpenHashMap cooling = COOLING.computeIfAbsent(level, l -> new Long2LongOpenHashMap());
+        Long2LongOpenHashMap cooling = stats.cooling;
         if (now % 100L == 0L) cooling.long2LongEntrySet().removeIf(e -> e.getLongValue() <= now);
-        if (flying.size() < 2) return;
+        if (flying.size() < 2) {
+            stats.passNanos = System.nanoTime() - start;
+            return;
+        }
+
+        // Each projectile is filed under the cell (16 blocks a side) its box's centre is in, and a pair is looked for in
+        // the cells a path crosses, among this pass's own projectiles. Until 2.0.5 the level's entity sections were asked
+        // round each path (getEntities), which read every entity near it through whatever wraps an entity's box (Pehkui),
+        // and the pass grew as the square of the projectiles in one place: 11,641 darts a trap had shot into a chunk
+        // whose entities didn't tick all began to move in the tick the chunk did, and that tick took 60 s (the owner's
+        // server, 2026-11-23, the watchdog).
+        Long2ObjectOpenHashMap<List<Flying>> cells = new Long2ObjectOpenHashMap<>();
+        for (Flying f : flying.values()) {
+            cells.computeIfAbsent(cellOf(f.box.getCenter()), k -> new ArrayList<>()).add(f);
+        }
 
         List<Contact> contacts = new ArrayList<>();
         LongOpenHashSet seen = new LongOpenHashSet();
+        List<Flying> near = new ArrayList<>();
+        int budget = MAX_PAIRS;
+        int leftAlone = 0, worstCount = 0;
+        Flying worst = null;
         for (Flying a : flying.values()) {
             if (a.move.lengthSqr() < 1.0e-8) continue; // a still one is found by what moves into it
+            List<Flying> own = cells.get(cellOf(a.box.getCenter()));
+            int round = own == null ? 0 : own.size();
             AABB path = a.box.minmax(a.startBox()).inflate(longestMove + 0.05);
-            for (Entity near : level.getEntities(a.p, path, e -> flying.containsKey(e.getId()))) {
-                Flying b = flying.get(near.getId());
-                if (b == null) continue;
+            if (round <= PILE_UP && budget > 0) {
+                near.clear();
+                int x0 = SectionPos.blockToSectionCoord(path.minX), x1 = SectionPos.blockToSectionCoord(path.maxX);
+                int y0 = SectionPos.blockToSectionCoord(path.minY), y1 = SectionPos.blockToSectionCoord(path.maxY);
+                int z0 = SectionPos.blockToSectionCoord(path.minZ), z1 = SectionPos.blockToSectionCoord(path.maxZ);
+                for (int x = x0; x <= x1; x++) {
+                    for (int y = y0; y <= y1; y++) {
+                        for (int z = z0; z <= z1; z++) {
+                            List<Flying> cell = cells.get(SectionPos.asLong(x, y, z));
+                            if (cell != null) near.addAll(cell);
+                        }
+                    }
+                }
+                round = near.size();
+            }
+            // A pile-up: more projectiles in flight round this path than play puts there (a trap's darts, a dispenser
+            // wall gone wrong), or this tick's pairs spent. This one collides with none of them this tick.
+            if (round > PILE_UP || budget <= 0) {
+                leftAlone++;
+                if (round > worstCount) {
+                    worstCount = round;
+                    worst = a;
+                }
+                continue;
+            }
+            for (Flying b : near) {
+                if (b == a || !b.box.intersects(path)) continue;
                 long key = pair(a.p.getId(), b.p.getId());
                 if (!seen.add(key) || cooling.get(key) > now || volley(a.p, b.p)) continue;
+                budget--;
                 Contact contact = contact(a, b);
                 if (contact != null) contacts.add(contact);
             }
         }
-        if (contacts.isEmpty()) return;
+        if (leftAlone > 0) notePileUp(level, stats, now, leftAlone, worst, worstCount, budget <= 0);
+        if (contacts.isEmpty()) {
+            stats.passNanos = System.nanoTime() - start;
+            return;
+        }
 
         contacts.sort(Comparator.comparingDouble(Contact::t));
         Set<Entity> done = Collections.newSetFromMap(new IdentityHashMap<>());
@@ -224,6 +319,21 @@ public final class ProjectileCollisions {
             cooling.put(pair(a.getId(), b.getId()), now + PAIR_COOLDOWN_TICKS);
             resolve(level, contact);
         }
+        stats.passNanos = System.nanoTime() - start;
+    }
+
+    private static void notePileUp(ServerLevel level, Stats stats, long now, int leftAlone, @Nullable Flying worst, int worstCount,
+                                   boolean budgetSpent) {
+        BlockPos at = BlockPos.containing(worst != null ? worst.box.getCenter() : Vec3.ZERO);
+        stats.pileUp = new PileUp(now, leftAlone, worstCount, at, budgetSpent);
+        long nanos = System.nanoTime();
+        if (stats.logged && nanos - stats.lastLogNanos < PILE_UP_LOG_NANOS) return;
+        stats.logged = true;
+        stats.lastLogNanos = nanos;
+        LOGGER.warn("[FullStop] {} projectiles in flight round {} in {}{}: mid-air collisions skipped for {} of them this tick; "
+                        + "something there keeps shooting projectiles that never land (a trap in a chunk whose entities don't tick?)",
+                worstCount, at.toShortString(), level.dimension().location(),
+                budgetSpent ? " (and the pass's " + MAX_PAIRS + " pairs for one tick spent)" : "", leftAlone);
     }
 
     private static double kg(Projectile projectile) {
@@ -348,6 +458,12 @@ public final class ProjectileCollisions {
         level.playSound(null, at.x, at.y, at.z, trident ? SoundEvents.TRIDENT_HIT : SoundEvents.ARROW_HIT,
                 SoundSource.NEUTRAL, volume, pitch);
         level.sendParticles(ParticleTypes.CRIT, at.x, at.y, at.z, Mth.clamp((int) (closing / 10.0), 3, 10), 0.05, 0.05, 0.05, 0.2);
+    }
+
+    /** The cell (16 blocks a side) {@code at} is in. */
+    private static long cellOf(Vec3 at) {
+        return SectionPos.asLong(SectionPos.blockToSectionCoord(at.x), SectionPos.blockToSectionCoord(at.y),
+                SectionPos.blockToSectionCoord(at.z));
     }
 
     private static long pair(int a, int b) {

@@ -66,6 +66,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue idleFastPaths;
         public final ForgeConfigSpec.BooleanValue scaledKnockback;
         public final ForgeConfigSpec.BooleanValue kineticBlockBreaking;
+        public final ForgeConfigSpec.BooleanValue impactDropsFollowTools;
         public final ForgeConfigSpec.BooleanValue kineticDoorOpening;
         public final ForgeConfigSpec.BooleanValue kineticButtonPressing;
         public final ForgeConfigSpec.BooleanValue kineticNoteBlocks;
@@ -101,6 +102,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.DoubleValue spinNauseaThreshold;
         public final ForgeConfigSpec.DoubleValue spinNauseaTurns;
         public final ForgeConfigSpec.DoubleValue minimumFallDistance;
+        public final ForgeConfigSpec.BooleanValue fallCushionsHonoured;
         public final ForgeConfigSpec.BooleanValue enablePressureSimulation;
         public final ForgeConfigSpec.BooleanValue altitudePressureAffectsMobs;
         public final ForgeConfigSpec.IntValue highAltitudeStartLevel;
@@ -263,6 +265,7 @@ public class FullStopConfig {
         public final ForgeConfigSpec.BooleanValue contraptionSonicBooms;
         // Iron's Spells 'n Spellbooks (compat/irons): its Airborne effect's slam damage beside FullStop's impacts
         public final ForgeConfigSpec.BooleanValue ironsSpellbooksSlamDamage;
+        public final ForgeConfigSpec.BooleanValue limboLandingsHarmless;
         // Acrobat (server/physics/damage/Acrobat): its chances, per level
         public final ForgeConfigSpec.DoubleValue acrobatPerfectLandingChance;
         public final ForgeConfigSpec.DoubleValue acrobatRollChance;
@@ -578,6 +581,14 @@ public class FullStopConfig {
                     .comment("Default: 0.0")
                     .defineInRange("minimumFallDistance", 0.0, 0.0, 256.0);
 
+            this.fallCushionsHonoured = builder
+                    .comment("A body whose fall distance a mod has set below 0 (a cushion: the next that many blocks of fall don't count,",
+                            "and vanilla's fall damage is nothing while it lasts; DimDoors' escape from Limbo sets -500) lands without",
+                            "landing damage while the cushion lasts, as vanilla's fall would. A fall that used it up hurts as any.")
+                    .translation(key("fallCushionsHonoured"))
+                    .comment("Default: true")
+                    .define("fallCushionsHonoured", true);
+
             this.fallDamageMode = builder
                     .comment("How kinetic impact damage is computed.",
                             "KINETIC: FullStop's own model. Damage grows with the speed lost beyond the thresholds above and scales with the hardness of what you hit.",
@@ -626,6 +637,15 @@ public class FullStopConfig {
                     .translation(key("kineticBlockBreaking"))
                     .comment("Default: true")
                     .define("kineticBlockBreaking", true);
+
+            this.impactDropsFollowTools = builder
+                    .comment("A block broken by a body (a fall, a ram, a crater, a falling stalactite, a ship's or a contraption's crash)",
+                            "drops what mining it with no tool would: a block whose drops need the right tool (stone, ores, DimDoors'",
+                            "Unravelled Fabric) drops nothing, as a fist leaves it nothing, and the rest drop what their loot table gives",
+                            "without a tool. Whether a block breaks is unchanged. Off: blocks that need a tool drop their loot as well.")
+                    .translation(key("impactDropsFollowTools"))
+                    .comment("Default: true")
+                    .define("impactDropsFollowTools", true);
 
             this.crackHealSeconds = builder
                     .comment("Seconds after the last hit before accumulated impact cracks (fullstop:crackable blocks, the ice family) heal and their overlay fades.",
@@ -2142,6 +2162,19 @@ public class FullStopConfig {
                     .translation(key("ironsSpellbooksSlamDamage"))
                     .comment("Default: false")
                     .define("ironsSpellbooksSlamDamage", false);
+            builder.pop();
+
+            builder.comment("Dimensional Doors (only with the mod installed)")
+                    .push("DimDoors");
+
+            this.limboLandingsHarmless = builder
+                    .comment("DimDoors sends a player to Limbo high in the air and cancels a player's fall damage there, so the drop to",
+                            "the ground is harmless. On: a player's landing in Limbo deals no FullStop damage either (side and ceiling",
+                            "impacts still hurt; mobs land as anywhere, as DimDoors leaves them vanilla's fall damage). Off: Limbo",
+                            "landings hurt as anywhere, and the arrival from Y 255 or 512 can kill.")
+                    .translation(key("limboLandingsHarmless"))
+                    .comment("Default: true")
+                    .define("limboLandingsHarmless", true);
             builder.pop();
 
             builder.comment("Enchantments").push("Enchantments");

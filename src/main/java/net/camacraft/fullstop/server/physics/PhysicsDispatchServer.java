@@ -304,6 +304,8 @@ public class PhysicsDispatchServer {
             fullstop.tick(entity);
             fullstop.setLastTick(entity.tickCount);
         }
+        // a mod's fall cushion (a negative fall distance), read before the landing that resets it
+        net.camacraft.fullstop.common.physics.rules.HarmlessFalls.sample(entity);
 
         // Which ship it stands on this tick: a contact with a ship it was already on is a
         // rider's (ShipEntityHits), not a newcomer's.
@@ -404,6 +406,18 @@ public class PhysicsDispatchServer {
 
         if (!PhysicsAspect.BOUNCE.in(claims)) {
             BounceHandler.apply(entity, fullstop, collision, brokeBlock);
+        }
+
+        // A landing another mod spares as vanilla's fall (DimDoors' Limbo, a mod's fall cushion): nothing to bill.
+        if (damage >= 1 && fullstop.isFall()) {
+            boolean spared = net.camacraft.fullstop.common.physics.rules.HarmlessFalls.spared(entity);
+            if (debugLog) {
+                LOGGER.info("[FullStop] landing of {} ({} damage): fall distance {}, cushioned {}, in Limbo {}: {}",
+                        entity.getName().getString(), String.format(java.util.Locale.ROOT, "%.2f", damage), entity.fallDistance,
+                        net.camacraft.fullstop.common.physics.rules.HarmlessFalls.cushioned(entity),
+                        net.camacraft.fullstop.common.physics.rules.HarmlessFalls.inLimbo(entity), spared ? "spared" : "billed");
+            }
+            if (spared) damage = 0;
         }
 
         if (damage >= 1) {

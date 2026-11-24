@@ -84,6 +84,8 @@ final class ContraptionBlocks {
         // the break sound and the block's dust where it came off (a level event, as a mined block plays it)
         level.levelEvent(2001, cell, Block.getId(state));
         if (!FullStopConfig.SERVER.terrainBlockDrops.get() || !level.getGameRules().getBoolean(GameRules.RULE_DOBLOCKDROPS)) return;
+        // knocked off by a crash, not mined: a block whose drops need a tool drops nothing (ImpactDrops)
+        if (!net.camacraft.fullstop.common.physics.rules.ImpactDrops.drops(state, true)) return;
         List<ItemStack> drops = Block.getDrops(state, level, cell, null);
         Vec3 fly = velocityMps.scale(0.05 * 0.6);
         for (ItemStack stack : drops) {

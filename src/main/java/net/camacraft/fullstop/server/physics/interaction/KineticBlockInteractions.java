@@ -8,6 +8,7 @@ import net.camacraft.fullstop.common.capability.FullStopCapability;
 import net.camacraft.fullstop.common.compat.ShipCompat;
 import net.camacraft.fullstop.common.mixin.ButtonBlockAccessor;
 import net.camacraft.fullstop.common.physics.rules.FullStopTags;
+import net.camacraft.fullstop.common.physics.rules.ImpactDrops;
 import net.camacraft.fullstop.common.util.EntityStackUtils;
 import net.camacraft.fullstop.server.physics.ship.ShipEntityHits;
 import net.minecraft.core.BlockPos;
@@ -570,7 +571,8 @@ public class KineticBlockInteractions {
 
             // Claim/protection mods get their say through the break event.
             if (available >= effectiveBreakCost && BlockAlterRules.breakEventAllows(level, pos, state, entity)) {
-                if (level.destroyBlock(pos, true, entity)) {
+                // a body is no tool: a block whose drops need one drops nothing (ImpactDrops)
+                if (level.destroyBlock(pos, ImpactDrops.drops(state, true), entity)) {
                     forgetCrack(level, pos, crack);
                     blockBroken = true;
                     kineticEnergy -= effectiveBreakCost;
@@ -1150,7 +1152,7 @@ public class KineticBlockInteractions {
                     if (Gravity.ambientStrength(level, Vec3.atCenterOf(pos)) < Gravity.WEIGHTLESS_BELOW) {
                         // Zero gravity: a spike knocked loose would only float until it popped
                         // into an item; it just breaks off.
-                        level.destroyBlock(pos, true, entity);
+                        level.destroyBlock(pos, ImpactDrops.drops(state, true), entity);
                         return true;
                     }
                     FallingBlockEntity fallingSpike = FallingBlockEntity.fall(level, pos, state);
@@ -1174,7 +1176,7 @@ public class KineticBlockInteractions {
 
         if (fallingState.getBlock() instanceof PointedDripstoneBlock) {
             if (!BlockAlterRules.mayBreak(level, pos, state, fallingBlock)) return false;
-            level.destroyBlock(pos, true);
+            level.destroyBlock(pos, ImpactDrops.drops(state, true));
             level.levelEvent(PARTICLES_DESTROY_BLOCK, pos, Block.getId(state));
             fallingBlock.discard();
             return true;

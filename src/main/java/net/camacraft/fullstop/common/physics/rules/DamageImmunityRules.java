@@ -12,6 +12,16 @@ import org.jetbrains.annotations.Nullable;
 
 public class DamageImmunityRules {
 
+    /**
+     * An entity tag (a scoreboard tag, as {@code /tag} gives) that makes a mob without AI a body all the same (2.0.6).
+     * Vanilla never moves a NoAI mob, so FullStop leaves NoAI mobs out (a map's statues, a farm's held mobs); a mod that
+     * moves such a mob itself gives it this tag, and FullStop simulates it as any mob: its landings and side impacts hurt
+     * it, vanilla's fall damage gives way to FullStop's, and it takes part in body collisions when it is pushable. Camafy
+     * NPCs tags its NPCs that can be hurt or pushed (it walks, drops and knocks them back with vanilla's collisions
+     * though they have no AI); before, such an NPC fell with vanilla's fall damage and a body flung into it passed through.
+     */
+    public static final String BODY_WITHOUT_AI_TAG = "fullstop_body";
+
     public static boolean isDamageImmune(LivingEntity living) {
         if (living instanceof Player player && (player.isCreative() || player.isSpectator())) {
             return true;
@@ -43,11 +53,20 @@ public class DamageImmunityRules {
     public static boolean unphysable(Entity entity, @Nullable FullStopCapability fullstop) {
         if (unphysableIgnoringAi(entity)) return true;
 
-        // NoAI mobs (maps, farms, displays) are deliberately static; leave them alone.
+        // NoAI mobs (maps, farms, displays) are deliberately static; leave them alone,
+        // unless a mod that moves them itself says they are bodies (BODY_WITHOUT_AI_TAG)
         if (entity instanceof Mob mob) {
-            return fullstop != null ? fullstop.isNoAiCached(mob) : mob.isNoAi();
+            return fullstop != null ? fullstop.isNoAiCached(mob) : staticWithoutAi(mob);
         }
         return false;
+    }
+
+    /**
+     * Whether {@code mob} is one FullStop leaves alone for having no AI: NoAI, and without {@link #BODY_WITHOUT_AI_TAG}.
+     * Read once a second per mob through {@link FullStopCapability#isNoAiCached} (a tag set or taken off counts within a second).
+     */
+    public static boolean staticWithoutAi(Mob mob) {
+        return mob.isNoAi() && !mob.getTags().contains(BODY_WITHOUT_AI_TAG);
     }
 
     /**

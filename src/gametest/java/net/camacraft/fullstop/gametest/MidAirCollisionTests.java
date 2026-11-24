@@ -10,6 +10,7 @@ import net.camacraft.fullstop.server.physics.damage.KineticDamageCalculator;
 import net.camacraft.fullstop.server.physics.interaction.BodyCollisions;
 import net.camacraft.fullstop.server.physics.interaction.ProjectileCollisions;
 import net.minecraft.core.BlockPos;
+import net.minecraft.util.RandomSource;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.gametest.framework.GameTestSequence;
@@ -594,6 +595,68 @@ public final class MidAirCollisionTests {
                     helper.assertTrue(x.a.r.kg() > x.b.r.kg(), "the anvil isn't heavier than the pig: " + x.describe());
                     helper.assertTrue(x.b.r.speedLost() > 5.0 && x.b.r.damage() > 0.0, "the pig lost no speed to the anvil: " + x.describe());
                     helper.assertTrue(x.b.hurt() > 0.0, "the pig wasn't hurt: " + x.describe());
+                    scene.discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * A pile-up (2.0.5): 1,200 arrows hovering in a four-block cube, each drifting a little, as a trap that shot for an
+     * hour into a chunk whose entities did not tick leaves behind in the tick the chunk begins to tick (11,641 darts on
+     * the owner's server, one tick of 60 s, the watchdog). The pass sees the pile, pairs none of them and stays short;
+     * two arrows shot head-on into the same cube a moment later meet as ever.
+     */
+    @GameTest(template = FLAT, batch = BATCH, timeoutTicks = TIMEOUT)
+    public static void aPileOfProjectilesIsLeftAloneAndTheTickStaysShort(GameTestHelper helper) {
+        BlockPos o = lane(helper, 13);
+        Scene scene = new Scene(helper);
+        List<Arrow> pile = new ArrayList<>();
+        long[] pileTick = new long[1];
+        whenTicking(helper, o)
+                .thenExecute(() -> {
+                    ServerLevel level = helper.getLevel();
+                    RandomSource random = RandomSource.create(20261123L);
+                    for (int i = 0; i < 1200; i++) {
+                        Vec3 at = air(o, random.nextDouble() * 4.0, 12.0 + random.nextDouble() * 4.0, random.nextDouble() * 4.0);
+                        Vec3 drift = new Vec3(random.nextDouble() - 0.5, random.nextDouble() - 0.5, random.nextDouble() - 0.5).scale(0.02);
+                        Arrow arrow = arrow(level, at, drift, null);
+                        arrow.setNoGravity(true);
+                        pile.add(arrow);
+                    }
+                })
+                .thenExecuteAfter(3, () -> {
+                    ServerLevel level = helper.getLevel();
+                    ProjectileCollisions.PileUp pileUp = ProjectileCollisions.lastPileUp(level);
+                    long nanos = ProjectileCollisions.lastPassNanos(level);
+                    int paired = 0;
+                    for (Arrow arrow : pile) if (ProjectileCollisions.last(arrow) != null) paired++;
+                    String out = String.format(Locale.ROOT, "pile %s; the last pass took %.1f ms; %d of %d arrows paired",
+                            pileUp == null ? "not seen" : pileUp.leftAlone() + " left alone, " + pileUp.round() + " round the worst at "
+                                    + pileUp.at().toShortString() + (pileUp.budgetSpent() ? ", pairs spent" : "") + ", tick " + pileUp.tick(),
+                            nanos / 1.0e6, paired, pile.size());
+                    report("1,200 arrows hovering in a four-block cube", out);
+                    helper.assertTrue(pileUp != null && level.getGameTime() - pileUp.tick() <= 2, "the pass didn't see the pile: " + out);
+                    helper.assertTrue(pileUp.leftAlone() >= 1000 && pileUp.round() >= 1000, "the pile looked small to the pass: " + out);
+                    helper.assertTrue(nanos < 100_000_000L, "the pass took too long on the pile: " + out);
+                    helper.assertTrue(paired == 0, "arrows in the pile were paired: " + out);
+                    pileTick[0] = pileUp.tick();
+                    for (Arrow arrow : pile) arrow.discard();
+                    pile.clear();
+                })
+                .thenExecuteAfter(2, () -> {
+                    ServerLevel level = helper.getLevel();
+                    scene.a = scene.track(arrow(level, air(o, -4.0, 14.0, 2.0), new Vec3(3.0, 0.0, 0.0), null));
+                    scene.b = scene.track(arrow(level, air(o, 8.0, 14.0, 2.0), new Vec3(-3.0, 0.0, 0.0), null));
+                })
+                .thenWaitUntil(() -> helper.assertTrue(ProjectileCollisions.last(scene.a.e) != null, "the two arrows after the pile haven't met"))
+                .thenExecute(() -> {
+                    ProjectileCollisions.Record ra = ProjectileCollisions.last(scene.a.e);
+                    ProjectileCollisions.PileUp pileUp = ProjectileCollisions.lastPileUp(helper.getLevel());
+                    String out = String.format(Locale.ROOT, "met at tick %d closing %.1f m/s; the last pile-up at tick %d", ra.tick(), ra.closing(),
+                            pileUp == null ? -1 : pileUp.tick());
+                    report("two arrows head-on after the pile", out);
+                    helper.assertTrue(ra.other() == scene.b.e && ra.closing() > 100.0, "the arrows after the pile didn't meet head-on: " + out);
+                    helper.assertTrue(pileUp != null && pileUp.tick() == pileTick[0], "the two arrows counted as a pile-up: " + out);
                     scene.discard();
                 })
                 .thenSucceed();
